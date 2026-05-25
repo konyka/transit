@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transit - Development Notes</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; line-height: 1.6; color: #333; background: #fafafa; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 2em; color: #1a1a2e; border-bottom: 3px solid #0f3460; padding-bottom: 10px; margin-bottom: 20px; }
+        h2 { font-size: 1.5em; color: #16213e; margin-top: 30px; padding-bottom: 5px; border-bottom: 1px solid #ddd; }
+        h3 { font-size: 1.2em; color: #0f3460; margin-top: 20px; }
+        .phase { background: white; border-radius: 8px; padding: 20px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .phase.done { border-left: 4px solid #27ae60; }
+        .phase.in-progress { border-left: 4px solid #f39c12; }
+        .phase.pending { border-left: 4px solid #bdc3c7; }
+        .status { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
+        .status.done { background: #d5f4e6; color: #27ae60; }
+        .status.in-progress { background: #fdebd0; color: #f39c12; }
+        .status.pending { background: #eee; color: #999; }
+        .date { color: #888; font-size: 0.9em; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { padding: 8px 12px; text-align: left; border: 1px solid #ddd; }
+        th { background: #f0f0f0; font-weight: bold; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'Consolas', monospace; }
+        pre { background: #1a1a2e; color: #e0e0e0; padding: 15px; border-radius: 5px; overflow-x: auto; margin: 10px 0; }
+        .arch-diagram { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 5px; padding: 15px; font-family: monospace; white-space: pre; overflow-x: auto; }
+        .perf-target { background: #e8f5e9; border-radius: 5px; padding: 10px 15px; margin: 10px 0; }
+        .decision { background: #fff3e0; border-radius: 5px; padding: 10px 15px; margin: 10px 0; }
+        .toc { background: #f0f4f8; padding: 15px; border-radius: 8px; margin: 20px 0; }
+        .toc a { color: #0f3460; text-decoration: none; }
+        .toc a:hover { text-decoration: underline; }
+        .toc ul { margin-left: 20px; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Transit - Development Notes</h1>
+    <p>High-performance, distributed message queue reimplemented in pure C</p>
+    
+    <div class="toc">
+        <h3>Table of Contents</h3>
+        <ul>
+            <li><a href="#overview">Project Overview</a></li>
+            <li><a href="#architecture">Architecture</a></li>
+            <li><a href="#design-decisions">Design Decisions</a></li>
+            <li><a href="#progress">Progress Tracker</a></li>
+            <li><a href="#changelog">Changelog</a></li>
+        </ul>
+    </div>
+
+    <h2 id="overview">Project Overview</h2>
+    <div class="phase">
+        <p><strong>Transit</strong> is a reimplementation of BlazingMQ (Bloomberg) in pure C99-C23.</p>
+        <table>
+            <tr><th>Aspect</th><th>Choice</th></tr>
+            <tr><td>Language</td><td>Pure C (C99 minimum, C11/C23 when available)</td></tr>
+            <tr><td>Naming</td><td><code>t_</code> prefix</td></tr>
+            <tr><td>Protocol</td><td>Independent binary protocol</td></tr>
+            <tr><td>Coroutines</td><td>Pure assembly context switch</td></tr>
+            <tr><td>Build</td><td>CMake 3.16+</td></tr>
+            <tr><td>CI</td><td>GitHub Actions (Linux + macOS + Windows)</td></tr>
+            <tr><td>Test</td><td>Self-built framework (zero deps)</td></tr>
+        </table>
+    </div>
+
+    <h2 id="architecture">Architecture</h2>
+    <div class="phase">
+        <div class="arch-diagram">
+┌──────────────────────────────────────────┐
+│  Client SDK (src/client/)                │
+│  t_mq, t_mq_session, t_mq_queue         │
+├──────────────────────────────────────────┤
+│  Protocol (src/protocol/)                │
+│  Binary encode/decode, CRC32C            │
+├──────────────────────────────────────────┤
+│  Broker (src/broker/)                    │
+│  t_broker, t_dispatcher, t_domain        │
+├──────────────────────────────────────────┤
+│  Queue Engine (src/queue/)               │
+│  Root/Relay/Remote engines, Router       │
+├──────────────────────────────────────────┤
+│  Cluster (src/cluster/)                  │
+│  Raft consensus, Node management         │
+├──────────────────────────────────────────┤
+│  Infrastructure                          │
+│  ┌──────────┐ ┌────────┐ ┌───────────┐ │
+│  │Storage   │ │Network │ │Foundation  │ │
+│  │mem/file  │ │tcp/tls │ │pool/coro   │ │
+│  │mmap/jnl  │ │evloop  │ │threadpool  │ │
+│  └──────────┘ └────────┘ └───────────┘ │
+└──────────────────────────────────────────┘</div>
+    </div>
+
+    <h2 id="design-decisions">Design Decisions</h2>
+    <div class="decision">
+        <h3>Key Decisions</h3>
+        <ul>
+            <li><strong>Independent Protocol:</strong> Not compatible with BMQP. Clean binary protocol optimized for C.</li>
+            <li><strong>Assembly Coroutines:</strong> Maximum performance, per-platform assembly context switch.</li>
+            <li><strong>Zero External Dependencies:</strong> Self-contained, only optional deps (zlib for compression).</li>
+            <li><strong>Work-Stealing Thread Pool:</strong> Better load distribution across cores.</li>
+        </ul>
+    </div>
+
+    <h2 id="progress">Progress Tracker</h2>
+
+    <div class="phase in-progress">
+        <span class="status in-progress">IN PROGRESS</span>
+        <h3>Phase 0: Project Skeleton</h3>
+        <p class="date">Started: 2026-05-25</p>
+        <ul>
+            <li>CMake build system</li>
+            <li>Self-built test framework</li>
+            <li>GitHub Actions CI</li>
+            <li>notes.html</li>
+        </ul>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 1: Core Primitives</h3>
+        <p>t_compiler, t_atomic, t_thread, t_mutex, t_spinlock, t_rwlock, t_time, t_error, t_log</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 2: Memory Management</h3>
+        <p>t_pool, t_slab, t_buf, t_arena</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 3: Data Structures</h3>
+        <p>t_vec, t_map, t_ringbuf, t_mpmc, t_list, t_pqueue</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 4: Event Loop</h3>
+        <p>t_evloop (epoll/kqueue/IOCP/io_uring), t_timer</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 5: Thread Pool</h3>
+        <p>t_tpool (Work-Stealing), t_task</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 6: Coroutines</h3>
+        <p>t_coro (assembly), t_scheduler (M:N)</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 7: Networking</h3>
+        <p>t_socket, t_tcp (non-blocking)</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 8: Wire Protocol</h3>
+        <p>t_proto, encode/decode, CRC32C</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 9: Storage</h3>
+        <p>t_storage (mem/file), t_mmap</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 10: Queue Engine</h3>
+        <p>t_queue, t_qengine_*, t_router</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 11: Session & Client Library</h3>
+        <p>t_session, t_client, t_mq</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 12: Broker</h3>
+        <p>t_broker, t_dispatcher, t_domain</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 13: Clustering</h3>
+        <p>t_raft, t_cluster, t_node</p>
+    </div>
+
+    <div class="phase pending">
+        <span class="status pending">PENDING</span>
+        <h3>Phase 14: Examples & Documentation</h3>
+        <p>Examples, docs, benchmarks, polish</p>
+    </div>
+
+    <h2 id="changelog">Changelog</h2>
+    <div class="phase">
+        <h3>2026-05-25</h3>
+        <ul>
+            <li>Project initialized</li>
+            <li>BlazingMQ architecture analysis complete</li>
+            <li>Design decisions finalized</li>
+            <li>Phase 0 started: CMake, test framework, CI</li>
+        </ul>
+    </div>
+
+    <hr>
+    <p style="text-align:center; color:#999; margin-top:40px;">
+        Transit MQ - Pure C High-Performance Message Queue<br>
+        Last updated: 2026-05-25
+    </p>
+</body>
+</html>
