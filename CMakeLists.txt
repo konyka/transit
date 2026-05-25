@@ -29,6 +29,20 @@ include(CTest)
 add_library(transit STATIC)
 target_include_directories(transit PUBLIC
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/memory
+    ${CMAKE_SOURCE_DIR}/src/collections
+    ${CMAKE_SOURCE_DIR}/src/threadpool
+    ${CMAKE_SOURCE_DIR}/src/coroutine
+    ${CMAKE_SOURCE_DIR}/src/event
+    ${CMAKE_SOURCE_DIR}/src/net
+    ${CMAKE_SOURCE_DIR}/src/protocol
+    ${CMAKE_SOURCE_DIR}/src/storage
+    ${CMAKE_SOURCE_DIR}/src/queue
+    ${CMAKE_SOURCE_DIR}/src/cluster
+    ${CMAKE_SOURCE_DIR}/src/session
+    ${CMAKE_SOURCE_DIR}/src/broker
+    ${CMAKE_SOURCE_DIR}/src/client
 )
 
 message(STATUS "Configuring Transit build (static library).")
