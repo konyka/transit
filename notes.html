@@ -104,10 +104,10 @@
 
     <h2 id="progress">Progress Tracker</h2>
 
-    <div class="phase in-progress">
-        <span class="status in-progress">IN PROGRESS</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 0: Project Skeleton</h3>
-        <p class="date">Started: 2026-05-26</p>
+        <p class="date">Completed: 2026-05-26</p>
         <ul>
             <li>CMake build system</li>
             <li>Self-built test framework</li>
@@ -137,16 +137,18 @@
         <p>t_vec, t_map, t_list, t_ringbuf (SPSC), t_mpmc (Vyukov), t_pqueue (min-heap)</p>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 4: Event Loop</h3>
-        <p>t_evloop (epoll/kqueue/IOCP/io_uring), t_timer</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_evloop (epoll backend with wakeup pipe), t_timer (min-heap standalone timer), t_evio (IO handle)</p>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 5: Thread Pool</h3>
-        <p>t_tpool (Work-Stealing), t_task</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_tpool (work-stealing with per-worker MPMC queues), t_task (function+context pair)</p>
     </div>
 
     <div class="phase pending">
@@ -211,7 +213,9 @@
             <li>Phase 1 complete: Core primitives (compiler, atomics, time, mutex, spinlock, rwlock, error, log)</li>
             <li>Phase 2 complete: Memory management (tiered pool, slab, refcount buffer, arena)</li>
             <li>Phase 3 complete: Data structures (vec, map, list, SPSC ringbuf, MPMC queue, priority queue)</li>
-            <li>7 test suites, 100% pass rate</li>
+            <li>Phase 4 complete: Event loop (epoll + wakeup pipe + min-heap timer), standalone t_timer</li>
+            <li>Phase 5 complete: Work-stealing thread pool (per-worker MPMC queues, steal from neighbors)</li>
+            <li>9 test suites, 100% pass rate</li>
             <li>All pushed to remote</li>
         </ul>
     </div>
