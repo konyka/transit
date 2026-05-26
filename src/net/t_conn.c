@@ -101,28 +101,26 @@ void t_conn_destroy(t_conn *conn)
 int t_conn_send(t_conn *conn, const t_proto_msg *msg)
 {
     if (!conn || conn->closed) return -1;
-    /* Encode the message into the send buffer */
-    size_t frame_len = T_PROTO_HEADER_SIZE; /* header */
-    frame_len += msg->payload_len;
-    if (conn->send_cap < frame_len) {
+    size_t frame_len = T_PROTO_HEADER_SIZE + msg->payload_len;
+    size_t needed = conn->send_len + frame_len;
+    if (conn->send_cap < needed) {
         size_t new_cap = conn->send_cap ? conn->send_cap * 2 : 1024;
-        while (new_cap < frame_len) new_cap *= 2;
+        while (new_cap < needed) new_cap *= 2;
         uint8_t *new_buf = (uint8_t *)realloc(conn->send_buf, new_cap);
         if (!new_buf) return -1;
         conn->send_buf = new_buf;
         conn->send_cap = new_cap;
     }
-    /* Build header */
     uint8_t header_buf[T_PROTO_HEADER_SIZE];
-    t_proto_header_init(&((t_proto_header){0}),  msg->header.type, msg->payload_len);
+    t_proto_header_init(&((t_proto_header){0}), msg->header.type, msg->payload_len);
     t_proto_header_encode(&msg->header, header_buf, sizeof(header_buf));
-    memcpy(conn->send_buf, header_buf, T_PROTO_HEADER_SIZE);
+    memcpy(conn->send_buf + conn->send_len, header_buf, T_PROTO_HEADER_SIZE);
     if (msg->payload_len > 0 && msg->payload) {
-        memcpy(conn->send_buf + T_PROTO_HEADER_SIZE, msg->payload, msg->payload_len);
+        memcpy(conn->send_buf + conn->send_len + T_PROTO_HEADER_SIZE, msg->payload, msg->payload_len);
     }
 
-    conn->send_len = frame_len;
-    conn->bytes_sent += conn->send_len;
+    conn->send_len += frame_len;
+    conn->bytes_sent += frame_len;
     conn->msgs_sent += 1;
 
     if (conn->loop) {

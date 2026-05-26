@@ -1,51 +1,113 @@
-#include "../src/net/t_conn.h"
-#include "../src/protocol/t_proto.h"
-#include <assert.h>
-#include <stdio.h>
+#include "t_test.h"
+#include "t_conn.h"
+#include "t_proto.h"
+#include "t_evloop.h"
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <pthread.h>
 
-/* Lightweight unit tests for t_conn basics. These tests focus on
- * object lifecycle and basic encoding/decoding paths rather than a full
- * integration with the event loop.
- */
+static size_t g_recv_count;
+static char g_last_payload[256];
 
-static void test_on_msg(t_conn *c, const t_proto_msg *msg, void *ud) {
-    (void)c; (void)ud; (void)msg;
+static void on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
+    (void)conn; (void)ud;
+    g_recv_count++;
+    if (msg->payload && msg->payload_len > 0) {
+        size_t n = msg->payload_len < 255 ? msg->payload_len : 255;
+        memcpy(g_last_payload, msg->payload, n);
+        g_last_payload[n] = '\0';
+    }
 }
 
-static void test_on_close(t_conn *c, void *ud) {
-    (void)c; (void)ud;
+static void timer_stop(void *ud) {
+    t_evloop_stop((t_evloop *)ud);
+}
+
+static void *loop_fn(void *arg) {
+    t_evloop *loop = (t_evloop *)arg;
+    t_evloop_timer_add(loop, 200, 0, timer_stop, loop);
+    t_evloop_run(loop, 100);
+    return NULL;
+}
+
+T_TEST(conn_multi_send_append) {
+    int fds[2];
+    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    t_evloop *loop = t_evloop_create();
+    t_conn *client = t_conn_create(fds[0], loop);
+    t_conn *server = t_conn_create(fds[1], loop);
+    t_conn_set_on_msg(server, on_msg, NULL);
+    g_recv_count = 0;
+
+    const char *p1 = "msg1";
+    const char *p2 = "msg2";
+    t_proto_msg m1, m2;
+    t_proto_header_init(&m1.header, T_MSG_POST, strlen(p1));
+    m1.payload = (uint8_t *)p1;
+    m1.payload_len = strlen(p1);
+    t_proto_header_init(&m2.header, T_MSG_POST, strlen(p2));
+    m2.payload = (uint8_t *)p2;
+    m2.payload_len = strlen(p2);
+
+    t_conn_send(client, &m1);
+    t_conn_send(client, &m2);
+
+    T_ASSERT_EQ(t_conn_msgs_sent(client), (size_t)2);
+
+    pthread_t t;
+    pthread_create(&t, NULL, loop_fn, loop);
+    pthread_join(t, NULL);
+
+    T_ASSERT_EQ(g_recv_count, (size_t)2);
+
+    t_conn_destroy(client);
+    t_conn_destroy(server);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(conn_send_empty_payload) {
+    int fds[2];
+    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    t_evloop *loop = t_evloop_create();
+    t_conn *client = t_conn_create(fds[0], loop);
+    t_conn *server = t_conn_create(fds[1], loop);
+    t_conn_set_on_msg(server, on_msg, NULL);
+    g_recv_count = 0;
+
+    t_proto_msg m;
+    t_proto_header_init(&m.header, T_MSG_NOP, 0);
+    m.payload = NULL;
+    m.payload_len = 0;
+
+    t_conn_send(client, &m);
+    T_ASSERT_EQ(t_conn_msgs_sent(client), (size_t)1);
+
+    pthread_t t;
+    pthread_create(&t, NULL, loop_fn, loop);
+    pthread_join(t, NULL);
+
+    T_ASSERT_EQ(g_recv_count, (size_t)1);
+
+    t_conn_destroy(client);
+    t_conn_destroy(server);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(conn_create_destroy_no_evloop) {
+    int fds[2];
+    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    t_conn *a = t_conn_create(fds[0], NULL);
+    t_conn *b = t_conn_create(fds[1], NULL);
+    T_ASSERT_NOT_NULL(a);
+    T_ASSERT_NOT_NULL(b);
+    T_ASSERT_EQ(t_conn_fd(a), fds[0]);
+    T_ASSERT(!t_conn_is_closed(a));
+    t_conn_destroy(a);
+    t_conn_destroy(b);
 }
 
 int main(void) {
-    int sv[2];
-    int rc = socketpair(AF_UNIX, SOCK_STREAM, 0, sv);
-    assert(rc == 0);
-    int a = sv[0], b = sv[1];
-
-    t_evloop *loop = NULL; /* assume tests supply a loop in real-suite; skip if NULL */
-    t_conn *c1 = t_conn_create(a, loop);
-    t_conn *c2 = t_conn_create(b, loop);
-
-    assert(c1 && c2);
-    t_proto_msg m;
-    m.header.magic = 0x12345678;
-    m.header.payload_len = 0;
-    m.header.type = 0;
-    m.payload = NULL;
-    m.payload_len = 0;
-    /* Encoding test: ensure t_conn_send does not crash when no payload */
-    t_conn_send(c1, &m);
-
-    t_conn_set_on_msg(c2, test_on_msg, NULL);
-    t_conn_set_on_close(c1, test_on_close, NULL);
-
-    /* Cleanup */
-    t_conn_destroy(c1);
-    t_conn_destroy(c2);
-    close(a);
-    close(b);
-    return 0;
+    return t_run_all_tests();
 }
