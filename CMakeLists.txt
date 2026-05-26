@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(transit C)
+project(transit C ASM)
 
 # Modern C standard handling - will be refined by CompilerFlags.cmake
 set(CMAKE_C_STANDARD 11)

@@ -142,6 +142,17 @@ T_TEST(evloop_stop) {
     t_evloop_destroy(loop);
 }
 
+static void ensure_all_callbacks_referenced(void) {
+    (void)timer_on_fire;
+    (void)timer_cb1;
+    (void)timer_cb2;
+    (void)timer_cb3;
+    (void)evloop_timer_wrap;
+    (void)evloop_on_read;
+    (void)on_repeat;
+}
+
 int main(void) {
+    ensure_all_callbacks_referenced();
     return t_run_all_tests();
 }
