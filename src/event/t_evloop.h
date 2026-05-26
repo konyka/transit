@@ -13,6 +13,21 @@
 typedef struct t_evloop t_evloop;
 typedef struct t_evio   t_evio;
 
+// Internal backend vtable used to swap IO backends (epoll, kqueue, etc.).
+// This is intentionally kept as an internal abstraction; public API remains unchanged.
+typedef struct t_evloop_backend {
+    int  (*create)(t_evloop *loop);
+    void (*destroy)(t_evloop *loop);
+    int  (*add)(t_evloop *loop, t_evio *io, int events);
+    int  (*mod)(t_evloop *loop, t_evio *io, int events);
+    int  (*del)(t_evloop *loop, t_evio *io);
+    int  (*poll)(t_evloop *loop, int timeout_ms);
+} t_evloop_backend;
+
+// Backend symbols provided by platform-specific implementations
+extern t_evloop_backend const t_epoll_backend;
+extern t_evloop_backend const t_kqueue_backend;
+
 typedef void (*t_ev_cb)(t_evio *io, int flags, void *user_data);
 typedef void (*t_timer_cb)(void *user_data);
 

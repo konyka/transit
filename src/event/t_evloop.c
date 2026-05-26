@@ -1,31 +1,10 @@
-#include "t_evloop.h"
+#include "t_evloop_internal.h"
 #include "t_time.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
-#include <sys/epoll.h>
 #include <stdint.h>
-
-typedef struct {
-    int64_t     id;
-    int64_t     expire_ms;
-    int64_t     repeat_ms;
-    t_timer_cb  callback;
-    void       *user_data;
-    int         active;
-} t_timer_entry;
-
-struct t_evloop {
-    int         epoll_fd;
-    int         running;
-    int64_t     next_timer_id;
-    t_timer_entry *timers;
-    size_t         timer_count;
-    size_t         timer_cap;
-    int         wakeup_fds[2];
-    t_evio      wakeup_io;
-};
 
 static void timer_heap_swap(t_timer_entry *a, t_timer_entry *b) {
     t_timer_entry tmp = *a; *a = *b; *b = tmp;
@@ -105,14 +84,8 @@ static void evloop_process_timers(t_evloop *loop) {
 t_evloop *t_evloop_create(void) {
     t_evloop *loop = (t_evloop *)calloc(1, sizeof(t_evloop));
     if (!loop) return NULL;
-    loop->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-    if (loop->epoll_fd < 0) {
-        free(loop);
-        return NULL;
-    }
     loop->wakeup_fds[0] = loop->wakeup_fds[1] = -1;
     if (pipe(loop->wakeup_fds) != 0) {
-        close(loop->epoll_fd);
         free(loop);
         return NULL;
     }
@@ -121,28 +94,28 @@ t_evloop *t_evloop_create(void) {
     loop->wakeup_io.events = T_EV_READ;
     loop->wakeup_io.callback = NULL;
     loop->wakeup_io.user_data = NULL;
-    struct epoll_event ev;
-    memset(&ev, 0, sizeof(ev));
-    ev.data.ptr = &loop->wakeup_io;
-    ev.events = EPOLLIN;
-    if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_ADD, loop->wakeup_fds[0], &ev) != 0) {
+
+#ifdef T_HAVE_KQUEUE
+    loop->backend = &t_kqueue_backend;
+#else
+    loop->backend = &t_epoll_backend;
+#endif
+    if (loop->backend->create(loop) != 0) {
         close(loop->wakeup_fds[0]);
         close(loop->wakeup_fds[1]);
-        close(loop->epoll_fd);
         free(loop);
         return NULL;
     }
+    loop->backend->add(loop, &loop->wakeup_io, T_EV_READ);
+
     loop->next_timer_id = 1;
-    loop->timers = NULL;
-    loop->timer_count = 0;
-    loop->timer_cap = 0;
     loop->running = 0;
     return loop;
 }
 
 void t_evloop_destroy(t_evloop *loop) {
     if (!loop) return;
-    if (loop->epoll_fd >= 0) close(loop->epoll_fd);
+    loop->backend->destroy(loop);
     if (loop->wakeup_fds[0] >= 0) close(loop->wakeup_fds[0]);
     if (loop->wakeup_fds[1] >= 0) close(loop->wakeup_fds[1]);
     free(loop->timers);
@@ -153,37 +126,18 @@ int t_evloop_add(t_evloop *loop, t_evio *io, int events) {
     if (!loop || !io) return -1;
     io->loop = loop;
     io->events = events;
-    struct epoll_event ev;
-    memset(&ev, 0, sizeof(ev));
-    ev.data.ptr = io;
-    int ep_events = 0;
-    if (events & T_EV_READ) ep_events |= EPOLLIN;
-    if (events & T_EV_WRITE) ep_events |= EPOLLOUT;
-    if (events & T_EV_ONCE) ep_events |= EPOLLONESHOT;
-    ev.events = (ep_events != 0) ? (uint32_t)ep_events : EPOLLIN;
-    if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_ADD, io->fd, &ev) != 0) return -1;
-    return 0;
+    return loop->backend->add(loop, io, events);
 }
 
 int t_evloop_mod(t_evloop *loop, t_evio *io, int events) {
     if (!loop || !io) return -1;
     io->events = events;
-    struct epoll_event ev;
-    memset(&ev, 0, sizeof(ev));
-    ev.data.ptr = io;
-    int ep_events = 0;
-    if (events & T_EV_READ) ep_events |= EPOLLIN;
-    if (events & T_EV_WRITE) ep_events |= EPOLLOUT;
-    if (events & T_EV_ONCE) ep_events |= EPOLLONESHOT;
-    ev.events = (ep_events != 0) ? (uint32_t)ep_events : EPOLLIN;
-    if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_MOD, io->fd, &ev) != 0) return -1;
-    return 0;
+    return loop->backend->mod(loop, io, events);
 }
 
 int t_evloop_del(t_evloop *loop, t_evio *io) {
     if (!loop || !io) return -1;
-    if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_DEL, io->fd, NULL) != 0) return -1;
-    return 0;
+    return loop->backend->del(loop, io);
 }
 
 int64_t t_evloop_timer_add(t_evloop *loop, int64_t timeout_ms, int repeat,
@@ -213,7 +167,6 @@ void t_evloop_timer_del(t_evloop *loop, int64_t timer_id) {
 int t_evloop_run(t_evloop *loop, int timeout_ms) {
     if (!loop) return -1;
     loop->running = 1;
-    struct epoll_event events[128];
     while (loop->running) {
         int wait_ms = timeout_ms;
         if (loop->timer_count > 0) {
@@ -228,24 +181,7 @@ int t_evloop_run(t_evloop *loop, int timeout_ms) {
                           ((diff < timeout_ms) ? (int)diff : timeout_ms);
             }
         }
-        int nfds = epoll_wait(loop->epoll_fd, events, 128, wait_ms);
-        if (nfds > 0) {
-            for (int i = 0; i < nfds; ++i) {
-                t_evio *io = (t_evio *)events[i].data.ptr;
-                if (io == &loop->wakeup_io) {
-                    char buf[64];
-                    while (read(loop->wakeup_fds[0], buf, sizeof(buf)) > 0) {}
-                    continue;
-                }
-                if (io && io->callback) {
-                    int flags = 0;
-                    if (events[i].events & EPOLLIN) flags |= T_EV_READ;
-                    if (events[i].events & EPOLLOUT) flags |= T_EV_WRITE;
-                    if (events[i].events & (EPOLLERR | EPOLLHUP)) flags |= T_EV_ERROR;
-                    io->callback(io, flags, io->user_data);
-                }
-            }
-        }
+        loop->backend->poll(loop, wait_ms);
         evloop_process_timers(loop);
     }
     return 0;
