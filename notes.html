@@ -107,7 +107,7 @@
     <div class="phase in-progress">
         <span class="status in-progress">IN PROGRESS</span>
         <h3>Phase 0: Project Skeleton</h3>
-        <p class="date">Started: 2026-05-25</p>
+        <p class="date">Started: 2026-05-26</p>
         <ul>
             <li>CMake build system</li>
             <li>Self-built test framework</li>
@@ -116,22 +116,25 @@
         </ul>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 1: Core Primitives</h3>
-        <p>t_compiler, t_atomic, t_thread, t_mutex, t_spinlock, t_rwlock, t_time, t_error, t_log</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_compiler, t_atomic, t_time, t_mutex, t_spinlock, t_rwlock, t_error, t_log</p>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 2: Memory Management</h3>
-        <p>t_pool, t_slab, t_buf, t_arena</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_pool (tiered pool), t_slab (slab allocator), t_buf (refcount buffer), t_arena (arena allocator)</p>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 3: Data Structures</h3>
-        <p>t_vec, t_map, t_ringbuf, t_mpmc, t_list, t_pqueue</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_vec, t_map, t_list, t_ringbuf (SPSC), t_mpmc (Vyukov), t_pqueue (min-heap)</p>
     </div>
 
     <div class="phase pending">
@@ -202,19 +205,21 @@
 
     <h2 id="changelog">Changelog</h2>
     <div class="phase">
-        <h3>2026-05-25</h3>
+        <h3>2026-05-26</h3>
         <ul>
-            <li>Project initialized</li>
-            <li>BlazingMQ architecture analysis complete</li>
-            <li>Design decisions finalized</li>
-            <li>Phase 0 started: CMake, test framework, CI</li>
+            <li>Phase 0 complete: CMake, test framework, CI, notes.html</li>
+            <li>Phase 1 complete: Core primitives (compiler, atomics, time, mutex, spinlock, rwlock, error, log)</li>
+            <li>Phase 2 complete: Memory management (tiered pool, slab, refcount buffer, arena)</li>
+            <li>Phase 3 complete: Data structures (vec, map, list, SPSC ringbuf, MPMC queue, priority queue)</li>
+            <li>7 test suites, 100% pass rate</li>
+            <li>All pushed to remote</li>
         </ul>
     </div>
 
     <hr>
     <p style="text-align:center; color:#999; margin-top:40px;">
         Transit MQ - Pure C High-Performance Message Queue<br>
-        Last updated: 2026-05-25
+        Last updated: 2026-05-26
     </p>
 </body>
 </html>
