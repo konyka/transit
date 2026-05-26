@@ -256,6 +256,34 @@
         <p>transit.h (single #include for all public APIs)</p>
     </div>
 
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 21: Polish & Version Header</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_version.h (version macros + API), transit.h updated with all modules</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 22: Memory Safety Audit</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>ASan + UBSan clean. Fixed: t_map tombstone key leak, t_domain wrapper leak, t_dispatch cbud leak, test payload leaks</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 23: Comprehensive Demo</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>demo_full.c: broker+dispatch, topic routing, cluster election, persistent storage, wire protocol</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 24: Final Documentation</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>README.md with architecture, benchmarks, quick start, project stats</p>
+    </div>
+
     <h2 id="changelog">Changelog</h2>
     <div class="phase">
         <h3>2026-05-26</h3>
@@ -273,6 +301,7 @@
             <li>Phase 10 complete: Queue engine (FIFO/priority/broadcast) + topic router (wildcard * #)</li>
             <li>Phase 11 complete: Session lifecycle + client library (queue registry, pub/sub)</li>
             <li>Phase 12 complete: Broker (domain mgmt, pub/sub across domains) + domain (namespace with queues)</li>
+            <li>Phase 13 complete: Clustering (simplified Raft consensus, node management, cluster membership)</li>
             <li>Phase 14 complete: Examples (demo_broker, demo_cluster) + README.md documentation</li>
             <li>Phase 15 complete: Integration tests (broker+queue+router, cluster+Raft, proto+storage, coro+tpool)</li>
             <li>Phase 16 complete: Benchmark suite (queue throughput, collections perf, memory allocation)</li>
@@ -283,8 +312,11 @@
             <li>Phase 21 complete: t_version.h, transit.h updated with all modules</li>
             <li>Phase 22 complete: Memory safety audit — ASan + UBSan clean (23/23 pass, 0 leaks, 0 UB)</li>
             <li>Fixed: t_map tombstone key leak on overwrite, t_domain_sub_cb wrapper leak, t_dispatch cbud leak, t_proto test payload leak</li>
+            <li>Phase 23 complete: Comprehensive demo (broker+dispatch+topic routing+cluster+storage+protocol)</li>
+            <li>Phase 24 complete: Final README.md with architecture, benchmarks, quick start</li>
             <li>23 test suites, 100% pass rate (regular + ASan + UBSan)</li>
-            <li>All pushed to remote</li>
+            <li>39 source files, 41 headers, ~6,700 LOC, zero external dependencies</li>
+            <li>All 24 phases complete, all pushed to remote</li>
         </ul>
     </div>
 
