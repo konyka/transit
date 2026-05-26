@@ -1,0 +1,186 @@
+#include <stdlib.h>
+#include <string.h>
+
+#include "t_client.h"
+
+/* Minimal in-process client implementation with queue registry and subscriptions. */
+typedef struct t_client_queue_entry {
+    char *name;
+} t_client_queue_entry;
+
+typedef struct t_client_subscription {
+    char *queue;
+    t_client_msg_cb cb;
+    void *ud;
+} t_client_subscription;
+
+struct t_client {
+    char *id;
+    int connected;
+
+    t_client_queue_entry *queues;
+    size_t queues_cap;
+    size_t queues_size;
+
+    t_client_subscription *subs;
+    size_t subs_cap;
+    size_t subs_count;
+
+    size_t published;
+    size_t consumed;
+};
+
+/* Helpers */
+static int client_ensure_queues_cap(t_client *c, size_t need) {
+    if (c->queues_size >= need) return 0;
+    size_t new_cap = (c->queues_cap == 0) ? 4 : c->queues_cap * 2;
+    while (c->queues_size + (size_t)0 > new_cap) new_cap *= 2;
+    t_client_queue_entry *newq = (t_client_queue_entry *)realloc(c->queues, new_cap * sizeof(t_client_queue_entry));
+    if (!newq) return -1;
+    c->queues = newq;
+    c->queues_cap = new_cap;
+    return 0;
+}
+
+static int client_ensure_subs_cap(t_client *c, size_t need) {
+    if (c->subs_count >= need) return 0;
+    size_t new_cap = (c->subs_cap == 0) ? 4 : c->subs_cap * 2;
+    t_client_subscription *news = (t_client_subscription *)realloc(c->subs, new_cap * sizeof(t_client_subscription));
+    if (!news) return -1;
+    c->subs = news;
+    c->subs_cap = new_cap;
+    return 0;
+}
+
+/* API */
+t_client *t_client_create(const char *client_id) {
+    t_client *c = (t_client *)calloc(1, sizeof(t_client));
+    if (!c) return NULL;
+    c->id = strdup(client_id);
+    c->connected = 0;
+    c->queues = NULL; c->queues_cap = 0; c->queues_size = 0;
+    c->subs = NULL; c->subs_cap = 0; c->subs_count = 0;
+    c->published = 0; c->consumed = 0;
+    return c;
+}
+
+void t_client_destroy(t_client *client) {
+    if (!client) return;
+    if (client->id) free(client->id);
+    for (size_t i = 0; i < client->queues_size; ++i) {
+        free(client->queues[i].name);
+    }
+    free(client->queues);
+    for (size_t i = 0; i < client->subs_count; ++i) {
+        free(client->subs[i].queue);
+    }
+    free(client->subs);
+    free(client);
+}
+
+const char *t_client_id(const t_client *client) {
+    return client ? client->id : NULL;
+}
+
+int t_client_is_connected(const t_client *client) {
+    return client ? client->connected != 0 : 0;
+}
+
+int t_client_connect(t_client *client, const char *host, uint16_t port) {
+    (void)host; (void)port; /* no network in this simplified client */
+    if (!client) return -1;
+    client->connected = 1;
+    return 0;
+}
+
+int t_client_disconnect(t_client *client) {
+    if (!client) return -1;
+    client->connected = 0;
+    return 0;
+}
+
+int t_client_open_queue(t_client *client, const char *queue_name, int flags) {
+    (void)flags;
+    if (!client || !queue_name) return -1;
+    /* ensure exists */
+    for (size_t i = 0; i < client->queues_size; ++i) {
+        if (strcmp(client->queues[i].name, queue_name) == 0) return 0;
+    }
+    if (client_ensure_queues_cap(client, client->queues_size + 1) != 0) return -1;
+    char *qn = strdup(queue_name);
+    client->queues[client->queues_size].name = qn;
+    client->queues_size++;
+    return 0;
+}
+
+int t_client_close_queue(t_client *client, const char *queue_name) {
+    if (!client || !queue_name) return -1;
+    for (size_t i = 0; i < client->queues_size; ++i) {
+        if (strcmp(client->queues[i].name, queue_name) == 0) {
+            free(client->queues[i].name);
+            /* shift */
+            for (size_t j = i; j + 1 < client->queues_size; ++j) {
+                client->queues[j] = client->queues[j+1];
+            }
+            client->queues_size--;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+int t_client_post(t_client *client, const char *queue_name,
+                  const uint8_t *data, size_t len, int priority) {
+    (void)priority; /* priority currently unused in this stub */
+    if (!client || !queue_name) return -1;
+    client->published++;
+    /* deliver to any subscribers for this queue */
+    for (size_t i = 0; i < client->subs_count; ++i) {
+        if (strcmp(client->subs[i].queue, queue_name) == 0) {
+            if (client->subs[i].cb) {
+                client->subs[i].cb(queue_name, data, len, client->subs[i].ud);
+                client->consumed++;
+            }
+        }
+    }
+    return 0;
+}
+
+int t_client_subscribe(t_client *client, const char *queue_name,
+                       t_client_msg_cb cb, void *ud) {
+    if (!client || !queue_name) return -1;
+    if (client_ensure_subs_cap(client, client->subs_count + 1) != 0) return -1;
+    // Add subscription
+    client->subs[client->subs_count].queue = strdup(queue_name);
+    client->subs[client->subs_count].cb = cb;
+    client->subs[client->subs_count].ud = ud;
+    client->subs_count++;
+    return 0;
+}
+
+int t_client_unsubscribe(t_client *client, const char *queue_name) {
+    if (!client || !queue_name) return -1;
+    for (size_t i = 0; i < client->subs_count; ++i) {
+        if (strcmp(client->subs[i].queue, queue_name) == 0) {
+            free(client->subs[i].queue);
+            for (size_t j = i; j + 1 < client->subs_count; ++j) {
+                client->subs[j] = client->subs[j+1];
+            }
+            client->subs_count--;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+size_t t_client_queue_count(const t_client *client) {
+    return client ? client->queues_size : 0;
+}
+
+size_t t_client_total_published(const t_client *client) {
+    return client ? client->published : 0;
+}
+
+size_t t_client_total_consumed(const t_client *client) {
+    return client ? client->consumed : 0;
+}

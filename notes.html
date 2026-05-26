@@ -186,16 +186,18 @@
         <p>t_queue (FIFO/priority/broadcast strategies, consumer callbacks, ack/nack), t_router (exact + wildcard * # routing)</p>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 11: Session & Client Library</h3>
-        <p>t_session, t_client, t_mq</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_session (lifecycle, activity tracking, timeout, stats), t_client (queue registry, publish/subscribe, disconnect)</p>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 12: Broker</h3>
-        <p>t_broker, t_dispatcher, t_domain</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_broker (domain management, publish/subscribe across domains), t_domain (namespace with queues, consumer callbacks)</p>
     </div>
 
     <div class="phase pending">
@@ -225,7 +227,9 @@
             <li>Phase 8 complete: Binary wire protocol (header encode/decode) + CRC32C (Castagnoli)</li>
             <li>Phase 9 complete: In-memory/file-backed storage + mmap wrapper</li>
             <li>Phase 10 complete: Queue engine (FIFO/priority/broadcast) + topic router (wildcard * #)</li>
-            <li>14 test suites, 100% pass rate</li>
+            <li>Phase 11 complete: Session lifecycle + client library (queue registry, pub/sub)</li>
+            <li>Phase 12 complete: Broker (domain mgmt, pub/sub across domains) + domain (namespace with queues)</li>
+            <li>16 test suites, 100% pass rate</li>
             <li>All pushed to remote</li>
         </ul>
     </div>
