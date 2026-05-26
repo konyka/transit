@@ -46,6 +46,7 @@ T_TEST(proto_encode_decode) {
     T_ASSERT_EQ((int)msg2.header.type, T_MSG_ACK);
     T_ASSERT_EQ((int)msg2.header.payload_len, 5);
     T_ASSERT(memcmp(msg2.payload, "hello", 5) == 0);
+    free(msg2.payload);
 }
 
 T_TEST(proto_validate_bad_magic) {

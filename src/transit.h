@@ -2,6 +2,7 @@
 #define TRANSIT_H
 
 #include "t_compiler.h"
+#include "t_version.h"
 #include "t_error.h"
 #include "t_log.h"
 #include "t_time.h"
@@ -26,6 +27,7 @@
 #include "t_coro.h"
 #include "t_socket.h"
 #include "t_tcp.h"
+#include "t_conn.h"
 #include "t_proto.h"
 #include "t_crc32c.h"
 #include "t_storage.h"
@@ -36,6 +38,7 @@
 #include "t_client.h"
 #include "t_broker.h"
 #include "t_domain.h"
+#include "t_dispatch.h"
 #include "t_node.h"
 #include "t_raft.h"
 #include "t_cluster.h"

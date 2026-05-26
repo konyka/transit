@@ -69,7 +69,7 @@ static int t_map_resize(t_map *m, size_t new_cap) {
                 // This is unlikely with doubling capacity; ignore for simplicity
             }
         } else {
-            /* skip tombstones and empty slots */
+            if (e->key) { free(e->key); e->key = NULL; }
         }
     }
     free(old);
@@ -98,6 +98,7 @@ int t_map_insert(t_map *m, const char *key, void *val) {
             if (first_tomb != (size_t)-1) {
                 e = &m->entries[first_tomb];
             }
+            if (e->key) free(e->key);
             e->key = strdup(key);
             e->val = val;
             e->occupied = 1;

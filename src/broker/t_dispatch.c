@@ -13,7 +13,8 @@
 /* Internal storage for a single session subscription */
 typedef struct t_dispatch_sub {
     uint64_t session_id;
-    char *queue_name;
+    char    *queue_name;
+    void    *cbud;
 } t_dispatch_sub;
 
 /* Dispatch wrapper for broker delivery callback */
@@ -73,6 +74,7 @@ void t_dispatch_destroy(t_dispatch *disp) {
             t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
             if (sub) {
                 if (sub->queue_name) free(sub->queue_name);
+                if (sub->cbud) free(sub->cbud);
                 free(sub);
             }
         }
@@ -137,6 +139,7 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
     }
     cbud->disp = disp;
     cbud->session_id = session_id;
+    sub->cbud = cbud;
 
     if (t_broker_subscribe(disp->broker, queue_name, dispatch_deliver_cb, cbud) != 0) {
         free(sub->queue_name);

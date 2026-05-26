@@ -1,14 +1,16 @@
 #include "t_domain.h"
 #include "t_map.h"
+#include "t_vec.h"
 #include "t_queue.h"
 #include <stdlib.h>
 #include <string.h>
 
 typedef struct t_domain {
     char *name;
-    t_map queues;            /* map queue_name -> t_queue* */
+    t_map queues;
+    t_vec sub_wrappers;
     size_t total_messages;
-    size_t total_delivered;    /* not strictly required for tests; kept for completeness */
+    size_t total_delivered;
 } t_domain;
 
 /* Internal wrapper for converting t_msg to user-provided callback */
@@ -32,6 +34,7 @@ t_domain *t_domain_create(const char *name) {
     if (!d) return NULL;
     d->name = strdup(name);
     t_map_init(&d->queues);
+    t_vec_init(&d->sub_wrappers);
     d->total_messages = 0;
     d->total_delivered = 0;
     return d;
@@ -39,13 +42,16 @@ t_domain *t_domain_create(const char *name) {
 
 void t_domain_destroy(t_domain *domain) {
     if (!domain) return;
-    /* destroy queues */
     t_map_iter it = t_map_iter_begin(&domain->queues);
     const char *k; void *v;
     while (t_map_iter_next(&it, &k, &v)) {
         t_queue_destroy((t_queue *)v);
     }
     t_map_destroy(&domain->queues);
+    for (size_t i = 0; i < t_vec_len(&domain->sub_wrappers); i++) {
+        free(t_vec_get(&domain->sub_wrappers, i));
+    }
+    t_vec_destroy(&domain->sub_wrappers);
     free(domain->name);
     free(domain);
 }
@@ -111,6 +117,7 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
         free(wrapper);
         return -1;
     }
+    t_vec_push(&domain->sub_wrappers, wrapper);
     return 0; /* success */
 }
 

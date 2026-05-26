@@ -1,4 +1,7 @@
 #include "t_evloop.h"
+
+#ifdef T_HAVE_KQUEUE
+
 #include "t_time.h"
 #include <stdlib.h>
 #include <string.h>
@@ -7,8 +10,6 @@
 #include <sys/types.h>
 #include <sys/event.h>
 #include <stdint.h>
-
-#ifdef T_HAVE_KQUEUE
 
 typedef struct {
     int kq_fd;

@@ -280,7 +280,10 @@
             <li>Phase 18 complete: Protocol over TCP (t_conn with framing and partial IO)</li>
             <li>Phase 19 complete: Dispatcher (session-aware message routing via broker)</li>
             <li>Phase 20 complete: Unified transit.h API header</li>
-            <li>23 test suites, 100% pass rate</li>
+            <li>Phase 21 complete: t_version.h, transit.h updated with all modules</li>
+            <li>Phase 22 complete: Memory safety audit — ASan + UBSan clean (23/23 pass, 0 leaks, 0 UB)</li>
+            <li>Fixed: t_map tombstone key leak on overwrite, t_domain_sub_cb wrapper leak, t_dispatch cbud leak, t_proto test payload leak</li>
+            <li>23 test suites, 100% pass rate (regular + ASan + UBSan)</li>
             <li>All pushed to remote</li>
         </ul>
     </div>
