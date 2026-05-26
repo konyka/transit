@@ -284,6 +284,27 @@
         <p>README.md with architecture, benchmarks, quick start, project stats</p>
     </div>
 
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 25: Signal Handling</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_signal (SIGPIPE ignore, SIGINT/SIGTERM graceful shutdown via sig_atomic_t flag)</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 26: TCP Integration Test</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>test_conn_integration: real socketpair send/receive, evloop lifecycle with timer-based stop, connection stats</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 27: MPMC Stress Test</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>test_mpmc_stress: 2P/2C concurrent (50k items), SPSC sequential, empty-pop, full-push boundary tests</p>
+    </div>
+
     <h2 id="changelog">Changelog</h2>
     <div class="phase">
         <h3>2026-05-26</h3>
@@ -316,7 +337,12 @@
             <li>Phase 24 complete: Final README.md with architecture, benchmarks, quick start</li>
             <li>23 test suites, 100% pass rate (regular + ASan + UBSan)</li>
             <li>39 source files, 41 headers, ~6,700 LOC, zero external dependencies</li>
-            <li>All 24 phases complete, all pushed to remote</li>
+            <li>Phase 25 complete: Signal handling (SIGPIPE ignore, SIGINT/SIGTERM shutdown)</li>
+            <li>Phase 26 complete: TCP integration test (socketpair send/receive, evloop lifecycle)</li>
+            <li>Phase 27 complete: MPMC stress test (2P/2C concurrent 50k items)</li>
+            <li>26 test suites, 100% pass rate (regular + ASan + UBSan)</li>
+            <li>40 source files, 42 headers, ~7,000 LOC, zero external dependencies</li>
+            <li>All 27 phases complete, all pushed to remote</li>
         </ul>
     </div>
 
