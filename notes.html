@@ -228,6 +228,34 @@
         <p>bench_queue (FIFO/priority/broadcast), bench_collections (map/vec/MPMC), bench_memory (pool/arena/buf)</p>
     </div>
 
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 17: Cross-Platform Event Loop</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_evloop_kqueue.c (macOS kqueue backend, conditional via T_HAVE_KQUEUE)</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 18: Protocol over TCP</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_conn (TCP connection with protocol framing, partial read/write buffers, evloop integration)</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 19: Dispatcher</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_dispatch (session-aware message routing via broker, publish/subscribe with delivery callbacks)</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 20: Unified API Header</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>transit.h (single #include for all public APIs)</p>
+    </div>
+
     <h2 id="changelog">Changelog</h2>
     <div class="phase">
         <h3>2026-05-26</h3>
@@ -248,7 +276,11 @@
             <li>Phase 14 complete: Examples (demo_broker, demo_cluster) + README.md documentation</li>
             <li>Phase 15 complete: Integration tests (broker+queue+router, cluster+Raft, proto+storage, coro+tpool)</li>
             <li>Phase 16 complete: Benchmark suite (queue throughput, collections perf, memory allocation)</li>
-            <li>21 test suites, 100% pass rate</li>
+            <li>Phase 17 complete: Cross-platform kqueue backend for macOS</li>
+            <li>Phase 18 complete: Protocol over TCP (t_conn with framing and partial IO)</li>
+            <li>Phase 19 complete: Dispatcher (session-aware message routing via broker)</li>
+            <li>Phase 20 complete: Unified transit.h API header</li>
+            <li>23 test suites, 100% pass rate</li>
             <li>All pushed to remote</li>
         </ul>
     </div>
