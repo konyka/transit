@@ -1,0 +1,57 @@
+#ifndef T_QUEUE_H
+#define T_QUEUE_H
+
+#include "t_compiler.h"
+#include <stdint.h>
+#include <stddef.h>
+
+typedef enum t_qtype {
+    T_QUEUE_FIFO = 0,
+    T_QUEUE_PRIORITY,
+    T_QUEUE_BROADCAST
+} t_qtype;
+
+typedef enum t_queue_flags {
+    T_QUEUE_FLAG_NONE      = 0,
+    T_QUEUE_FLAG_DURABLE   = 1 << 0,
+    T_QUEUE_FLAG_EXCLUSIVE = 1 << 1,
+    T_QUEUE_FLAG_AUTODELETE = 1 << 2
+} t_queue_flags;
+
+typedef struct t_msg {
+    uint64_t        msg_id;
+    const char     *queue_name;
+    const uint8_t  *data;
+    size_t          data_len;
+    int             priority;
+    uint64_t        timestamp_ns;
+} t_msg;
+
+typedef struct t_queue t_queue;
+
+typedef void (*t_queue_msg_cb)(const t_msg *msg, void *ud);
+
+t_queue      *t_queue_create(const char *name, t_qtype type, int flags);
+void          t_queue_destroy(t_queue *q);
+const char   *t_queue_name(const t_queue *q);
+t_qtype       t_queue_get_type(const t_queue *q);
+
+int           t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority);
+int           t_queue_consume(t_queue *q, t_msg *out_msg);
+size_t        t_queue_pending_count(const t_queue *q);
+
+uint64_t      t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud);
+int           t_queue_remove_consumer(t_queue *q, uint64_t consumer_id);
+size_t        t_queue_consumer_count(const t_queue *q);
+
+int           t_queue_ack(t_queue *q, uint64_t msg_id);
+int           t_queue_nack(t_queue *q, uint64_t msg_id);
+int           t_queue_requeue(t_queue *q, uint64_t msg_id);
+
+void          t_queue_close(t_queue *q);
+int           t_queue_is_closed(const t_queue *q);
+
+size_t        t_queue_total_published(const t_queue *q);
+size_t        t_queue_total_consumed(const t_queue *q);
+
+#endif /* T_QUEUE_H */
