@@ -214,6 +214,20 @@
         <p>demo_broker (publish/subscribe), demo_cluster (Raft election + log), README.md</p>
     </div>
 
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 15: Integration Tests</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>Broker broadcast, router+queue dispatch, cluster+Raft election, proto+storage round-trip, coroutine+threadpool</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 16: Benchmark Suite</h3>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>bench_queue (FIFO/priority/broadcast), bench_collections (map/vec/MPMC), bench_memory (pool/arena/buf)</p>
+    </div>
+
     <h2 id="changelog">Changelog</h2>
     <div class="phase">
         <h3>2026-05-26</h3>
@@ -232,7 +246,9 @@
             <li>Phase 11 complete: Session lifecycle + client library (queue registry, pub/sub)</li>
             <li>Phase 12 complete: Broker (domain mgmt, pub/sub across domains) + domain (namespace with queues)</li>
             <li>Phase 14 complete: Examples (demo_broker, demo_cluster) + README.md documentation</li>
-            <li>17 test suites, 100% pass rate</li>
+            <li>Phase 15 complete: Integration tests (broker+queue+router, cluster+Raft, proto+storage, coro+tpool)</li>
+            <li>Phase 16 complete: Benchmark suite (queue throughput, collections perf, memory allocation)</li>
+            <li>21 test suites, 100% pass rate</li>
             <li>All pushed to remote</li>
         </ul>
     </div>
