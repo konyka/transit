@@ -165,16 +165,18 @@
         <p>t_socket (non-blocking, reuseaddr, nodelay), t_tcp (server/conn with evloop integration)</p>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 8: Wire Protocol</h3>
-        <p>t_proto, encode/decode, CRC32C</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_proto (binary header encode/decode, message types), t_crc32c (Castagnoli table-based)</p>
     </div>
 
-    <div class="phase pending">
-        <span class="status pending">PENDING</span>
+    <div class="phase done">
+        <span class="status done">DONE</span>
         <h3>Phase 9: Storage</h3>
-        <p>t_storage (mem/file), t_mmap</p>
+        <p class="date">Completed: 2026-05-26</p>
+        <p>t_storage (in-memory + file-backed with hashmap), t_mmap (POSIX mmap wrapper)</p>
     </div>
 
     <div class="phase pending">
@@ -219,7 +221,9 @@
             <li>Phase 5 complete: Work-stealing thread pool (per-worker MPMC queues, steal from neighbors)</li>
             <li>Phase 6 complete: Pure x86-64 assembly coroutine context switch (6 callee-saved regs)</li>
             <li>Phase 7 complete: Non-blocking socket/TCP with epoll evloop integration</li>
-            <li>11 test suites, 100% pass rate</li>
+            <li>Phase 8 complete: Binary wire protocol (header encode/decode) + CRC32C (Castagnoli)</li>
+            <li>Phase 9 complete: In-memory/file-backed storage + mmap wrapper</li>
+            <li>13 test suites, 100% pass rate</li>
             <li>All pushed to remote</li>
         </ul>
     </div>
