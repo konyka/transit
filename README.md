@@ -46,7 +46,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 ## Test Results
 
-23 test suites, 100% pass rate (regular + ASan + UBSan clean):
+31 test suites, 100% pass rate (regular + ASan + UBSan clean):
 
 | Test | Description |
 |------|-------------|
@@ -121,9 +121,9 @@ int main(void) {
 
 ## Project Stats
 
-- 39 source files, 41 headers
-- ~6,700 LOC (source + headers)
-- ~2,600 LOC (tests)
+- 46 source files, 49 headers
+- ~6,100 LOC (source)
+- ~3,200 LOC (tests)
 - Zero external dependencies
 - Single `#include "transit.h"` for all APIs
 
