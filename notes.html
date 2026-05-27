@@ -340,6 +340,34 @@
         <p>t_evloop_iocp.c: complete IOCP backend implementing the evloop vtable for Windows (CreateIoCompletionPort, GetQueuedCompletionStatus).</p>
     </div>
 
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 33: Transit Server Binary</h3>
+        <p class="date">Completed: 2026-05-27</p>
+        <p>transit-server: integrates config, admin, broker, dispatch, evloop, signal handling. CLI flags and INI config file support.</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 34: Unified Header Update</h3>
+        <p class="date">Completed: 2026-05-27</p>
+        <p>transit.h updated with t_signal, t_config, t_admin, t_flowcontrol, t_dlq.</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 35: Flow Control</h3>
+        <p class="date">Completed: 2026-05-27</p>
+        <p>t_flowcontrol: credit-based token bucket with acquire/release/refill, blocking detection, atomic stats. 6 tests.</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 36: Dead Letter Queue</h3>
+        <p class="date">Completed: 2026-05-27</p>
+        <p>t_dlq: circular buffer DLQ with FIFO ordering, overflow drops oldest, topic/payload/reason tracking. 6 tests.</p>
+    </div>
+
     <h2 id="changelog">Changelog</h2>
     <div class="phase">
         <h3>2026-05-26</h3>
@@ -380,9 +408,13 @@
             <li>Phase 30 complete: INI-style configuration parser (sections, key=value, comments, iteration)</li>
             <li>Phase 31 complete: Admin stats HTTP endpoint (JSON stats, pluggable callback, evloop integration)</li>
             <li>Phase 32 complete: Windows IOCP backend (CreateIoCompletionPort/GetQueuedCompletionStatus)</li>
-            <li>28 test suites, 100% pass rate (regular + ASan + UBSan)</li>
-            <li>45 source files, 48 headers, ~8,000 LOC, zero external dependencies</li>
-            <li>All 32 phases complete, all pushed to remote</li>
+            <li>Phase 33 complete: Transit server binary (config+admin+broker+evloop+signal integration)</li>
+            <li>Phase 34 complete: transit.h updated with all new modules</li>
+            <li>Phase 35 complete: Credit-based flow control with backpressure (6 tests)</li>
+            <li>Phase 36 complete: Dead letter queue for failed messages (6 tests)</li>
+            <li>30 test suites, 100% pass rate (regular + ASan + UBSan)</li>
+            <li>49 source files, 51 headers, ~9,000 LOC, zero external dependencies</li>
+            <li>All 36 phases complete, all pushed to remote</li>
         </ul>
     </div>
 

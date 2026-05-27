@@ -34,6 +34,8 @@
 #include "t_mmap.h"
 #include "t_queue.h"
 #include "t_router.h"
+#include "t_flowcontrol.h"
+#include "t_dlq.h"
 #include "t_session.h"
 #include "t_client.h"
 #include "t_broker.h"
