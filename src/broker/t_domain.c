@@ -19,12 +19,16 @@ typedef struct t_domain_sub_cb {
     void *ud;
 } t_domain_sub_cb;
 
+typedef struct t_domain_sub_ctx {
+    t_domain_sub_cb cb;
+    t_domain       *domain;
+} t_domain_sub_ctx;
+
 static void domain_consume_adapter(const t_msg *msg, void *ud) {
-    /* ud is expected to be a pointer to t_domain_sub_cb */
-    t_domain_sub_cb *wrapper = (t_domain_sub_cb *)ud;
-    if (wrapper && wrapper->cb) {
-        wrapper->cb(msg->queue_name, msg->data, msg->data_len, wrapper->ud);
-        /* delivered counter could be updated here if needed */
+    t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)ud;
+    if (ctx && ctx->cb.cb) {
+        ctx->cb.cb(msg->queue_name, msg->data, msg->data_len, ctx->cb.ud);
+        if (ctx->domain) ctx->domain->total_delivered++;
     }
 }
 
@@ -91,7 +95,8 @@ void *t_domain_get_queue(t_domain *domain, const char *queue_name) {
 
 int t_domain_publish(t_domain *domain, const char *queue_name,
                      const uint8_t *data, size_t len, int priority) {
-    if (!domain || !queue_name || !data) return -1;
+    if (!domain || !queue_name) return -1;
+    if (len > 0 && !data) return -1;
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
     int r = t_queue_post(q, data, len, priority);
@@ -106,19 +111,19 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
     if (!domain || !queue_name || !cb) return -1;
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
-    /* Prepare wrapper: adapt consumer callback to test harness signature */
-    t_domain_sub_cb *wrapper = (t_domain_sub_cb *)malloc(sizeof(t_domain_sub_cb));
-    if (!wrapper) return -1;
-    wrapper->cb = cb;
-    wrapper->ud = ud;
+    t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)malloc(sizeof(t_domain_sub_ctx));
+    if (!ctx) return -1;
+    ctx->cb.cb = cb;
+    ctx->cb.ud = ud;
+    ctx->domain = domain;
 
-    uint64_t cid = t_queue_add_consumer(q, domain_consume_adapter, wrapper);
+    uint64_t cid = t_queue_add_consumer(q, domain_consume_adapter, ctx);
     if (cid == 0) {
-        free(wrapper);
+        free(ctx);
         return -1;
     }
-    t_vec_push(&domain->sub_wrappers, wrapper);
-    return 0; /* success */
+    t_vec_push(&domain->sub_wrappers, ctx);
+    return 0;
 }
 
 size_t t_domain_total_messages(const t_domain *domain) {

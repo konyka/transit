@@ -108,6 +108,38 @@ T_TEST(conn_create_destroy_no_evloop) {
     t_conn_destroy(b);
 }
 
+T_TEST(conn_bytes_sent_once) {
+    int fds[2];
+    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    t_evloop *loop = t_evloop_create();
+    t_conn *client = t_conn_create(fds[0], loop);
+    t_conn *server = t_conn_create(fds[1], loop);
+    t_conn_set_on_msg(server, on_msg, NULL);
+    g_recv_count = 0;
+
+    const char *p = "hello";
+    t_proto_msg m;
+    t_proto_header_init(&m.header, T_MSG_POST, (uint32_t)strlen(p));
+    m.payload = (uint8_t *)p;
+    m.payload_len = strlen(p);
+    t_conn_send(client, &m);
+
+    size_t queued = T_PROTO_HEADER_SIZE + strlen(p);
+    /* Before flush, bytes_sent should still be 0 (counted on write). */
+    T_ASSERT_EQ(t_conn_bytes_sent(client), (size_t)0);
+
+    pthread_t t;
+    pthread_create(&t, NULL, loop_fn, loop);
+    pthread_join(t, NULL);
+
+    T_ASSERT_EQ(g_recv_count, (size_t)1);
+    T_ASSERT_EQ(t_conn_bytes_sent(client), queued);
+
+    t_conn_destroy(client);
+    t_conn_destroy(server);
+    t_evloop_destroy(loop);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

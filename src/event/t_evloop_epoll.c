@@ -1,4 +1,7 @@
 #include "t_evloop_internal.h"
+
+#ifdef T_HAVE_EPOLL
+
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -92,3 +95,9 @@ t_evloop_backend const t_epoll_backend = {
     t_epoll_del,
     t_epoll_poll,
 };
+
+#else
+
+t_evloop_backend const t_epoll_backend = {0};
+
+#endif

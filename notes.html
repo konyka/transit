@@ -415,6 +415,19 @@
         </ul>
     </div>
 
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 43: Hot-Path Correctness + Evloop Backend Wiring</h3>
+        <p class="date">Completed: 2026-07-10</p>
+        <ul>
+            <li>FIFO+subscribe: deliver via callback only (no pending/inflight growth)</li>
+            <li>t_conn: CRC encode/verify, magic/version/payload caps, recv grow, bytes_sent once</li>
+            <li>CMake: PlatformDetect before CompilerFlags so T_HAVE_EPOLL actually applies</li>
+            <li>epoll ifdef guard + IOCP backend selection; domain delivered counter; DLQ malloc check</li>
+            <li>TTL heap compact when stale nodes dominate; priority pending_count + nack path</li>
+        </ul>
+    </div>
+
     <h2 id="changelog">Changelog</h2>
     <div class="phase">
         <h3>2026-05-26</h3>
@@ -465,9 +478,10 @@
             <li>Phase 40 complete: Message TTL with expiry tracking</li>
             <li>Phase 41 complete: Per-connection token bucket rate limiter</li>
             <li>Phase 42 complete: TTL heap expiry fix + docs/API/CI sync</li>
+            <li>Phase 43 complete: hot-path queue/conn fixes + evloop backend wiring</li>
             <li>34 test executables, 100% pass rate (regular + ASan + UBSan)</li>
             <li>50 source files, 52 headers, ~8,300 LOC source+headers, zero external dependencies</li>
-            <li>All 42 phases complete</li>
+            <li>All 43 phases complete</li>
         </ul>
     </div>
 
@@ -479,6 +493,10 @@
             <li>Unified header exports cgroup/ttl/ratelimit/shutdown</li>
             <li>CI configure no longer passes undefined ENABLE_WERROR</li>
             <li>README: Windows IOCP marked implemented; license corrected to GPLv3</li>
+            <li>Fixed FIFO+subscribe unbounded pending growth; push-style fire-and-forget</li>
+            <li>t_conn: CRC on wire, protocol validation, recv buffer growth, accurate bytes_sent</li>
+            <li>Fixed CMake include order so T_HAVE_EPOLL reaches CompilerFlags (evloop was broken)</li>
+            <li>epoll guarded with T_HAVE_EPOLL; create() selects kqueue/IOCP/epoll correctly</li>
         </ul>
     </div>
 

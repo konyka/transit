@@ -19,7 +19,7 @@ src/
 ├── protocol/    binary wire protocol (16-byte header), CRC32C Castagnoli
 ├── storage/     in-memory + file-backed hashmap, POSIX mmap wrapper
 ├── queue/       FIFO/priority/broadcast, topic router (* #), flowcontrol,
-│                DLQ, message TTL (heap+map), consumer groups
+│                DLQ, message TTL (heap+map+compact), consumer groups
 ├── session/     session lifecycle, activity tracking, timeout detection
 ├── client/      queue registry, publish/subscribe (in-process stub)
 ├── broker/      domain management, publish/subscribe, dispatcher

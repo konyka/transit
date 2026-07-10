@@ -68,15 +68,32 @@ static t_msg *t_msg_copy(const t_msg *src) {
     m->msg_id = src->msg_id;
     m->queue_name = src->queue_name;
     m->data_len = src->data_len;
+    m->data = NULL;
     if (src->data_len && src->data) {
         m->data = (uint8_t *)malloc(src->data_len);
-        if (m->data) memcpy((void*)m->data, src->data, src->data_len);
-    } else {
-        m->data = NULL;
+        if (!m->data) {
+            free(m);
+            return NULL;
+        }
+        memcpy((void *)m->data, src->data, src->data_len);
     }
     m->priority = src->priority;
     m->timestamp_ns = src->timestamp_ns;
     return m;
+}
+
+static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
+    /* Push-style: fire-and-forget. Copies are freed after the callback so
+     * pending/inflight do not grow unbounded when callers never ack. */
+    size_t cons = q->consumers.len;
+    for (size_t i = 0; i < cons; ++i) {
+        t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
+        t_msg *copym = t_msg_copy(m);
+        if (!copym) continue;
+        if (cb && cb->cb) cb->cb(copym, cb->cb_ud);
+        t_msg_free(copym);
+    }
+    return 0;
 }
 
 /* Create a new t_queue */
@@ -147,7 +164,8 @@ t_qtype t_queue_get_type(const t_queue *q) {
 
 int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     if (!q || q->closed) return -1;
-    /* allocate message */
+    if (len > 0 && !data) return -1;
+
     t_msg *m = (t_msg *)malloc(sizeof(t_msg));
     if (!m) return -1;
     m->msg_id = ++q->next_msg_id;
@@ -155,80 +173,49 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     m->data_len = len;
     m->priority = priority;
     m->data = NULL;
+    m->timestamp_ns = 0;
     if (len) {
         m->data = malloc(len);
-        if (m->data) memcpy((void*)m->data, data, len);
+        if (!m->data) {
+            free(m);
+            return -1;
+        }
+        memcpy((void *)m->data, data, len);
     }
-    m->timestamp_ns = 0;
 
-    /* BROADCAST: deliver to all consumers immediately, with separate copies */
+    /* BROADCAST: deliver copies to all consumers; drop if none. */
     if (q->type == T_QUEUE_BROADCAST) {
-        size_t cons = q->consumers.len;
         q->total_published++;
-        if (cons == 0) {
-            /* no one to deliver to, just drop (or keep for potential future use) */
-            /* free original m and return success */
+        if (q->consumers.len == 0) {
             t_msg_free(m);
             return 0;
         }
-        for (size_t i = 0; i < cons; ++i) {
-            t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
-            /* create a per-consumer copy to allow independent lifecycle */
-            t_msg *deliver = t_msg_copy(m);
-            if (!deliver) continue;
-            /* deliver via callback */
-            if (cb && cb->cb) cb->cb(deliver, cb->cb_ud);
-            /* track in-flight for possible acks/nacks */
-            t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
-            if (inf) {
-                inf->msg = deliver;
-                t_list_push_back(&q->inflight, &inf->node);
-            } else {
-                t_msg_free(deliver);
-            }
-        }
-        /* free original m data to avoid double free */
+        t_queue_deliver_to_consumers(q, m);
         t_msg_free(m);
         return 0;
     }
 
-    /* Non-broadcast: enqueue and/or deliver immediately if consumers exist */
     q->total_published++;
     if (q->type == T_QUEUE_PRIORITY) {
-        /* Push to priority queue instead of standard pending queue */
-        int r = t_pqueue_push(&q->pri, (int64_t)priority, m);
-        if (r != 0) {
+        if (t_pqueue_push(&q->pri, (int64_t)priority, m) != 0) {
             t_msg_free(m);
+            return -1;
         }
         return 0;
     }
-    /* If there are consumers, deliver immediately to them and also enqueue for
-     * compatibility with ack/nack tracking. We'll deliver but still enqueue; this
-     * keeps a consistent lifecycle. */
+
+    /* FIFO: push-style (consumers) delivers + inflight only — do NOT also
+     * enqueue to pending (that caused unbounded memory growth). Pull-style
+     * (no consumers) stores in pending for t_queue_consume. */
     if (q->consumers.len > 0) {
-        size_t cons = q->consumers.len;
-        for (size_t i = 0; i < cons; ++i) {
-            t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
-            t_msg *copym = t_msg_copy(m);
-            if (copym && cb && cb->cb) cb->cb(copym, cb->cb_ud);
-            if (copym) {
-                t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
-                if (inf) {
-                    inf->msg = copym;
-                    t_list_push_back(&q->inflight, &inf->node);
-                } else {
-                    t_msg_free(copym);
-                }
-            }
-        }
+        t_queue_deliver_to_consumers(q, m);
+        t_msg_free(m);
+        return 0;
     }
 
-    /* enqueue original message for typical FIFO consumption */
-    if (len) {
-        t_vec_push(&q->pending, m);
-    } else {
-        /* zero-length payload – still store a message wrapper to keep IDs consistent */
-        t_vec_push(&q->pending, m);
+    if (t_vec_push(&q->pending, m) != 0) {
+        t_msg_free(m);
+        return -1;
     }
     return 0;
 }
@@ -271,7 +258,9 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
 }
 
 size_t t_queue_pending_count(const t_queue *q) {
-    return q ? q->pending.len : 0;
+    if (!q) return 0;
+    if (q->type == T_QUEUE_PRIORITY) return t_pqueue_len(&q->pri);
+    return q->pending.len;
 }
 
 uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
@@ -339,20 +328,23 @@ int t_queue_ack(t_queue *q, uint64_t msg_id) {
 
 int t_queue_nack(t_queue *q, uint64_t msg_id) {
     if (!q) return -1;
-    /* Move matching inflight message(s) back to pending */
     t_list_node *cur = q->inflight.head;
     int moved = 0;
     while (cur) {
-        t_inflight *inf = (t_inflight *)((char*)cur - offsetof(t_inflight, node));
+        t_inflight *inf = (t_inflight *)((char *)cur - offsetof(t_inflight, node));
         t_list_node *next = cur->next;
         if (inf && inf->msg && inf->msg->msg_id == msg_id) {
-            /* remove from inflight and push to pending */
-            /* detach node from list
-             * (simple approach) */
             if (cur->prev) cur->prev->next = next; else q->inflight.head = next;
             if (next) next->prev = cur->prev; else q->inflight.tail = cur->prev;
-            /* push back to pending */
-            t_vec_push(&q->pending, inf->msg);
+            if (q->type == T_QUEUE_PRIORITY) {
+                if (t_pqueue_push(&q->pri, (int64_t)inf->msg->priority, inf->msg) != 0) {
+                    t_msg_free(inf->msg);
+                }
+            } else {
+                if (t_vec_push(&q->pending, inf->msg) != 0) {
+                    t_msg_free(inf->msg);
+                }
+            }
             free(inf);
             moved++;
         }

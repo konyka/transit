@@ -63,6 +63,36 @@ T_TEST(queue_broadcast) {
     t_queue_destroy(q);
 }
 
+static int g_fifo_cb_count;
+static void fifo_cb(const t_msg *msg, void *ud) {
+    (void)msg;
+    (*(int *)ud) += 1;
+}
+
+T_TEST(queue_fifo_subscribe_no_pending_growth) {
+    /* Regression: push-style FIFO must not also enqueue to pending. */
+    t_queue *q = t_queue_create("test.fifo.sub", T_QUEUE_FIFO, 0);
+    g_fifo_cb_count = 0;
+    t_queue_add_consumer(q, fifo_cb, &g_fifo_cb_count);
+    for (int i = 0; i < 100; i++) {
+        T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"x", 1, 0), 0);
+    }
+    T_ASSERT_EQ(g_fifo_cb_count, 100);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 0);
+    t_queue_destroy(q);
+}
+
+T_TEST(queue_priority_pending_count) {
+    t_queue *q = t_queue_create("test.pri.count", T_QUEUE_PRIORITY, 0);
+    t_queue_post(q, (const uint8_t *)"a", 1, 5);
+    t_queue_post(q, (const uint8_t *)"b", 1, 1);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 2);
+    t_msg msg;
+    t_queue_consume(q, &msg);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
+    t_queue_destroy(q);
+}
+
 T_TEST(router_create_destroy) {
     t_router *r = t_router_create();
     T_ASSERT_NOT_NULL(r);

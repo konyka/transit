@@ -6,9 +6,9 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
-# Include project-wide flags and platform detection
-include(cmake/CompilerFlags.cmake)
+# Platform detection must run before CompilerFlags so T_HAVE_* macros exist
 include(cmake/PlatformDetect.cmake)
+include(cmake/CompilerFlags.cmake)
 
 option(ENABLE_DEBUG "Enable debug builds" OFF)
 option(ENABLE_ASAN "Enable AddressSanitizer" OFF)

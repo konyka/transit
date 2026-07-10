@@ -128,6 +128,24 @@ size_t t_ttl_expire(t_ttl *ttl, uint64_t now) {
         ttl_entry_free(e);
         expired++;
     }
+
+    /* Compact: rebuild heap when stale nodes dominate (heap > 4x live). */
+    size_t live = t_map_len(&ttl->entries);
+    size_t hlen = t_pqueue_len(&ttl->heap);
+    if (hlen > 64 && live > 0 && hlen > live * 4) {
+        t_pqueue fresh;
+        if (t_pqueue_init(&fresh, live) == 0) {
+            t_map_iter it = t_map_iter_begin(&ttl->entries);
+            const char *k;
+            void *val;
+            while (t_map_iter_next(&it, &k, &val)) {
+                t_ttl_entry *e = (t_ttl_entry *)val;
+                t_pqueue_push(&fresh, (int64_t)e->expire_at, (void *)(uintptr_t)e->msg_id);
+            }
+            t_pqueue_destroy(&ttl->heap);
+            ttl->heap = fresh;
+        }
+    }
     return expired;
 }
 

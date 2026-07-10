@@ -52,6 +52,11 @@ int t_dlq_push(t_dlq *dlq, const char *topic, const uint8_t *payload, size_t len
     e->payload_len = len;
     if (len > 0 && payload) {
         e->payload = (uint8_t *)malloc(len);
+        if (!e->payload) {
+            free(e->topic);
+            e->topic = NULL;
+            return -1;
+        }
         memcpy(e->payload, payload, len);
     } else {
         e->payload = NULL;

@@ -97,8 +97,13 @@ t_evloop *t_evloop_create(void) {
 
 #ifdef T_HAVE_KQUEUE
     loop->backend = &t_kqueue_backend;
-#else
+#elif defined(T_HAVE_IOCP)
+    loop->backend = &t_iocp_backend;
+#elif defined(T_HAVE_EPOLL)
     loop->backend = &t_epoll_backend;
+#else
+    free(loop);
+    return NULL;
 #endif
     if (loop->backend->create(loop) != 0) {
         close(loop->wakeup_fds[0]);

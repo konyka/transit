@@ -56,6 +56,21 @@ T_TEST(broker_publish_subscribe) {
     t_broker_publish(b, "pub.q", (const uint8_t *)"hello", 5, 0);
     T_ASSERT_EQ(g_delivered, 1);
     T_ASSERT_EQ((int)t_broker_total_messages(b), 1);
+    T_ASSERT_EQ((int)t_broker_total_delivered(b), 1);
+    t_broker_destroy(b);
+}
+
+T_TEST(broker_fifo_subscribe_delivered) {
+    t_broker *b = t_broker_create("broker-fifo");
+    t_broker_start(b);
+    t_broker_create_queue(b, "default", "fifo.q", 0, 0); /* FIFO */
+    g_delivered = 0;
+    t_broker_subscribe(b, "fifo.q", on_broker_msg, &g_delivered);
+    for (int i = 0; i < 50; i++) {
+        t_broker_publish(b, "fifo.q", (const uint8_t *)"x", 1, 0);
+    }
+    T_ASSERT_EQ(g_delivered, 50);
+    T_ASSERT_EQ((int)t_broker_total_delivered(b), 50);
     t_broker_destroy(b);
 }
 

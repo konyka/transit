@@ -27,6 +27,7 @@ typedef struct t_evloop_backend {
 // Backend symbols provided by platform-specific implementations
 extern t_evloop_backend const t_epoll_backend;
 extern t_evloop_backend const t_kqueue_backend;
+extern t_evloop_backend const t_iocp_backend;
 
 typedef void (*t_ev_cb)(t_evio *io, int flags, void *user_data);
 typedef void (*t_timer_cb)(void *user_data);
