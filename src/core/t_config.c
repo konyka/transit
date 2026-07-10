@@ -31,7 +31,6 @@ static t_config_section *cfg_find_section(t_config *cfg, const char *name, int c
         }
     }
     if (!create_if_missing) return NULL;
-    /* create new section */
     if (cfg->section_count == cfg->section_cap) {
         size_t new_cap = cfg->section_cap ? cfg->section_cap * 2 : 4;
         t_config_section *tmp = (t_config_section*)realloc(cfg->sections, new_cap * sizeof(t_config_section));
@@ -39,11 +38,14 @@ static t_config_section *cfg_find_section(t_config *cfg, const char *name, int c
         cfg->sections = tmp;
         cfg->section_cap = new_cap;
     }
-    t_config_section *sec = &cfg->sections[cfg->section_count++];
-    sec->name = strdup(name);
+    char *sec_name = strdup(name);
+    if (!sec_name) return NULL;
+    t_config_section *sec = &cfg->sections[cfg->section_count];
+    sec->name = sec_name;
     sec->kv = NULL;
     sec->kv_count = 0;
     sec->kv_cap = 0;
+    cfg->section_count++;
     return sec;
 }
 
@@ -62,21 +64,29 @@ static int cfg_kv_append(t_config_section *sec, const char *key, const char *val
         sec->kv = tmp;
         sec->kv_cap = new_cap;
     }
-    sec->kv[sec->kv_count].key = strdup(key);
-    sec->kv[sec->kv_count].value = strdup(value);
+    char *k = strdup(key);
+    char *v = strdup(value);
+    if (!k || !v) {
+        free(k);
+        free(v);
+        return -1;
+    }
+    sec->kv[sec->kv_count].key = k;
+    sec->kv[sec->kv_count].value = v;
     sec->kv_count++;
     return 0;
 }
 
-static void cfg_set_kv(t_config_section *sec, const char *key, const char *value) {
+static int cfg_set_kv(t_config_section *sec, const char *key, const char *value) {
     t_config_kv *existing = cfg_find_kv(sec, key);
     if (existing) {
+        char *nv = strdup(value);
+        if (!nv) return -1;
         free(existing->value);
-        existing->value = strdup(value);
-        return;
+        existing->value = nv;
+        return 0;
     }
-    /* append new */
-    cfg_kv_append(sec, key, value);
+    return cfg_kv_append(sec, key, value);
 }
 
 /* trim helpers: return newly allocated trimmed copy of s [start, end) */
@@ -91,17 +101,16 @@ static char *trim_copy(const char *start, const char *end) {
     return out;
 }
 
-static void ensure_empty_section(t_config *cfg) {
-    cfg_find_section(cfg, "", 1);
+static int ensure_empty_section(t_config *cfg) {
+    return cfg_find_section(cfg, "", 1) != NULL ? 0 : -1;
 }
 
 static int ensure_initialized(t_config *cfg) {
-    if (!cfg) return 0;
+    if (!cfg) return -1;
     if (cfg->section_count == 0) {
-        /* create global section if needed when first key/value arrives */
-        ensure_empty_section(cfg);
+        return ensure_empty_section(cfg);
     }
-    return 1;
+    return 0;
 }
 
 /* Public API */
@@ -110,6 +119,10 @@ t_config *t_config_create(void) {
     if (!cfg) return NULL;
     cfg->section_cap = 4;
     cfg->sections = (t_config_section*)calloc(cfg->section_cap, sizeof(t_config_section));
+    if (!cfg->sections) {
+        free(cfg);
+        return NULL;
+    }
     cfg->section_count = 0;
     return cfg;
 }
@@ -153,25 +166,22 @@ int t_config_parse_file(t_config *cfg, const char *path) {
 /* Core INI parser: supports sections, key=value, comments (# or ;) */
 int t_config_parse_string(t_config *cfg, const char *data, size_t len) {
     if (!cfg) return -1;
-    ensure_initialized(cfg);
+    if (ensure_initialized(cfg) != 0) return -1;
     const char *p = data;
     const char *end = data + len;
     const char *line_start = p;
     t_config_section *cur_sec = NULL;
-    /* ensure global section exists for keys before any header */
     cur_sec = cfg_find_section(cfg, "", 1);
+    if (!cur_sec) return -1;
     while (p < end) {
-        /* find end of line */
         const char *line_end = p;
         while (line_end < end && *line_end != '\n' && *line_end != '\r') line_end++;
         size_t line_len = line_end - line_start;
-        /* skip comments/empty lines */
-        
+
         const char *s = line_start;
         while (s < line_end && (*s == ' ' || *s == '\t')) s++;
         int is_comment = (s < line_end && (*s == '#' || *s == ';'));
         if (line_len > 0 && !is_comment) {
-            /* Section header? [name] */
             if (*s == '[') {
                 const char *name_start = s + 1;
                 const char *name_end = line_end;
@@ -179,13 +189,11 @@ int t_config_parse_string(t_config *cfg, const char *data, size_t len) {
                 if (name_end > name_start) name_end--;
                 while (name_end > name_start && (*(name_end-1) == ' ' || *(name_end-1) == '\t')) name_end--;
                 char *name = trim_copy(name_start, name_end);
-                if (name) {
-                    cur_sec = cfg_find_section(cfg, name, 1);
-                    free(name);
-                }
-                
+                if (!name) return -1;
+                cur_sec = cfg_find_section(cfg, name, 1);
+                free(name);
+                if (!cur_sec) return -1;
             } else {
-                
                 const char *eq = NULL;
                 for (const char *qp = s; qp < line_end; ++qp) {
                     if (*qp == '=') { eq = qp; break; }
@@ -193,17 +201,21 @@ int t_config_parse_string(t_config *cfg, const char *data, size_t len) {
                 if (eq) {
                     char *key = trim_copy(line_start, eq);
                     char *val = trim_copy(eq + 1, line_end);
-                    if (key && val && cur_sec) {
-                        cfg_set_kv(cur_sec, key, val);
-                    } else {
-                        
+                    if (!key || !val) {
+                        free(key);
+                        free(val);
+                        return -1;
+                    }
+                    if (!cur_sec || cfg_set_kv(cur_sec, key, val) != 0) {
+                        free(key);
+                        free(val);
+                        return -1;
                     }
                     free(key);
                     free(val);
                 }
             }
         }
-        /* advance to next line */
         line_start = line_end;
         if (line_start < end && *line_start == '\r') line_start++;
         if (line_start < end && *line_start == '\n') line_start++;

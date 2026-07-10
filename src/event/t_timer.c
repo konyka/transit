@@ -45,19 +45,26 @@ static void sift_down(timer_node *arr, size_t idx, size_t n) {
     }
 }
 
-static void heap_push(t_timer *t, timer_node node) {
+static int heap_push(t_timer *t, timer_node node) {
     if (t->heap == NULL) {
-        t->cap = 4;
-        t->heap = (timer_node *)calloc(t->cap, sizeof(timer_node));
+        size_t cap = 4;
+        timer_node *heap = (timer_node *)calloc(cap, sizeof(timer_node));
+        if (!heap) return -1;
+        t->heap = heap;
+        t->cap = cap;
     }
     if (t->count >= t->cap) {
-        t->cap *= 2;
-        t->heap = (timer_node *)realloc(t->heap, t->cap * sizeof(timer_node));
+        size_t new_cap = t->cap * 2;
+        timer_node *heap = (timer_node *)realloc(t->heap, new_cap * sizeof(timer_node));
+        if (!heap) return -1;
+        t->heap = heap;
+        t->cap = new_cap;
     }
     size_t idx = t->count;
     t->heap[idx] = node;
     sift_up(t->heap, idx);
     t->count++;
+    return 0;
 }
 
 static timer_node heap_pop(t_timer *t) {
@@ -90,13 +97,14 @@ int64_t t_timer_add(t_timer *t, int64_t delay_ms, int64_t repeat_ms,
                     t_timer_fn fn, void *user_data) {
     if (!t || !fn) return -1;
     timer_node node;
-    node.id = t->next_id++;
+    node.id = t->next_id;
     node.expire_ms = t_time_now_ms() + delay_ms;
     node.repeat_ms = repeat_ms;
     node.cb = fn;
     node.user_data = user_data;
     node.active = 1;
-    heap_push(t, node);
+    if (heap_push(t, node) != 0) return -1;
+    t->next_id++;
     return node.id;
 }
 
@@ -124,7 +132,7 @@ int64_t t_timer_process(t_timer *t) {
             if (cur.cb) cur.cb(cur.user_data);
             if (cur.active && cur.repeat_ms > 0) {
                 cur.expire_ms = now + cur.repeat_ms;
-                heap_push(t, cur);
+                (void)heap_push(t, cur); /* drop repeat on OOM */
             }
             now = t_time_now_ms();
         } else {

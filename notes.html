@@ -499,6 +499,7 @@
             <li>epoll guarded with T_HAVE_EPOLL; create() selects kqueue/IOCP/epoll correctly</li>
             <li>OOM hardening: queue consume rollback, cgroup create/add checks, domain subscribe rollback</li>
             <li>t_dlq_push: check strdup failures for topic/reason</li>
+            <li>t_timer heap_push OOM-safe; t_config strdup/calloc failure propagation</li>
         </ul>
     </div>
 
