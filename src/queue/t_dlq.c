@@ -49,6 +49,7 @@ int t_dlq_push(t_dlq *dlq, const char *topic, const uint8_t *payload, size_t len
     size_t idx = (dlq->tail) % dlq->capacity;
     t_dlq_entry *e = &dlq->entries[idx];
     e->topic = topic ? strdup(topic) : NULL;
+    if (topic && !e->topic) return -1;
     e->payload_len = len;
     if (len > 0 && payload) {
         e->payload = (uint8_t *)malloc(len);
@@ -62,6 +63,13 @@ int t_dlq_push(t_dlq *dlq, const char *topic, const uint8_t *payload, size_t len
         e->payload = NULL;
     }
     e->reason = reason ? strdup(reason) : NULL;
+    if (reason && !e->reason) {
+        free(e->topic);
+        free(e->payload);
+        e->topic = NULL;
+        e->payload = NULL;
+        return -1;
+    }
     e->timestamp_ms = (uint64_t)t_time_now_ms();
     e->retry_count = 0;
     dlq->tail = (dlq->tail + 1) % dlq->capacity;

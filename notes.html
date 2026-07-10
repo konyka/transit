@@ -498,6 +498,7 @@
             <li>Fixed CMake include order so T_HAVE_EPOLL reaches CompilerFlags (evloop was broken)</li>
             <li>epoll guarded with T_HAVE_EPOLL; create() selects kqueue/IOCP/epoll correctly</li>
             <li>OOM hardening: queue consume rollback, cgroup create/add checks, domain subscribe rollback</li>
+            <li>t_dlq_push: check strdup failures for topic/reason</li>
         </ul>
     </div>
 
