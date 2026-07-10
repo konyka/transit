@@ -122,7 +122,12 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
         free(ctx);
         return -1;
     }
-    t_vec_push(&domain->sub_wrappers, ctx);
+    if (t_vec_push(&domain->sub_wrappers, ctx) != 0) {
+        /* Roll back the just-added consumer (1-based index = current count). */
+        t_queue_remove_consumer(q, t_queue_consumer_count(q));
+        free(ctx);
+        return -1;
+    }
     return 0;
 }
 

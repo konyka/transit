@@ -21,8 +21,17 @@ t_cgroup *t_cgroup_create(const char *group_id) {
     t_cgroup *cg = (t_cgroup *)calloc(1, sizeof(*cg));
     if (!cg) return NULL;
     cg->group_id = group_id ? strdup(group_id) : strdup("default");
+    if (!cg->group_id) {
+        free(cg);
+        return NULL;
+    }
     cg->consumer_cap = 8;
     cg->consumers = (t_consumer *)calloc(cg->consumer_cap, sizeof(t_consumer));
+    if (!cg->consumers) {
+        free(cg->group_id);
+        free(cg);
+        return NULL;
+    }
     return cg;
 }
 
@@ -47,10 +56,12 @@ int t_cgroup_add_consumer(t_cgroup *cg, const char *consumer_id, t_cgroup_delive
         if (!tmp) return -1;
         cg->consumers = tmp;
     }
-    t_consumer *c = &cg->consumers[cg->consumer_count++];
+    t_consumer *c = &cg->consumers[cg->consumer_count];
     c->id = strdup(consumer_id);
+    if (!c->id) return -1;
     c->cb = cb;
     c->ud = ud;
+    cg->consumer_count++;
     return 0;
 }
 

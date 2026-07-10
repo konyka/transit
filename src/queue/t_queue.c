@@ -229,12 +229,16 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
             return -1;
         }
         t_msg *m = (t_msg *)top.data;
-        /* Move to inflight for ack/nack tracking */
         t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
-        if (inf) {
-            inf->msg = m;
-            t_list_push_back(&q->inflight, &inf->node);
+        if (!inf) {
+            /* Roll back into heap so the message is not lost. */
+            if (t_pqueue_push(&q->pri, (int64_t)m->priority, m) != 0) {
+                t_msg_free(m);
+            }
+            return -1;
         }
+        inf->msg = m;
+        t_list_push_back(&q->inflight, &inf->node);
         if (out_msg) *out_msg = *m;
         q->total_consumed++;
         return 0;
@@ -245,14 +249,16 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
     }
     t_msg *m = (t_msg *)t_vec_remove(&q->pending, 0);
     if (!m) return -1;
-    if (out_msg) *out_msg = *m;
     t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
-    if (inf) {
-        inf->msg = m;
-        t_list_push_back(&q->inflight, &inf->node);
-    } else {
-        free(m);
+    if (!inf) {
+        if (t_vec_push(&q->pending, m) != 0) {
+            t_msg_free(m);
+        }
+        return -1;
     }
+    inf->msg = m;
+    t_list_push_back(&q->inflight, &inf->node);
+    if (out_msg) *out_msg = *m;
     q->total_consumed++;
     return 0;
 }
@@ -264,18 +270,16 @@ size_t t_queue_pending_count(const t_queue *q) {
 }
 
 uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
-    if (!q) return 0;
-    /* allocate a small consumer wrapper on heap and store in vec */
+    if (!q || !cb) return 0;
     t_cons_cb *wrapper = (t_cons_cb *)malloc(sizeof(t_cons_cb));
     if (!wrapper) return 0;
     wrapper->cb = cb;
     wrapper->cb_ud = ud;
 
-    /* store the wrapper pointer in the consumers vec. To keep a stable layout,
-     * we store the wrapper pointer in the void* slot. */
-    void *slot = (void *)wrapper;
-    t_vec_push(&q->consumers, slot);
-
+    if (t_vec_push(&q->consumers, wrapper) != 0) {
+        free(wrapper);
+        return 0;
+    }
     return ++q->next_consumer_id;
 }
 
