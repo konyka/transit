@@ -101,6 +101,10 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     t_queue *q = (t_queue *)malloc(sizeof(t_queue));
     if (!q) return NULL;
     q->name = strdup(name ? name : "");
+    if (!q->name) {
+        free(q);
+        return NULL;
+    }
     q->type = type;
     q->flags = flags;
     q->closed = 0;
@@ -114,7 +118,11 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     t_list_init(&q->inflight);
     q->has_prio = (type == T_QUEUE_PRIORITY) ? 1 : 0;
     if (q->has_prio) {
-        t_pqueue_init(&q->pri, 16);
+        if (t_pqueue_init(&q->pri, 16) != 0) {
+            free(q->name);
+            free(q);
+            return NULL;
+        }
     }
 
     return q;

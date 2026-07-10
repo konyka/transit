@@ -89,6 +89,11 @@ t_storage *t_storage_create(t_storage_type type, const char *path) {
     t_map_init(&s->map);
     if (path && path[0] != '\0') {
         s->path = strdup(path);
+        if (!s->path) {
+            t_map_destroy(&s->map);
+            free(s);
+            return NULL;
+        }
         /* If file-backed, try to load existing data into memoryMap */
         if (type == T_STORAGE_FILE) {
             t_storage_fs_load(s, path);

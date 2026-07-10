@@ -16,6 +16,10 @@ t_broker *t_broker_create(const char *broker_id) {
     t_broker *b = (t_broker *)calloc(1, sizeof(t_broker));
     if (!b) return NULL;
     b->broker_id = strdup(broker_id);
+    if (!b->broker_id) {
+        free(b);
+        return NULL;
+    }
     t_map_init(&b->domains);
     b->running = 0;
     /* Create default domain automatically */

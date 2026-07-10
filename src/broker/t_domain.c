@@ -37,6 +37,10 @@ t_domain *t_domain_create(const char *name) {
     t_domain *d = (t_domain *)calloc(1, sizeof(t_domain));
     if (!d) return NULL;
     d->name = strdup(name);
+    if (!d->name) {
+        free(d);
+        return NULL;
+    }
     t_map_init(&d->queues);
     t_vec_init(&d->sub_wrappers);
     d->total_messages = 0;

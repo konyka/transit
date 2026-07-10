@@ -76,17 +76,20 @@ static int t_map_resize(t_map *m, size_t new_cap) {
     return 0;
 }
 
-static void t_map_grow_if_needed(t_map *m) {
+static int t_map_grow_if_needed(t_map *m) {
     if (m->cap == 0) {
-        t_map_resize(m, 8);
-    } else if (m->len * 10 >= m->cap * 7) {
-        t_map_resize(m, m->cap * 2);
+        return t_map_resize(m, 8);
     }
+    if (m->len * 10 >= m->cap * 7) {
+        return t_map_resize(m, m->cap * 2);
+    }
+    return 0;
 }
 
 int t_map_insert(t_map *m, const char *key, void *val) {
     if (!m || !key) return -1;
-    t_map_grow_if_needed(m);
+    if (t_map_grow_if_needed(m) != 0) return -1;
+    if (m->cap == 0) return -1;
     size_t cap = m->cap;
     uint64_t h = t_hash_str(key);
     size_t idx = (size_t)(h % (uint64_t)cap);
@@ -100,6 +103,7 @@ int t_map_insert(t_map *m, const char *key, void *val) {
             }
             if (e->key) free(e->key);
             e->key = strdup(key);
+            if (!e->key) return -1;
             e->val = val;
             e->occupied = 1;
             m->len++;

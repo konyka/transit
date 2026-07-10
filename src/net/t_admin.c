@@ -63,6 +63,10 @@ t_admin *t_admin_create(t_evloop *loop, const char *host, int port) {
     if (!a) return NULL;
     a->loop = loop;
     a->host = host ? strdup(host) : strdup("127.0.0.1");
+    if (!a->host) {
+        free(a);
+        return NULL;
+    }
     a->port = port;
     a->listen_fd = -1;
     a->running = 0;
