@@ -31,7 +31,8 @@ jobs:
           cmake-version: '3.16.x'
       
       - name: Configure
-        run: cmake -B build -DCMAKE_C_COMPILER=${{ matrix.cc }} -DENABLE_WERROR=ON
+        # -Werror is always enabled via cmake/CompilerFlags.cmake
+        run: cmake -B build -DCMAKE_C_COMPILER=${{ matrix.cc }}
         env:
           CC: ${{ matrix.cc }}
       

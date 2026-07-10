@@ -71,6 +71,35 @@ T_TEST(ttl_expire_all) {
     t_ttl_destroy(ttl);
 }
 
+T_TEST(ttl_expire_large_batch) {
+    /* Regression: old impl capped removals at 256 per expire() call. */
+    enum { N = 512 };
+    t_ttl *ttl = t_ttl_create(on_expire, NULL);
+    g_expired_count = 0;
+    for (int i = 0; i < N; i++) {
+        T_ASSERT_EQ(t_ttl_add(ttl, (uint64_t)(i + 1), "t", NULL, 0, 50), 0);
+    }
+    T_ASSERT_EQ((int)t_ttl_count(ttl), N);
+    size_t n = t_ttl_expire(ttl, 100);
+    T_ASSERT_EQ((int)n, N);
+    T_ASSERT_EQ((int)g_expired_count, N);
+    T_ASSERT_EQ((int)t_ttl_count(ttl), 0);
+    t_ttl_destroy(ttl);
+}
+
+T_TEST(ttl_replace_and_lazy_stale) {
+    t_ttl *ttl = t_ttl_create(on_expire, NULL);
+    g_expired_count = 0;
+    t_ttl_add(ttl, 1, "old", NULL, 0, 100);
+    t_ttl_add(ttl, 1, "new", NULL, 0, 9999); /* replace: old heap node stale */
+    T_ASSERT_EQ((int)t_ttl_count(ttl), 1);
+    size_t n = t_ttl_expire(ttl, 200);
+    T_ASSERT_EQ((int)n, 0);
+    T_ASSERT_EQ((int)t_ttl_count(ttl), 1);
+    T_ASSERT_EQ(t_ttl_is_expired(ttl, 1, 200), 0);
+    t_ttl_destroy(ttl);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

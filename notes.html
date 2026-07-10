@@ -375,6 +375,46 @@
         <p>t_shutdown: signal-aware evloop stop connecting SIGINT/SIGTERM to clean shutdown with logging.</p>
     </div>
 
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 38: Documentation Stats Refresh</h3>
+        <p class="date">Completed: 2026-05-27</p>
+        <p>README project stats and test inventory updated after Phase 33–37 landings.</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 39: Consumer Groups</h3>
+        <p class="date">Completed: 2026-05-27</p>
+        <p>t_cgroup: consumer group with round-robin dispatch, add/remove consumers, dispatch counters.</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 40: Message TTL</h3>
+        <p class="date">Completed: 2026-05-27</p>
+        <p>t_ttl: message TTL with expiry tracking (initially map-scan based).</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 41: Per-Connection Rate Limiter</h3>
+        <p class="date">Completed: 2026-05-27</p>
+        <p>t_ratelimit: token-bucket allow/available/reset with allowed/rejected counters.</p>
+    </div>
+
+    <div class="phase done">
+        <span class="status done">DONE</span>
+        <h3>Phase 42: Review Fixes + TTL Heap Expiry</h3>
+        <p class="date">Completed: 2026-07-10</p>
+        <ul>
+            <li>Fixed t_ttl_expire 256-entry batch cap: map + min-heap + lazy stale deletion (O(k log n))</li>
+            <li>transit.h: export t_cgroup, t_ttl, t_ratelimit, t_shutdown</li>
+            <li>CI: drop undefined ENABLE_WERROR (Werror already on via CompilerFlags.cmake)</li>
+            <li>Docs: README/notes/examples aligned (IOCP status, GPLv3, 34 suites, Phase 38–41)</li>
+        </ul>
+    </div>
+
     <h2 id="changelog">Changelog</h2>
     <div class="phase">
         <h3>2026-05-26</h3>
@@ -420,16 +460,32 @@
             <li>Phase 35 complete: Credit-based flow control with backpressure (6 tests)</li>
             <li>Phase 36 complete: Dead letter queue for failed messages (6 tests)</li>
             <li>Phase 37 complete: Graceful shutdown integration (signal → evloop stop with logging)</li>
-            <li>31 test suites, 100% pass rate (regular + ASan + UBSan)</li>
-            <li>51 source files, 53 headers, ~9,500 LOC, zero external dependencies</li>
-            <li>All 37 phases complete, all pushed to remote</li>
+            <li>Phase 38 complete: README stats refresh</li>
+            <li>Phase 39 complete: Consumer groups with round-robin dispatch</li>
+            <li>Phase 40 complete: Message TTL with expiry tracking</li>
+            <li>Phase 41 complete: Per-connection token bucket rate limiter</li>
+            <li>Phase 42 complete: TTL heap expiry fix + docs/API/CI sync</li>
+            <li>34 test executables, 100% pass rate (regular + ASan + UBSan)</li>
+            <li>50 source files, 52 headers, ~8,300 LOC source+headers, zero external dependencies</li>
+            <li>All 42 phases complete</li>
+        </ul>
+    </div>
+
+    <div class="phase">
+        <h3>2026-07-10</h3>
+        <ul>
+            <li>Repo review: fixed t_ttl_expire silent drop beyond 256 due entries</li>
+            <li>TTL now uses hashmap + min-heap with lazy deletion for O(k log n) expiry</li>
+            <li>Unified header exports cgroup/ttl/ratelimit/shutdown</li>
+            <li>CI configure no longer passes undefined ENABLE_WERROR</li>
+            <li>README: Windows IOCP marked implemented; license corrected to GPLv3</li>
         </ul>
     </div>
 
     <hr>
     <p style="text-align:center; color:#999; margin-top:40px;">
         Transit MQ - Pure C High-Performance Message Queue<br>
-        Last updated: 2026-05-26
+        Last updated: 2026-07-10
     </p>
 </body>
 </html>

@@ -1,15 +1,26 @@
 # Transit MQ - Examples
 
-This directory contains two small C examples that illustrate how to use the Transit MQ APIs:
-- demo_broker.c: A complete broker lifecycle demo with queue creation, publishing, subscribing, and statistics.
-- demo_cluster.c: A basic cluster/raft demo showing node addition, leadership, and log entry handling.
+This directory contains C examples that illustrate how to use the Transit MQ APIs:
 
-Build and run
-- Ensure you build with examples enabled: cmake -B build -DBUILD_EXAMPLES=ON --fresh; cmake --build build
-- Run the executables:
-  ./build/examples/demo_broker
-  ./build/examples/demo_cluster
+- `demo_broker.c` — Broker lifecycle: queue creation, publish, subscribe, statistics
+- `demo_cluster.c` — Cluster/Raft: node addition, leadership, log entries
+- `demo_full.c` — Cross-subsystem demo (broker, dispatch, routing, cluster, storage, protocol)
+- `transit-server.c` — Integrated server binary (config, admin HTTP, broker, evloop, signal, shutdown)
 
-Notes
-- These examples rely on the project headers and do not pull in external libraries.
-- They are intended for quick manual testing and demonstrations, not for production use.
+## Build and run
+
+```bash
+cmake -B build -DBUILD_EXAMPLES=ON
+cmake --build build
+
+./build/examples/demo_broker
+./build/examples/demo_cluster
+./build/examples/demo_full
+./build/examples/transit-server   # optional: pass a config path
+```
+
+## Notes
+
+- Examples link only against the in-tree `transit` static library (zero external deps).
+- Intended for manual testing and demos, not production deployment.
+- Prefer `#include "transit.h"` for the full public API surface.

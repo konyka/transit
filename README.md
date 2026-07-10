@@ -8,18 +8,20 @@ Reimplements Bloomberg's [BlazingMQ](https://github.com/bloomberg/blazingmq) fea
 
 ```
 src/
-├── core/        compiler, atomics, time, mutex, spinlock, rwlock, error, log, version
+├── core/        compiler, atomics, time, mutex, spinlock, rwlock, error, log,
+│                version, signal, config, graceful shutdown
 ├── memory/      tiered pool, slab allocator, refcount buffer, arena
 ├── collections/ vec, map, list, SPSC ringbuf, Vyukov MPMC, priority queue
-├── event/       epoll event loop (Linux) + kqueue backend (macOS), min-heap timer
+├── event/       epoll / kqueue / IOCP backends (vtable), min-heap timer
 ├── threadpool/  work-stealing thread pool with per-worker MPMC queues
 ├── coroutine/   pure x86-64 assembly context switch (6 callee-saved regs)
-├── net/         non-blocking socket, TCP server, protocol-framed connection
+├── net/         non-blocking socket, TCP, framed conn, admin HTTP, ratelimit
 ├── protocol/    binary wire protocol (16-byte header), CRC32C Castagnoli
 ├── storage/     in-memory + file-backed hashmap, POSIX mmap wrapper
-├── queue/       FIFO/priority/broadcast queues, topic router (wildcard * #)
+├── queue/       FIFO/priority/broadcast, topic router (* #), flowcontrol,
+│                DLQ, message TTL (heap+map), consumer groups
 ├── session/     session lifecycle, activity tracking, timeout detection
-├── client/      queue registry, publish/subscribe, connection management
+├── client/      queue registry, publish/subscribe (in-process stub)
 ├── broker/      domain management, publish/subscribe, dispatcher
 └── cluster/     simplified Raft consensus, node membership, leader election
 ```
@@ -46,30 +48,42 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 ## Test Results
 
-31 test suites, 100% pass rate (regular + ASan + UBSan clean):
+34 test executables (29 unit + 2 integration + 3 benchmark), 100% pass rate
+(regular + ASan + UBSan clean):
 
 | Test | Description |
 |------|-------------|
+| test_admin | Admin HTTP stats endpoint |
 | test_broker | Broker domain/queue/pubsub management |
+| test_cgroup | Consumer group round-robin dispatch |
 | test_cluster | Raft consensus + cluster membership |
 | test_collections_lockfree | SPSC ringbuf + MPMC Vyukov queue |
+| test_config | INI-style configuration parser |
 | test_conn | TCP connection with protocol framing |
 | test_core_primitives | Compiler, atomics, time, mutex, spinlock, rwlock |
 | test_coroutine | Assembly context switch + resume/yield |
 | test_dispatch | Dispatcher session-aware message routing |
+| test_dlq | Dead letter queue for failed messages |
 | test_error_log | Error handling + logging |
-| test_event_timer | Epoll event loop + min-heap timer |
+| test_event_timer | Event loop + min-heap timer |
+| test_flowcontrol | Credit-based flow control / backpressure |
 | test_memory_buf | Tiered pool, slab, refcount buffer, arena |
 | test_memory_pool | Memory pool allocation patterns |
+| test_mpmc_stress | MPMC 2P/2C concurrent stress |
 | test_net_tcp | Non-blocking socket + TCP server/client |
 | test_proto | Binary wire protocol + CRC32C |
 | test_queue | FIFO/priority/broadcast queues + router |
+| test_ratelimit | Per-connection token bucket rate limiter |
 | test_session | Session lifecycle + activity tracking |
+| test_shutdown | Graceful shutdown (signal → evloop stop) |
+| test_signal | SIGPIPE/SIGINT/SIGTERM handling |
 | test_storage | In-memory/file storage + mmap |
 | test_sync_primitives | Thread synchronization primitives |
 | test_test_framework | Self-built test framework |
 | test_threadpool | Work-stealing thread pool |
+| test_ttl | Message TTL with heap+map expiry |
 | test_integration | Cross-module: broker+router+cluster+proto+storage+coro+tpool |
+| test_conn_integration | socketpair TCP + evloop + protocol frames |
 | bench_queue | Queue throughput benchmarks |
 | bench_collections | Map/vec/MPMC performance benchmarks |
 | bench_memory | Pool/arena/buf allocation benchmarks |
@@ -77,9 +91,10 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 ## Examples
 
 ```bash
-./build/examples/demo_broker    # Broker publish/subscribe demo
-./build/examples/demo_cluster   # Raft consensus + cluster demo
-./build/examples/demo_full      # Comprehensive demo (all subsystems)
+./build/examples/demo_broker      # Broker publish/subscribe demo
+./build/examples/demo_cluster     # Raft consensus + cluster demo
+./build/examples/demo_full        # Comprehensive demo (all subsystems)
+./build/examples/transit-server   # Integrated server (config+admin+broker+evloop)
 ```
 
 ## Benchmarks (Linux, GCC)
@@ -96,7 +111,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 - **Linux**: epoll backend (primary, fully tested)
 - **macOS**: kqueue backend (implemented, conditional via `T_HAVE_KQUEUE`)
-- **Windows**: IOCP (planned)
+- **Windows**: IOCP backend (implemented, conditional via `T_HAVE_IOCP`)
 
 CI runs on all three platforms via GitHub Actions.
 
@@ -121,12 +136,12 @@ int main(void) {
 
 ## Project Stats
 
-- 46 source files, 49 headers
-- ~6,100 LOC (source)
-- ~3,200 LOC (tests)
+- 50 source files (`.c`/`.S`), 52 headers
+- ~6,400 LOC (source), ~1,900 LOC (headers)
+- ~3,500 LOC (tests)
 - Zero external dependencies
 - Single `#include "transit.h"` for all APIs
 
 ## License
 
-MIT
+GPLv3 — see [LICENSE](LICENSE).
