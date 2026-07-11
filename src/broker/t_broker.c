@@ -10,6 +10,19 @@ typedef struct t_broker {
     int running;
 } t_broker;
 
+static t_domain *broker_find_queue_domain(t_broker *broker, const char *queue_name) {
+    t_domain *def = t_broker_get_domain(broker, "default");
+    if (def && t_domain_get_queue(def, queue_name)) return def;
+    t_map_iter it = t_map_iter_begin(&broker->domains);
+    const char *k; void *v;
+    while (t_map_iter_next(&it, &k, &v)) {
+        t_domain *d = (t_domain *)v;
+        if (d == def) continue;
+        if (t_domain_get_queue(d, queue_name)) return d;
+    }
+    return NULL;
+}
+
 /* Helpers */
 t_broker *t_broker_create(const char *broker_id) {
     if (!broker_id) return NULL;
@@ -125,62 +138,25 @@ int t_broker_delete_queue(t_broker *broker, const char *domain_name,
 int t_broker_publish(t_broker *broker, const char *queue_name,
                      const uint8_t *data, size_t len, int priority) {
     if (!broker || !queue_name || (len > 0 && !data)) return -1;
-    /* try default domain first */
-    t_domain *def = t_broker_get_domain(broker, "default");
-    if (def && t_domain_publish(def, queue_name, data, len, priority) == 0) {
-        return 0;
-    }
-    /* search across other domains */
-    t_map_iter it = t_map_iter_begin(&broker->domains);
-    const char *k; void *v;
-    while (t_map_iter_next(&it, &k, &v)) {
-        t_domain *d = (t_domain *)v;
-        if (d == def) continue;
-        if (t_domain_publish(d, queue_name, data, len, priority) == 0) {
-            return 0;
-        }
-    }
-    return -1;
+    t_domain *d = broker_find_queue_domain(broker, queue_name);
+    if (!d) return -1;
+    return t_domain_publish(d, queue_name, data, len, priority);
 }
 
 int t_broker_subscribe(t_broker *broker, const char *queue_name,
                         t_broker_msg_cb cb, void *ud) {
     if (!broker || !queue_name || !cb) return -1;
-    /* wrap user cb into domain callback */
-    int res = -1;
-    t_domain *def = t_broker_get_domain(broker, "default");
-    if (def && t_domain_subscribe(def, queue_name, cb, ud) == 0) {
-        return 0;
-    }
-    t_map_iter it = t_map_iter_begin(&broker->domains);
-    const char *k; void *v;
-    while (t_map_iter_next(&it, &k, &v)) {
-        t_domain *d = (t_domain *)v;
-        if (d == def) continue;
-        if (t_domain_subscribe(d, queue_name, cb, ud) == 0) {
-            return 0;
-        }
-    }
-    return res;
+    t_domain *d = broker_find_queue_domain(broker, queue_name);
+    if (!d) return -1;
+    return t_domain_subscribe(d, queue_name, cb, ud);
 }
 
 int t_broker_unsubscribe(t_broker *broker, const char *queue_name,
                          t_broker_msg_cb cb, void *ud) {
     if (!broker || !queue_name || !cb) return -1;
-    t_domain *def = t_broker_get_domain(broker, "default");
-    if (def && t_domain_unsubscribe(def, queue_name, cb, ud) == 0) {
-        return 0;
-    }
-    t_map_iter it = t_map_iter_begin(&broker->domains);
-    const char *k; void *v;
-    while (t_map_iter_next(&it, &k, &v)) {
-        t_domain *d = (t_domain *)v;
-        if (d == def) continue;
-        if (t_domain_unsubscribe(d, queue_name, cb, ud) == 0) {
-            return 0;
-        }
-    }
-    return -1;
+    t_domain *d = broker_find_queue_domain(broker, queue_name);
+    if (!d) return -1;
+    return t_domain_unsubscribe(d, queue_name, cb, ud);
 }
 
 size_t t_broker_total_queues(const t_broker *broker) {

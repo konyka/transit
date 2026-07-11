@@ -65,11 +65,16 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
             entry->key = key;
             pos += (size_t)len;
             key_to_str(key, keybuf, sizeof(keybuf));
+            t_storage_entry *old = (t_storage_entry*)t_map_get(&st->map, keybuf);
             if (t_map_insert(&st->map, keybuf, entry) != 0) {
                 free(entry->data);
                 free(entry);
                 free(buf);
                 return -1;
+            }
+            if (old) {
+                free(old->data);
+                free(old);
             }
         } else {
             t_storage_entry *entry = (t_storage_entry*)calloc(1, sizeof(t_storage_entry));
@@ -78,10 +83,15 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
             entry->data = NULL;
             entry->data_len = 0;
             key_to_str(key, keybuf, sizeof(keybuf));
+            t_storage_entry *old = (t_storage_entry*)t_map_get(&st->map, keybuf);
             if (t_map_insert(&st->map, keybuf, entry) != 0) {
                 free(entry);
                 free(buf);
                 return -1;
+            }
+            if (old) {
+                free(old->data);
+                free(old);
             }
         }
     }

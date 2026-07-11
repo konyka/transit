@@ -308,7 +308,12 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
     t_admin *admin = c->admin;
     if (events & T_EV_READ) {
         ssize_t r = read(c->fd, c->buf + c->len, T_ADMIN_BUF_SIZE - c->len - 1);
-        if (r <= 0) {
+        if (r < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+            admin_remove_client(admin, c);
+            return;
+        }
+        if (r == 0) {
             admin_remove_client(admin, c);
             return;
         }
@@ -334,6 +339,7 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
         }
         if (c->len >= T_ADMIN_BUF_SIZE - 1) {
             admin_remove_client(admin, c);
+            return;
         }
     }
     if (events & T_EV_WRITE) {
