@@ -165,7 +165,7 @@ int64_t t_timer_process(t_timer *t) {
     if (t->destroy_pending) {
         free(t->heap);
         free(t);
-        return -1;
+        return -2; /* timer freed; caller must not t_timer_destroy again */
     }
     if (t->count == 0) return -1;
     int64_t next = t->heap[0].expire_ms - t_time_now_ms();

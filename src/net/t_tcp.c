@@ -174,13 +174,18 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
         if (conn->on_read) {
             /* Heap copy so callbacks may retain the pointer until return. */
             unsigned char *buf = (unsigned char *)malloc((size_t)r);
-            if (buf) {
+            if (!buf) {
+                /* OOM: do not silently drop delivered bytes. */
+                r = -1;
+                errno = ENOMEM;
+            } else {
                 memcpy(buf, stack_buf, (size_t)r);
                 conn->on_read(conn, buf, (size_t)r, conn->user_data);
                 free(buf);
             }
         }
-    } else if (!(r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))) {
+    }
+    if (r <= 0 && !(r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))) {
         if (!conn->closed) {
             conn->closed = 1;
             if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
@@ -213,6 +218,20 @@ int t_tcp_conn_stop_read(t_tcp_conn *conn) {
 }
 
 ssize_t t_tcp_conn_write(t_tcp_conn *conn, const void *buf, size_t len) {
-    if (!conn || conn->closed || conn->fd < 0) return -1;
-    return t_socket_write(conn->fd, buf, len);
+    if (!conn || conn->closed || conn->fd < 0 || !buf) return -1;
+    const unsigned char *p = (const unsigned char *)buf;
+    size_t left = len;
+    size_t written = 0;
+    while (left > 0) {
+        ssize_t n = t_socket_write(conn->fd, p + written, left);
+        if (n > 0) {
+            written += (size_t)n;
+            left -= (size_t)n;
+            continue;
+        }
+        if (n < 0 && errno == EINTR) continue;
+        if (written > 0) return (ssize_t)written; /* partial; caller must continue */
+        return -1;
+    }
+    return (ssize_t)written;
 }

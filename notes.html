@@ -566,6 +566,8 @@
             <li>raft apply_cb invokes FSM on committed entries; signal uninstall restores handlers</li>
             <li>closed queues reject new consumers; conn consumes frame before on_msg</li>
             <li>tcp on_read heap-copies buffer; flowcontrol credits under mutex</li>
+            <li>tcp read OOM closes conn; write loops/returns partial; conn send_mu</li>
+            <li>t_timer_process returns -2 when callback destroyed the timer</li>
         </ul>
     </div>
 

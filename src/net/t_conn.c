@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
 /* TCP connection with wire-protocol framing over t_evloop. */
 
@@ -24,6 +25,7 @@ struct t_conn {
     uint8_t *send_buf;
     size_t   send_len;
     size_t   send_cap;
+    pthread_mutex_t send_mu;
 
     t_conn_msg_cb on_msg;
     void           *on_msg_ud;
@@ -77,6 +79,7 @@ static void t_conn_free(t_conn *conn) {
     if (!conn) return;
     free(conn->recv_buf);
     free(conn->send_buf);
+    pthread_mutex_destroy(&conn->send_mu);
     if (conn->fd >= 0) close(conn->fd);
     free(conn);
 }
@@ -93,6 +96,11 @@ t_conn *t_conn_create(int fd, t_evloop *loop)
         close(fd);
         return NULL;
     }
+    if (pthread_mutex_init(&conn->send_mu, NULL) != 0) {
+        free(conn);
+        close(fd);
+        return NULL;
+    }
     conn->fd = fd;
     conn->loop = loop;
     conn->recv_cap = T_CONN_INIT_CAP;
@@ -102,6 +110,7 @@ t_conn *t_conn_create(int fd, t_evloop *loop)
     if (!conn->recv_buf || !conn->send_buf) {
         free(conn->recv_buf);
         free(conn->send_buf);
+        pthread_mutex_destroy(&conn->send_mu);
         free(conn);
         close(fd);
         return NULL;
@@ -132,21 +141,36 @@ void t_conn_destroy(t_conn *conn)
 
 int t_conn_send(t_conn *conn, const t_proto_msg *msg)
 {
-    if (!conn || !msg || conn->closed) return -1;
+    if (!conn || !msg) return -1;
     if (msg->payload_len > T_PROTO_MAX_PAYLOAD) return -1;
     if (msg->payload_len > SIZE_MAX - T_PROTO_HEADER_SIZE) return -1;
     size_t frame_len = T_PROTO_HEADER_SIZE + msg->payload_len;
-    if (frame_len > SIZE_MAX - conn->send_len) return -1;
+
+    pthread_mutex_lock(&conn->send_mu);
+    if (conn->closed) {
+        pthread_mutex_unlock(&conn->send_mu);
+        return -1;
+    }
+    if (frame_len > SIZE_MAX - conn->send_len) {
+        pthread_mutex_unlock(&conn->send_mu);
+        return -1;
+    }
 
     size_t needed = conn->send_len + frame_len;
     if (conn->send_cap < needed) {
         size_t new_cap = conn->send_cap ? conn->send_cap * 2 : T_CONN_INIT_CAP;
         while (new_cap < needed) {
-            if (new_cap > SIZE_MAX / 2) return -1;
+            if (new_cap > SIZE_MAX / 2) {
+                pthread_mutex_unlock(&conn->send_mu);
+                return -1;
+            }
             new_cap *= 2;
         }
         uint8_t *new_buf = (uint8_t *)realloc(conn->send_buf, new_cap);
-        if (!new_buf) return -1;
+        if (!new_buf) {
+            pthread_mutex_unlock(&conn->send_mu);
+            return -1;
+        }
         conn->send_buf = new_buf;
         conn->send_cap = new_cap;
     }
@@ -159,7 +183,10 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
         enc.header.payload_len = (uint32_t)msg->payload_len;
     }
     int n = t_proto_encode_msg(&enc, conn->send_buf + conn->send_len, conn->send_cap - conn->send_len);
-    if (n < 0) return -1;
+    if (n < 0) {
+        pthread_mutex_unlock(&conn->send_mu);
+        return -1;
+    }
 
     conn->send_len += (size_t)n;
     conn->msgs_sent += 1;
@@ -169,14 +196,19 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
         if (t_evloop_mod(conn->loop, &conn->io, T_EV_READ | T_EV_WRITE) != 0) {
             conn->send_len -= (size_t)n;
             conn->msgs_sent -= 1;
+            pthread_mutex_unlock(&conn->send_mu);
             return -1;
         }
+        pthread_mutex_unlock(&conn->send_mu);
     } else {
         /* No event loop: briefly block so the frame is fully flushed. */
         int flags = fcntl(conn->fd, F_GETFL, 0);
         if (flags >= 0) (void)fcntl(conn->fd, F_SETFL, flags & ~O_NONBLOCK);
+        /* handle_write takes send_mu; unlock first to avoid deadlock. */
+        pthread_mutex_unlock(&conn->send_mu);
         t_conn_handle_write(conn);
         if (flags >= 0) (void)fcntl(conn->fd, F_SETFL, flags);
+        pthread_mutex_lock(&conn->send_mu);
         if (conn->closed || conn->send_len > 0) {
             if (!conn->closed) {
                 /* Drop any unsent remnant of this frame to avoid splicing. */
@@ -184,8 +216,10 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
                 else conn->send_len = 0;
             }
             conn->msgs_sent -= 1;
+            pthread_mutex_unlock(&conn->send_mu);
             return -1;
         }
+        pthread_mutex_unlock(&conn->send_mu);
     }
     return 0;
 }
@@ -327,7 +361,14 @@ static void t_conn_handle_read(t_conn *conn)
 
 static void t_conn_handle_write(t_conn *conn)
 {
-    if (!conn || conn->closed) return;
+    if (!conn) return;
+    int do_close = 0;
+    int drained = 0;
+    pthread_mutex_lock(&conn->send_mu);
+    if (conn->closed) {
+        pthread_mutex_unlock(&conn->send_mu);
+        return;
+    }
     while (conn->send_len > 0) {
         ssize_t n = write(conn->fd, conn->send_buf, conn->send_len);
         if (n > 0) {
@@ -337,15 +378,24 @@ static void t_conn_handle_write(t_conn *conn)
                 memmove(conn->send_buf, conn->send_buf + n, conn->send_len);
             }
         } else if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return;
-            t_conn_close_now(conn);
-            return;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+                pthread_mutex_unlock(&conn->send_mu);
+                return;
+            }
+            do_close = 1;
+            break;
         } else {
-            t_conn_close_now(conn);
-            return;
+            do_close = 1;
+            break;
         }
     }
-    if (conn->loop) {
+    drained = (!do_close && conn->send_len == 0);
+    pthread_mutex_unlock(&conn->send_mu);
+    if (do_close) {
+        t_conn_close_now(conn);
+        return;
+    }
+    if (drained && conn->loop) {
         t_evloop_mod(conn->loop, &conn->io, T_EV_READ);
     }
 }
