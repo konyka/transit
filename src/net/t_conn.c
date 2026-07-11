@@ -141,7 +141,11 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
     /* bytes_sent counted only on successful write in handle_write */
 
     if (conn->loop) {
-        t_evloop_mod(conn->loop, &conn->io, T_EV_READ | T_EV_WRITE);
+        if (t_evloop_mod(conn->loop, &conn->io, T_EV_READ | T_EV_WRITE) != 0) {
+            conn->send_len -= (size_t)n;
+            conn->msgs_sent -= 1;
+            return -1;
+        }
     }
     return 0;
 }

@@ -57,6 +57,17 @@ T_TEST(storage_mem_overwrite) {
     t_storage_destroy(s);
 }
 
+T_TEST(storage_mem_empty_value) {
+    t_storage *s = t_storage_create(T_STORAGE_MEM, NULL);
+    T_ASSERT_EQ(t_storage_put(s, 42, NULL, 0), 0);
+    T_ASSERT_TRUE(t_storage_contains(s, 42));
+    void *data = (void *)0x1; size_t len = 99;
+    T_ASSERT_EQ(t_storage_get(s, 42, &data, &len), 0);
+    T_ASSERT_EQ((int)len, 0);
+    T_ASSERT(data == NULL);
+    t_storage_destroy(s);
+}
+
 /* Simple mmap lifecyle tests */
 T_TEST(mmap_create_close) {
     const char *path = "/tmp/test_transit_mmap.bin";

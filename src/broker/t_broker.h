@@ -32,6 +32,8 @@ int         t_broker_publish(t_broker *broker, const char *queue_name,
                               const uint8_t *data, size_t len, int priority);
 int         t_broker_subscribe(t_broker *broker, const char *queue_name,
                                 t_broker_msg_cb cb, void *ud);
+int         t_broker_unsubscribe(t_broker *broker, const char *queue_name,
+                                  t_broker_msg_cb cb, void *ud);
 
 size_t      t_broker_total_queues(const t_broker *broker);
 size_t      t_broker_total_messages(const t_broker *broker);

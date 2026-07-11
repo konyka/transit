@@ -310,6 +310,22 @@ int t_queue_remove_consumer(t_queue *q, uint64_t consumer_id) {
     return 0;
 }
 
+int t_queue_remove_consumer_ud(t_queue *q, void *ud) {
+    if (!q) return -1;
+    for (size_t i = 0; i < q->consumers.len; ++i) {
+        t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
+        if (cb && cb->cb_ud == ud) {
+            free(cb);
+            for (size_t j = i; j + 1 < q->consumers.len; ++j) {
+                q->consumers.items[j] = q->consumers.items[j + 1];
+            }
+            q->consumers.len--;
+            return 0;
+        }
+    }
+    return -1;
+}
+
 size_t t_queue_consumer_count(const t_queue *q) {
     return q ? q->consumers.len : 0;
 }

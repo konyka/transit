@@ -72,7 +72,17 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
                 return -1;
             }
         } else {
+            t_storage_entry *entry = (t_storage_entry*)calloc(1, sizeof(t_storage_entry));
+            if (!entry) { free(buf); return -1; }
+            entry->key = key;
+            entry->data = NULL;
+            entry->data_len = 0;
             key_to_str(key, keybuf, sizeof(keybuf));
+            if (t_map_insert(&st->map, keybuf, entry) != 0) {
+                free(entry);
+                free(buf);
+                return -1;
+            }
         }
     }
     if (pos != total) { free(buf); return -1; }
@@ -128,15 +138,19 @@ void t_storage_destroy(t_storage *storage) {
 }
 
 int t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len) {
-    if (!storage || !data) return -1;
+    if (!storage || (len > 0 && !data)) return -1;
     char keybuf[32]; key_to_str(key, keybuf, sizeof(keybuf));
     t_storage_entry *entry = (t_storage_entry*)malloc(sizeof(t_storage_entry));
     if (!entry) return -1;
-    entry->data = (uint8_t*)malloc(len);
-    if (!entry->data) { free(entry); return -1; }
-    memcpy(entry->data, data, len);
-    entry->data_len = len;
-    entry->key = key; /* not used by map directly, kept for compatibility */
+    entry->data = NULL;
+    entry->data_len = 0;
+    entry->key = key;
+    if (len > 0) {
+        entry->data = (uint8_t*)malloc(len);
+        if (!entry->data) { free(entry); return -1; }
+        memcpy(entry->data, data, len);
+        entry->data_len = len;
+    }
 
     /* If existing entry, remove to free memory */
     t_storage_entry *old = (t_storage_entry*)t_map_remove(&storage->map, keybuf);
@@ -218,10 +232,12 @@ int t_storage_flush(t_storage *storage) {
         uint8_t header[16];
         memcpy(header, &key, 8);
         memcpy(header + 8, &e->data_len, 8);
-        ssize_t w = write(fd, header, 16);
+        ssize_t         w = write(fd, header, 16);
         if (w != 16) { close(fd); return -1; }
-        w = write(fd, e->data, e->data_len);
-        if ((size_t)w != e->data_len) { close(fd); return -1; }
+        if (e->data_len > 0) {
+            w = write(fd, e->data, e->data_len);
+            if ((size_t)w != e->data_len) { close(fd); return -1; }
+        }
         wrote += (16 + e->data_len);
     }
     if (fsync(fd) != 0) { close(fd); return -1; }

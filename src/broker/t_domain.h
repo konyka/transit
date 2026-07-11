@@ -23,6 +23,8 @@ int      t_domain_publish(t_domain *domain, const char *queue_name,
                           const uint8_t *data, size_t len, int priority);
 int      t_domain_subscribe(t_domain *domain, const char *queue_name,
                             void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud);
+int      t_domain_unsubscribe(t_domain *domain, const char *queue_name,
+                              void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud);
 
 /* Stats */
 size_t   t_domain_total_messages(const t_domain *domain);

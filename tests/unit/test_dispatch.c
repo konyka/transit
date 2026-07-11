@@ -48,6 +48,30 @@ T_TEST(dispatch_publish) {
     t_session_destroy(s);
 }
 
+T_TEST(dispatch_unsubscribe_stops_delivery) {
+    t_broker *b = t_broker_create("test-dispatch-unsub");
+    t_broker_start(b);
+    t_broker_create_queue(b, "default", "unsub.q", T_QUEUE_BROADCAST, 0);
+    t_dispatch *d = t_dispatch_create(b);
+    t_session *s = t_session_create(2);
+    t_dispatch_register(d, 2, s);
+    T_ASSERT_EQ(t_dispatch_subscribe(d, 2, "unsub.q"), 0);
+
+    uint8_t msg[] = "x";
+    T_ASSERT_EQ(t_dispatch_publish(d, 2, "unsub.q", msg, 1, 0), 0);
+    T_ASSERT_EQ((int)t_dispatch_total_delivered(d), 1);
+
+    T_ASSERT_EQ(t_dispatch_unsubscribe(d, 2, "unsub.q"), 0);
+    T_ASSERT_EQ(t_dispatch_publish(d, 2, "unsub.q", msg, 1, 0), 0);
+    T_ASSERT_EQ((int)t_dispatch_total_delivered(d), 1);
+    T_ASSERT_EQ(t_dispatch_unsubscribe(d, 2, "unsub.q"), -1);
+
+    t_dispatch_destroy(d);
+    t_broker_stop(b);
+    t_broker_destroy(b);
+    t_session_destroy(s);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

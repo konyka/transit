@@ -68,15 +68,18 @@ t_dispatch *t_dispatch_create(t_broker *broker) {
 
 void t_dispatch_destroy(t_dispatch *disp) {
     if (!disp) return;
-    /* Free stored subscriptions metadata */
+    /* Unsubscribe from broker before freeing cbud (avoids UAF on late delivery). */
     if (disp->subscriptions.items) {
         for (size_t i = 0; i < disp->subscriptions.len; ++i) {
             t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
-            if (sub) {
-                if (sub->queue_name) free(sub->queue_name);
-                if (sub->cbud) free(sub->cbud);
-                free(sub);
+            if (!sub) continue;
+            if (sub->queue_name && sub->cbud) {
+                t_broker_unsubscribe(disp->broker, sub->queue_name,
+                                     dispatch_deliver_cb, sub->cbud);
             }
+            free(sub->queue_name);
+            free(sub->cbud);
+            free(sub);
         }
     }
     t_vec_destroy(&disp->subscriptions);
@@ -149,7 +152,7 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
     }
     /* record subscription for bookkeeping */
     if (t_vec_push(&disp->subscriptions, sub) != 0) {
-        /* best-effort cleanup */
+        t_broker_unsubscribe(disp->broker, queue_name, dispatch_deliver_cb, cbud);
         free(sub->queue_name);
         free(sub);
         free(cbud);
@@ -165,6 +168,7 @@ int t_dispatch_unsubscribe(t_dispatch *disp, uint64_t session_id, const char *qu
         if (!sub) continue;
         if (sub->session_id == session_id && sub->queue_name &&
             strcmp(sub->queue_name, queue_name) == 0) {
+            t_broker_unsubscribe(disp->broker, queue_name, dispatch_deliver_cb, sub->cbud);
             free(sub->queue_name);
             free(sub->cbud);
             free(sub);

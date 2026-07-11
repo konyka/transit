@@ -42,6 +42,7 @@ size_t        t_queue_pending_count(const t_queue *q);
 
 uint64_t      t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud);
 int           t_queue_remove_consumer(t_queue *q, uint64_t consumer_id);
+int           t_queue_remove_consumer_ud(t_queue *q, void *ud);
 size_t        t_queue_consumer_count(const t_queue *q);
 
 int           t_queue_ack(t_queue *q, uint64_t msg_id);

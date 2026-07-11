@@ -135,6 +135,25 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
     return 0;
 }
 
+int t_domain_unsubscribe(t_domain *domain, const char *queue_name,
+                         void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud) {
+    if (!domain || !queue_name || !cb) return -1;
+    t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
+    if (!q) return -1;
+    for (size_t i = 0; i < domain->sub_wrappers.len; ++i) {
+        t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
+        if (!ctx || ctx->cb.cb != cb || ctx->cb.ud != ud) continue;
+        if (t_queue_remove_consumer_ud(q, ctx) != 0) continue;
+        free(ctx);
+        for (size_t j = i; j + 1 < domain->sub_wrappers.len; ++j) {
+            domain->sub_wrappers.items[j] = domain->sub_wrappers.items[j + 1];
+        }
+        domain->sub_wrappers.len--;
+        return 0;
+    }
+    return -1;
+}
+
 size_t t_domain_total_messages(const t_domain *domain) {
     return domain ? domain->total_messages : 0;
 }
