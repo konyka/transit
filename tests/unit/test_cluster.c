@@ -104,6 +104,7 @@ T_TEST(raft_follower_transition) {
     T_ASSERT_EQ(t_raft_become_follower(r, 5), 0);
     T_ASSERT_EQ((int)t_raft_current_term(r), 5);
     T_ASSERT_EQ((int)t_raft_state(r), T_NODE_FOLLOWER);
+    T_ASSERT_EQ((int)t_raft_voted_for(r), 0);
     t_raft_destroy(r);
 }
 
@@ -132,6 +133,9 @@ T_TEST(raft_voting) {
     t_raft *r = t_raft_create(&cfg);
     T_ASSERT_EQ(t_raft_request_vote(r, 2, 1), 1);
     T_ASSERT_EQ((int)t_raft_current_term(r), 1);
+    T_ASSERT_EQ((int)t_raft_voted_for(r), 2);
+    T_ASSERT_EQ((int)t_raft_state(r), T_NODE_FOLLOWER);
+    T_ASSERT_EQ(t_raft_request_vote(r, 3, 1), 0); /* already voted this term */
     T_ASSERT_EQ((int)t_raft_voted_for(r), 2);
     T_ASSERT_EQ(t_raft_grant_vote(r, 3), 0);
     T_ASSERT_EQ((int)t_raft_voted_for(r), 3);

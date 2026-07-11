@@ -85,10 +85,12 @@ int t_raft_become_leader(t_raft *raft) {
 
 int t_raft_become_follower(t_raft *raft, uint64_t term) {
     if (!raft) return -1;
-    if (term >= raft->current_term) {
+    if (term < raft->current_term) return -1;
+    if (term > raft->current_term) {
         raft->current_term = term;
-        raft->state = T_NODE_FOLLOWER;
+        raft->voted_for = 0;
     }
+    raft->state = T_NODE_FOLLOWER;
     return 0;
 }
 
@@ -144,9 +146,14 @@ size_t t_raft_applied_count(const t_raft *raft) {
 int t_raft_request_vote(t_raft *raft, uint64_t candidate_id, uint64_t term) {
     if (!raft) return -1;
     if (term < raft->current_term) return 0;
-    raft->current_term = term;
+    if (term > raft->current_term) {
+        raft->current_term = term;
+        raft->voted_for = 0;
+        raft->state = T_NODE_FOLLOWER;
+    }
+    if (raft->voted_for != 0 && raft->voted_for != candidate_id) return 0;
     raft->voted_for = candidate_id;
-    raft->state = T_NODE_CANDIDATE;
+    raft->state = T_NODE_FOLLOWER;
     return 1;
 }
 

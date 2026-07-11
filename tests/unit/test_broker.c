@@ -38,6 +38,8 @@ T_TEST(broker_queue_mgmt) {
     T_ASSERT_EQ((int)t_broker_total_queues(b), 1);
     T_ASSERT_EQ(t_broker_create_queue(b, "default", "test.q", 0, 0), -1);
     T_ASSERT_EQ((int)t_broker_total_queues(b), 1);
+    T_ASSERT_EQ(t_broker_create_domain(b, "other") != NULL, 1);
+    T_ASSERT_EQ(t_broker_create_queue(b, "other", "test.q", 0, 0), -1);
     T_ASSERT_EQ(t_broker_delete_queue(b, "default", "test.q"), 0);
     T_ASSERT_EQ((int)t_broker_total_queues(b), 0);
     t_broker_destroy(b);

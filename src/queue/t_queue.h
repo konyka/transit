@@ -37,6 +37,7 @@ const char   *t_queue_name(const t_queue *q);
 t_qtype       t_queue_get_type(const t_queue *q);
 
 int           t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority);
+/* out_msg borrows inflight payload; valid until ack/nack/requeue/destroy. */
 int           t_queue_consume(t_queue *q, t_msg *out_msg);
 size_t        t_queue_pending_count(const t_queue *q);
 

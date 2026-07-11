@@ -227,9 +227,14 @@ int t_storage_flush(t_storage *storage) {
     if (!storage) return -1;
     if (storage->type != T_STORAGE_FILE) return 0;
     if (!storage->path) return 0;
-    /* Serialize all entries in a simple binary format to disk */
-    int fd = open(storage->path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) return -1;
+    /* Write to a temp file then rename for crash-safe replace. */
+    size_t plen = strlen(storage->path);
+    char *tmp = (char *)malloc(plen + 5);
+    if (!tmp) return -1;
+    memcpy(tmp, storage->path, plen);
+    memcpy(tmp + plen, ".tmp", 5);
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) { free(tmp); return -1; }
     t_map_iter it = t_map_iter_begin(&storage->map);
     const char *k;
     void *v;
@@ -237,21 +242,22 @@ int t_storage_flush(t_storage *storage) {
     while (t_map_iter_next(&it, &k, &v)) {
         t_storage_entry *e = (t_storage_entry*)v;
         if (!e) continue;
-        /* key as 8 bytes (we'll re-create key string to ensure deterministic parsing) */
         uint64_t key = str_to_key(k);
         uint8_t header[16];
         memcpy(header, &key, 8);
         memcpy(header + 8, &e->data_len, 8);
-        ssize_t         w = write(fd, header, 16);
-        if (w != 16) { close(fd); return -1; }
+        ssize_t w = write(fd, header, 16);
+        if (w != 16) { close(fd); unlink(tmp); free(tmp); return -1; }
         if (e->data_len > 0) {
             w = write(fd, e->data, e->data_len);
-            if ((size_t)w != e->data_len) { close(fd); return -1; }
+            if ((size_t)w != e->data_len) { close(fd); unlink(tmp); free(tmp); return -1; }
         }
-        wrote += (16 + e->data_len);
+        wrote += (16 + (off_t)e->data_len);
     }
-    if (fsync(fd) != 0) { close(fd); return -1; }
+    if (fsync(fd) != 0) { close(fd); unlink(tmp); free(tmp); return -1; }
     close(fd);
+    if (rename(tmp, storage->path) != 0) { unlink(tmp); free(tmp); return -1; }
+    free(tmp);
     storage->dirty = 0;
     (void)wrote;
     return 0;

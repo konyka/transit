@@ -521,6 +521,8 @@
             <li>admin inet_pton check; client queue grow uses need; dispatch empty-payload guard</li>
             <li>admin EAGAIN + full-buffer return; broker resolves queue domain once</li>
             <li>storage load frees overwritten entries on duplicate keys</li>
+            <li>raft vote stays follower and resets voted_for on new term</li>
+            <li>broker rejects cross-domain duplicate queue names; storage flush via temp+rename</li>
         </ul>
     </div>
 
