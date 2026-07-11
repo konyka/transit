@@ -150,21 +150,17 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
     (void)flags;
     (void)ud;
     t_tcp_conn *conn = (t_tcp_conn *)io->user_data;
-    (void)conn; /* silence unused in minimal build */
-    if (!conn) return;
+    if (!conn || conn->closed) return;
     unsigned char buf[4096];
     ssize_t r = t_socket_read(conn->fd, buf, sizeof(buf));
     if (r > 0) {
         if (conn->on_read) conn->on_read(conn, buf, (size_t)r, conn->user_data);
-    } else {
-        if (r == 0) {
-            if (conn->on_close) conn->on_close(conn, conn->user_data);
-        } else {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                if (conn->on_close) conn->on_close(conn, conn->user_data);
-            }
-        }
+        return;
     }
+    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
+    conn->closed = 1;
+    if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+    if (conn->on_close) conn->on_close(conn, conn->user_data);
 }
 
 int t_tcp_conn_start_read(t_tcp_conn *conn, t_tcp_read_cb cb, void *ud) {

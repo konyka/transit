@@ -59,6 +59,7 @@ int t_proto_msg_validate(const t_proto_msg *msg) {
 
 int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
     if (!msg || !buf) return -1;
+    if (msg->payload_len > 0 && !msg->payload) return -1;
     size_t total = T_PROTO_HEADER_SIZE + msg->payload_len;
     if (buf_len < total) return -1;
     t_proto_header hdr = msg->header;
@@ -66,7 +67,7 @@ int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
     // encode header with CRC=0
     if (t_proto_header_encode(&hdr, buf, buf_len) != 0) return -1;
     // copy payload
-    if (msg->payload_len > 0 && msg->payload) {
+    if (msg->payload_len > 0) {
         memcpy(buf + T_PROTO_HEADER_SIZE, msg->payload, msg->payload_len);
     }
     // compute CRC over header+payload (CRC field in header is zero during calc)

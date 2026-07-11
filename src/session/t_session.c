@@ -91,8 +91,8 @@ int t_session_check_timeout(t_session *sess, int64_t timeout_ns) {
     uint64_t now = _now_ns();
     uint64_t last = sess->last_activity_ns;
     if (last == 0) return 0;
-    uint64_t expiry = last + (uint64_t)timeout_ns;
-    return (now > expiry) ? 1 : 0;
+    if (now < last) return 0; /* clock went backwards */
+    return (now - last >= (uint64_t)timeout_ns) ? 1 : 0;
 }
 
 size_t t_session_msgs_sent(const t_session *sess) {

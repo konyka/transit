@@ -261,17 +261,41 @@ static void build_response(t_admin *admin, t_admin_client *c) {
     if (jlen < 0) jlen = 0;
     if ((size_t)jlen >= sizeof(json)) jlen = (int)(sizeof(json) - 1);
 
-    int n = snprintf(c->resp, sizeof(c->resp),
+    /* Keep Content-Length consistent with the body that actually fits. */
+    char header[160];
+    int hlen = snprintf(header, sizeof(header),
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/json\r\n"
         "Content-Length: %d\r\n"
         "Connection: close\r\n"
-        "\r\n"
-        "%s",
-        jlen, json);
-    if (n < 0) n = 0;
-    if ((size_t)n >= sizeof(c->resp)) n = (int)(sizeof(c->resp) - 1);
-    c->resp_len = (size_t)n;
+        "\r\n",
+        jlen);
+    if (hlen < 0 || (size_t)hlen >= sizeof(header)) {
+        c->resp_len = 0;
+        c->resp_sent = 0;
+        return;
+    }
+    if ((size_t)hlen + (size_t)jlen >= sizeof(c->resp)) {
+        jlen = (int)(sizeof(c->resp) - (size_t)hlen - 1);
+        if (jlen < 0) jlen = 0;
+        json[jlen] = '\0';
+        hlen = snprintf(header, sizeof(header),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n"
+            "\r\n",
+            jlen);
+        if (hlen < 0 || (size_t)hlen >= sizeof(header)) {
+            c->resp_len = 0;
+            c->resp_sent = 0;
+            return;
+        }
+    }
+    memcpy(c->resp, header, (size_t)hlen);
+    memcpy(c->resp + hlen, json, (size_t)jlen);
+    c->resp_len = (size_t)hlen + (size_t)jlen;
+    c->resp[c->resp_len] = '\0';
     c->resp_sent = 0;
 }
 

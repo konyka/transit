@@ -85,6 +85,15 @@ T_TEST(proto_decode_rejects_bad_magic) {
     T_ASSERT(t_proto_decode_msg(&out, buf, (size_t)n) != 0);
 }
 
+T_TEST(proto_encode_rejects_null_payload) {
+    uint8_t buf[64];
+    t_proto_msg msg;
+    t_proto_header_init(&msg.header, T_MSG_POST, 4);
+    msg.payload = NULL;
+    msg.payload_len = 4;
+    T_ASSERT(t_proto_encode_msg(&msg, buf, sizeof(buf)) != 0);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

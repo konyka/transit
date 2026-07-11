@@ -36,6 +36,7 @@ T_TEST(session_activity) {
     t_session_update_activity(s);
     T_ASSERT(t_session_last_activity_ns(s) > 0);
     T_ASSERT_EQ(t_session_check_timeout(s, 5000000000LL), 0);
+    T_ASSERT_EQ(t_session_check_timeout(s, 0), 0);
     t_session_destroy(s);
 }
 

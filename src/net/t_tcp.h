@@ -20,6 +20,7 @@ struct t_tcp_conn {
     t_tcp_close_cb on_close;
     void     *user_data;
     t_evloop *loop;
+    int       closed;
 };
 
 t_tcp_conn *t_tcp_conn_create(int fd, t_evloop *loop);

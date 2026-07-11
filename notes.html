@@ -515,6 +515,8 @@
             <li>t_buf_copy uses capacity; admin response length clamped to buffer</li>
             <li>tcp server relisten dels accept_io; domain rejects duplicate subscribe</li>
             <li>priority+subscribe push delivery; storage load overflow-safe length check</li>
+            <li>admin Content-Length matches fitted body; proto encode rejects null payload</li>
+            <li>session timeout uses subtractive compare; tcp_conn closes once; client sub dedupe</li>
         </ul>
     </div>
 
