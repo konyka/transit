@@ -43,36 +43,40 @@ static int t_map_resize(t_map *m, size_t new_cap) {
     size_t old_cap = m->cap;
     t_map_entry *new_entries = (t_map_entry *)calloc(new_cap, sizeof(t_map_entry));
     if (!new_entries) return -1;
-    m->entries = new_entries;
-    m->cap = new_cap;
-    m->len = 0;
+    size_t new_len = 0;
     for (size_t i = 0; i < old_cap; ++i) {
         t_map_entry *e = &old[i];
         if (e->occupied == 1 && e->key) {
-            /* reinsert */
             size_t idx = (size_t)(t_hash_str(e->key) % new_cap);
             int placed = 0;
             for (size_t j = 0; j < new_cap; ++j) {
                 size_t probe = (idx + j) % new_cap;
                 t_map_entry *ne = &new_entries[probe];
                 if (ne->occupied == 0 || ne->occupied == 2) {
-                    ne->key = e->key; /* move ownership */
+                    ne->key = e->key; /* move ownership after full success */
                     ne->val = e->val;
                     ne->occupied = 1;
-                    m->len++;
+                    new_len++;
                     placed = 1;
                     break;
                 }
             }
             if (!placed) {
-                /* If we couldn't place for some reason, keep old entry in place to avoid loss */
-                // This is unlikely with doubling capacity; ignore for simplicity
+                /* Keys still owned by old table; drop new table without freeing keys. */
+                free(new_entries);
+                return -1;
             }
-        } else {
-            if (e->key) { free(e->key); e->key = NULL; }
+        }
+    }
+    for (size_t i = 0; i < old_cap; ++i) {
+        if (old[i].occupied != 1 && old[i].key) {
+            free(old[i].key);
         }
     }
     free(old);
+    m->entries = new_entries;
+    m->cap = new_cap;
+    m->len = new_len;
     return 0;
 }
 

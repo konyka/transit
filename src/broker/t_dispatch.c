@@ -91,7 +91,7 @@ int t_dispatch_register(t_dispatch *disp, uint64_t session_id, t_session *sess) 
     if (!disp || !sess) return -1;
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
-    /* store pointer to session in map */
+    if (t_map_contains(&disp->sessions, key)) return -1;
     if (t_map_insert(&disp->sessions, key, sess) != 0) return -1;
     return 0;
 }

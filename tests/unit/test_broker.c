@@ -49,6 +49,21 @@ static void on_broker_msg(const char *queue_name, const uint8_t *data, size_t le
     (*(int *)ud)++;
 }
 
+T_TEST(broker_delete_queue_clears_subs) {
+    t_broker *b = t_broker_create("broker-del-sub");
+    t_broker_start(b);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "gone.q", 2, 0), 0);
+    g_delivered = 0;
+    T_ASSERT_EQ(t_broker_subscribe(b, "gone.q", on_broker_msg, &g_delivered), 0);
+    T_ASSERT_EQ(t_broker_delete_queue(b, "default", "gone.q"), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "gone.q", 2, 0), 0);
+    T_ASSERT_EQ(t_broker_subscribe(b, "gone.q", on_broker_msg, &g_delivered), 0);
+    t_broker_publish(b, "gone.q", (const uint8_t *)"x", 1, 0);
+    T_ASSERT_EQ(g_delivered, 1);
+    t_broker_stop(b);
+    t_broker_destroy(b);
+}
+
 T_TEST(broker_publish_subscribe) {
     t_broker *b = t_broker_create("broker-5");
     t_broker_start(b);

@@ -93,6 +93,30 @@ T_TEST(queue_priority_pending_count) {
     t_queue_destroy(q);
 }
 
+T_TEST(queue_priority_destroy_drains) {
+    t_queue *q = t_queue_create("test.pri.drain", T_QUEUE_PRIORITY, 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"a", 1, 2), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"b", 1, 1), 0);
+    t_queue_destroy(q); /* must free pending priority msgs */
+}
+
+static void queue_noop_cb(const t_msg *msg, void *ud) {
+    (void)msg;
+    (*(int *)ud)++;
+}
+
+T_TEST(queue_remove_consumer_by_id) {
+    t_queue *q = t_queue_create("test.cons", T_QUEUE_FIFO, 0);
+    int a = 0, b = 0;
+    uint64_t id1 = t_queue_add_consumer(q, queue_noop_cb, &a);
+    uint64_t id2 = t_queue_add_consumer(q, queue_noop_cb, &b);
+    T_ASSERT(id1 != 0 && id2 != 0);
+    T_ASSERT_EQ(t_queue_remove_consumer(q, id1), 0);
+    T_ASSERT_EQ(t_queue_remove_consumer(q, id2), 0);
+    T_ASSERT_EQ((int)t_queue_consumer_count(q), 0);
+    t_queue_destroy(q);
+}
+
 T_TEST(router_create_destroy) {
     t_router *r = t_router_create();
     T_ASSERT_NOT_NULL(r);

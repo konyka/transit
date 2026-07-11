@@ -509,6 +509,8 @@
             <li>broker/domain unsubscribe + dispatch UAF fix; empty payload publish/storage; conn evloop_mod rollback</li>
             <li>storage put preserves old on insert fail; domain rejects duplicate queues; DLQ alloc-before-evict</li>
             <li>proto decode validates magic/version/type; TTL compact aborts on push fail; config fread ferror</li>
+            <li>priority queue destroy drains heap; delete_queue clears domain subs; consumer id stable</li>
+            <li>map resize rolls back on place failure; dispatch rejects duplicate session register</li>
         </ul>
     </div>
 

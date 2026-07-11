@@ -84,7 +84,21 @@ int t_domain_delete_queue(t_domain *domain, const char *queue_name) {
     if (!domain || !queue_name) return -1;
     void *ptr = t_map_get(&domain->queues, queue_name);
     if (!ptr) return -1;
-    t_queue_destroy((t_queue *)ptr);
+    t_queue *q = (t_queue *)ptr;
+    /* Drop domain subscription wrappers bound to this queue before destroy. */
+    for (size_t i = 0; i < domain->sub_wrappers.len; ) {
+        t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
+        if (ctx && t_queue_remove_consumer_ud(q, ctx) == 0) {
+            free(ctx);
+            for (size_t j = i; j + 1 < domain->sub_wrappers.len; ++j) {
+                domain->sub_wrappers.items[j] = domain->sub_wrappers.items[j + 1];
+            }
+            domain->sub_wrappers.len--;
+            continue;
+        }
+        ++i;
+    }
+    t_queue_destroy(q);
     t_map_remove(&domain->queues, queue_name);
     return 0;
 }
@@ -128,8 +142,7 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
         return -1;
     }
     if (t_vec_push(&domain->sub_wrappers, ctx) != 0) {
-        /* Roll back the just-added consumer (1-based index = current count). */
-        t_queue_remove_consumer(q, t_queue_consumer_count(q));
+        t_queue_remove_consumer_ud(q, ctx);
         free(ctx);
         return -1;
     }

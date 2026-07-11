@@ -29,6 +29,7 @@ typedef struct t_inflight {
 typedef struct t_cons_cb {
     t_queue_msg_cb cb;
     void *cb_ud;
+    uint64_t id;
 } t_cons_cb;
 
 /* Our opaque queue structure. */
@@ -157,6 +158,10 @@ void t_queue_destroy(t_queue *q) {
     /* Free name and queue struct */
     free(q->name);
     if (q->has_prio) {
+        t_pq_entry top;
+        while (t_pqueue_pop(&q->pri, &top) == 0) {
+            t_msg_free((t_msg *)top.data);
+        }
         t_pqueue_destroy(&q->pri);
     }
     free(q);
@@ -283,31 +288,28 @@ uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
     if (!wrapper) return 0;
     wrapper->cb = cb;
     wrapper->cb_ud = ud;
+    wrapper->id = ++q->next_consumer_id;
 
     if (t_vec_push(&q->consumers, wrapper) != 0) {
         free(wrapper);
         return 0;
     }
-    return ++q->next_consumer_id;
+    return wrapper->id;
 }
 
 int t_queue_remove_consumer(t_queue *q, uint64_t consumer_id) {
-    if (!q) return -1;
-    /* Simple linear search for a consumer by id. We can't reconstruct the id
-     * from the stored wrapper in a portable way unless we store it. We will
-     * expose the id via a small protocol: the consumer_id is the index+1. */
-    if (consumer_id == 0 || consumer_id > q->consumers.len) {
-        return -1;
+    if (!q || consumer_id == 0) return -1;
+    for (size_t i = 0; i < q->consumers.len; ++i) {
+        t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
+        if (!cb || cb->id != consumer_id) continue;
+        free(cb);
+        for (size_t j = i; j + 1 < q->consumers.len; ++j) {
+            q->consumers.items[j] = q->consumers.items[j + 1];
+        }
+        q->consumers.len--;
+        return 0;
     }
-    void *slot = q->consumers.items[consumer_id - 1];
-    t_cons_cb *cb = (t_cons_cb *)slot;
-    if (cb) free(cb);
-    /* remove from vector by shifting */
-    for (size_t i = consumer_id - 1; i + 1 < q->consumers.len; ++i) {
-        q->consumers.items[i] = q->consumers.items[i+1];
-    }
-    q->consumers.len--;
-    return 0;
+    return -1;
 }
 
 int t_queue_remove_consumer_ud(t_queue *q, void *ud) {
