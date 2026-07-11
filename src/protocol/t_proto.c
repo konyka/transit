@@ -1,6 +1,7 @@
 #include "t_proto.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <arpa/inet.h>
 #include "t_crc32c.h"
 
@@ -60,7 +61,9 @@ int t_proto_msg_validate(const t_proto_msg *msg) {
 
 int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
     if (!msg || !buf) return -1;
+    if (msg->payload_len > T_PROTO_MAX_PAYLOAD) return -1;
     if (msg->payload_len > 0 && !msg->payload) return -1;
+    if (msg->payload_len > SIZE_MAX - T_PROTO_HEADER_SIZE) return -1;
     size_t total = T_PROTO_HEADER_SIZE + msg->payload_len;
     if (buf_len < total) return -1;
     t_proto_header hdr = msg->header;
@@ -81,6 +84,7 @@ int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
 
 int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (!msg || !buf) return -1;
+    memset(&msg->header, 0, sizeof(msg->header));
     msg->payload = NULL;
     msg->payload_len = 0;
     if (buf_len < T_PROTO_HEADER_SIZE) return -1;

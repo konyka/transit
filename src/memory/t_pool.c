@@ -6,6 +6,7 @@
 #include "t_pool.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 /* no extra system headers required beyond stdlib and string */
 
 typedef struct t_pool_chunk {
@@ -161,6 +162,8 @@ void t_pool_free(t_pool *pool, void *ptr, size_t size) {
 }
 
 void *t_pool_alloc_array(t_pool *pool, size_t elem_size, size_t count) {
+    if (!pool || elem_size == 0 || count == 0) return NULL;
+    if (count > SIZE_MAX / elem_size) return NULL;
     size_t total = elem_size * count;
     return t_pool_alloc(pool, total);
 }
