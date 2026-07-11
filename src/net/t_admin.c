@@ -189,7 +189,11 @@ static void admin_accept(t_evio *io, int events, void *ud) {
     c->resp_len = 0;
     c->resp_sent = 0;
 
-    t_evloop_add(admin->loop, &c->io, T_EV_READ);
+    if (t_evloop_add(admin->loop, &c->io, T_EV_READ) != 0) {
+        close(fd);
+        free(c);
+        return;
+    }
 
     size_t slot = admin->client_count;
     admin->clients[slot] = c;

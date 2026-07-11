@@ -90,7 +90,10 @@ t_conn *t_conn_create(int fd, t_evloop *loop)
     conn->io.user_data = conn;
 
     if (loop) {
-        t_evloop_add(loop, &conn->io, T_EV_READ);
+        if (t_evloop_add(loop, &conn->io, T_EV_READ) != 0) {
+            t_conn_destroy(conn);
+            return NULL;
+        }
     }
     return conn;
 }

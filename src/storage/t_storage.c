@@ -54,7 +54,7 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
         memcpy(&key, buf + pos, 8); pos += 8;
         uint64_t len;
         memcpy(&len, buf + pos, 8); pos += 8;
-        if (pos + (size_t)len > total) break;
+        if (pos + (size_t)len > total) { free(buf); return -1; }
         if (len > 0) {
             t_storage_entry *entry = (t_storage_entry*)malloc(sizeof(t_storage_entry));
             if (!entry) { free(buf); return -1; }
@@ -62,14 +62,17 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
             if (!(entry->data)) { free(entry); free(buf); return -1; }
             memcpy(entry->data, buf + pos, (size_t)len);
             entry->data_len = (size_t)len;
-            entry->key = key; /* kept for debugging; not used by map directly */
+            entry->key = key;
             pos += (size_t)len;
             key_to_str(key, keybuf, sizeof(keybuf));
-            t_map_insert(&st->map, keybuf, entry);
+            if (t_map_insert(&st->map, keybuf, entry) != 0) {
+                free(entry->data);
+                free(entry);
+                free(buf);
+                return -1;
+            }
         } else {
-            /* zero-length entry; skip but advance */
             key_to_str(key, keybuf, sizeof(keybuf));
-            /* insert empty if needed? we'll skip since there is no data */
         }
     }
     free(buf);
@@ -96,7 +99,10 @@ t_storage *t_storage_create(t_storage_type type, const char *path) {
         }
         /* If file-backed, try to load existing data into memoryMap */
         if (type == T_STORAGE_FILE) {
-            t_storage_fs_load(s, path);
+            if (t_storage_fs_load(s, path) != 0) {
+                t_storage_destroy(s);
+                return NULL;
+            }
         }
     }
     return s;

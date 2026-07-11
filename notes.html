@@ -503,6 +503,7 @@
             <li>strdup checks: admin/broker/domain/storage/queue create; t_map_insert key alloc</li>
             <li>fd close on t_conn/t_tcp_conn alloc failure; router/client strdup checks</li>
             <li>evloop timer heap OOM-safe; ttl topic strdup; admin evloop_add failure closes fd</li>
+            <li>admin accept/conn create check evloop_add; storage load rejects truncated files</li>
         </ul>
     </div>
 
