@@ -94,6 +94,20 @@ T_TEST(proto_encode_rejects_null_payload) {
     T_ASSERT(t_proto_encode_msg(&msg, buf, sizeof(buf)) != 0);
 }
 
+T_TEST(proto_encode_syncs_header_len) {
+    uint8_t buf[64];
+    t_proto_msg msg;
+    t_proto_header_init(&msg.header, T_MSG_POST, 99); /* stale header len */
+    msg.payload = (uint8_t *)"hi";
+    msg.payload_len = 2;
+    int n = t_proto_encode_msg(&msg, buf, sizeof(buf));
+    T_ASSERT_EQ(n, (int)(T_PROTO_HEADER_SIZE + 2));
+    t_proto_msg out;
+    T_ASSERT_EQ(t_proto_decode_msg(&out, buf, (size_t)n), 0);
+    T_ASSERT_EQ((int)out.payload_len, 2);
+    free(out.payload);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

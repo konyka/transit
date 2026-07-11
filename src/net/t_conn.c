@@ -35,11 +35,14 @@ struct t_conn {
     size_t msgs_recv;
 
     int closed;
+    int in_io_cb;
+    int free_pending;
 };
 
 static void t_conn_handle_read(t_conn *conn);
 static void t_conn_handle_write(t_conn *conn);
 static void t_conn_io_cb(t_evio *io, int events, void *user_data);
+static void t_conn_free(t_conn *conn);
 
 #define T_CONN_INIT_CAP 4096
 
@@ -57,7 +60,21 @@ static int t_conn_ensure_recv(t_conn *conn, size_t needed) {
 static void t_conn_close_now(t_conn *conn) {
     if (conn->closed) return;
     conn->closed = 1;
+    if (conn->loop) t_evloop_del(conn->loop, &conn->io);
+    conn->io.user_data = NULL;
+    if (conn->fd >= 0) {
+        close(conn->fd);
+        conn->fd = -1;
+    }
     if (conn->on_close) conn->on_close(conn, conn->on_close_ud);
+}
+
+static void t_conn_free(t_conn *conn) {
+    if (!conn) return;
+    free(conn->recv_buf);
+    free(conn->send_buf);
+    if (conn->fd >= 0) close(conn->fd);
+    free(conn);
 }
 
 t_conn *t_conn_create(int fd, t_evloop *loop)
@@ -101,13 +118,12 @@ t_conn *t_conn_create(int fd, t_evloop *loop)
 void t_conn_destroy(t_conn *conn)
 {
     if (!conn) return;
-    if (conn->loop) {
-        t_evloop_del(conn->loop, &conn->io);
+    if (!conn->closed) t_conn_close_now(conn);
+    if (conn->in_io_cb) {
+        conn->free_pending = 1;
+        return;
     }
-    free(conn->recv_buf);
-    free(conn->send_buf);
-    if (conn->fd >= 0) close(conn->fd);
-    free(conn);
+    t_conn_free(conn);
 }
 
 int t_conn_send(t_conn *conn, const t_proto_msg *msg)
@@ -264,6 +280,7 @@ static void t_conn_handle_read(t_conn *conn)
                 msg.payload_len = hdr.payload_len;
                 if (conn->on_msg) conn->on_msg(conn, &msg, conn->on_msg_ud);
                 free(payload);
+                if (conn->closed) return;
 
                 size_t consumed = total;
                 if (consumed < conn->recv_len) {
@@ -314,6 +331,9 @@ static void t_conn_io_cb(t_evio *io, int events, void *user_data)
     if (!io) return;
     t_conn *conn = (t_conn *)io->user_data;
     if (!conn) return;
-    if (events & T_EV_READ) t_conn_handle_read(conn);
-    if (events & T_EV_WRITE) t_conn_handle_write(conn);
+    conn->in_io_cb = 1;
+    if ((events & T_EV_READ) && !conn->closed) t_conn_handle_read(conn);
+    if ((events & T_EV_WRITE) && !conn->closed) t_conn_handle_write(conn);
+    conn->in_io_cb = 0;
+    if (conn->free_pending) t_conn_free(conn);
 }

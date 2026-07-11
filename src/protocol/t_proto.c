@@ -54,6 +54,7 @@ int t_proto_msg_validate(const t_proto_msg *msg) {
     if (msg->header.version != T_PROTO_VERSION) return -1;
     if (msg->header.type >= T_MSG_MAX) return -1;
     if (msg->header.payload_len > T_PROTO_MAX_PAYLOAD) return -1;
+    if (msg->header.payload_len != msg->payload_len) return -1;
     return 0;
 }
 
@@ -63,6 +64,7 @@ int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
     size_t total = T_PROTO_HEADER_SIZE + msg->payload_len;
     if (buf_len < total) return -1;
     t_proto_header hdr = msg->header;
+    hdr.payload_len = (uint32_t)msg->payload_len;
     hdr.crc32c = 0;
     // encode header with CRC=0
     if (t_proto_header_encode(&hdr, buf, buf_len) != 0) return -1;

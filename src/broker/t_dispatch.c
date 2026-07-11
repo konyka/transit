@@ -126,7 +126,7 @@ int t_dispatch_unregister(t_dispatch *disp, uint64_t session_id) {
 
 int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
                        const char *queue_name, const uint8_t *data, size_t len, int priority) {
-    if (!disp || !queue_name) return -1;
+    if (!disp || !queue_name || (len > 0 && !data)) return -1;
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     void *sess = t_map_get(&disp->sessions, key);

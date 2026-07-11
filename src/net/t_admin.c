@@ -95,7 +95,10 @@ int t_admin_start(t_admin *admin) {
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)admin->port);
-    inet_pton(AF_INET, admin->host, &addr.sin_addr);
+    if (inet_pton(AF_INET, admin->host, &addr.sin_addr) != 1) {
+        close(fd);
+        return -1;
+    }
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         close(fd);

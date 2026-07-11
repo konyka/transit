@@ -34,7 +34,7 @@ struct t_client {
 static int client_ensure_queues_cap(t_client *c, size_t need) {
     if (c->queues_size >= need) return 0;
     size_t new_cap = (c->queues_cap == 0) ? 4 : c->queues_cap * 2;
-    while (c->queues_size + (size_t)0 > new_cap) new_cap *= 2;
+    while (need > new_cap) new_cap *= 2;
     t_client_queue_entry *newq = (t_client_queue_entry *)realloc(c->queues, new_cap * sizeof(t_client_queue_entry));
     if (!newq) return -1;
     c->queues = newq;

@@ -517,6 +517,8 @@
             <li>priority+subscribe push delivery; storage load overflow-safe length check</li>
             <li>admin Content-Length matches fitted body; proto encode rejects null payload</li>
             <li>session timeout uses subtractive compare; tcp_conn closes once; client sub dedupe</li>
+            <li>proto encode syncs header payload_len; conn close dels fd and defers free in io_cb</li>
+            <li>admin inet_pton check; client queue grow uses need; dispatch empty-payload guard</li>
         </ul>
     </div>
 
