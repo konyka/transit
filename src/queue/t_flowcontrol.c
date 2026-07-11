@@ -27,6 +27,7 @@ void t_fc_destroy(t_flowcontrol *fc) {
 
 int t_fc_acquire(t_flowcontrol *fc, size_t count) {
     if (!fc) return -1;
+    if (count == 0) return 0; /* no-op: do not clear blocked */
     if (fc->credits >= count) {
         fc->credits -= count;
         fc->blocked = 0;

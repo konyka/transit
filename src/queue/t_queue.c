@@ -262,7 +262,7 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
 }
 
 int t_queue_consume(t_queue *q, t_msg *out_msg) {
-    if (!q || q->closed) return -1;
+    if (!q || !out_msg || q->closed) return -1;
     if (q->type == T_QUEUE_BROADCAST) return -1;
     /* Priority-based path */
     if (q->type == T_QUEUE_PRIORITY) {
@@ -281,7 +281,7 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
         }
         inf->msg = m;
         t_list_push_back(&q->inflight, &inf->node);
-        if (out_msg) *out_msg = *m;
+        *out_msg = *m;
         q->total_consumed++;
         return 0;
     }
@@ -300,7 +300,7 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
     }
     inf->msg = m;
     t_list_push_back(&q->inflight, &inf->node);
-    if (out_msg) *out_msg = *m;
+    *out_msg = *m;
     q->total_consumed++;
     return 0;
 }
@@ -377,19 +377,14 @@ int t_queue_ack(t_queue *q, uint64_t msg_id) {
     int freed = 0;
     while (cur) {
         t_inflight *inf = (t_inflight *)((char*)cur - offsetof(t_inflight, node));
+        t_list_node *next = cur->next;
         if (inf && inf->msg && inf->msg->msg_id == msg_id) {
-            t_list_node *next = cur->next;
-            /* free message data and struct */
+            t_list_remove(&q->inflight, cur);
             t_msg_free(inf->msg);
             free(inf);
-            /* unlink from list: simple approach since we don't have prev pointer access */
-            if (cur->prev) cur->prev->next = next; else q->inflight.head = next;
-            if (next) next->prev = cur->prev; else q->inflight.tail = cur->prev;
-            cur = next;
             freed++;
-        } else {
-            cur = cur->next;
         }
+        cur = next;
     }
     return freed ? 0 : -1;
 }
@@ -404,8 +399,7 @@ int t_queue_nack(t_queue *q, uint64_t msg_id) {
         t_inflight *inf = (t_inflight *)((char *)cur - offsetof(t_inflight, node));
         t_list_node *next = cur->next;
         if (inf && inf->msg && inf->msg->msg_id == msg_id) {
-            if (cur->prev) cur->prev->next = next; else q->inflight.head = next;
-            if (next) next->prev = cur->prev; else q->inflight.tail = cur->prev;
+            t_list_remove(&q->inflight, cur);
             int ok = 0;
             if (q->type == T_QUEUE_PRIORITY) {
                 ok = (t_pqueue_push(&q->pri, (int64_t)inf->msg->priority, inf->msg) == 0);

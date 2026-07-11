@@ -531,6 +531,7 @@
             <li>tpool rr is per-pool; FIFO consume OOM restores to head; proto decode clears payload on fail</li>
             <li>tpool submit counts before enqueue; proto encode max payload; decode clears header; pool array overflow</li>
             <li>conn send/recv grow overflow guards; proto decode OOM clears header; fc_release caps without wrap</li>
+            <li>consume rejects NULL out; ack/nack use t_list_remove (fix UAF/count); fc acquire(0); conn sync flush</li>
         </ul>
     </div>
 

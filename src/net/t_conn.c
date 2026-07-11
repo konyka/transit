@@ -171,6 +171,16 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
             conn->msgs_sent -= 1;
             return -1;
         }
+    } else {
+        /* No event loop: flush synchronously; fail if bytes remain. */
+        t_conn_handle_write(conn);
+        if (conn->closed || conn->send_len > 0) {
+            if (!conn->closed && conn->send_len >= (size_t)n) {
+                conn->send_len -= (size_t)n;
+            }
+            conn->msgs_sent -= 1;
+            return -1;
+        }
     }
     return 0;
 }
