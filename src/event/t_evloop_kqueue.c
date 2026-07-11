@@ -38,22 +38,27 @@ static void t_kqueue_destroy(t_evloop *loop) {
 
 static int t_kqueue_add(t_evloop *loop, t_evio *io, int events) {
     t_evloop_kqueue_state *st = (t_evloop_kqueue_state *)loop->backend_state;
-    struct kevent ke;
-    short filter = (events & T_EV_WRITE) ? EVFILT_WRITE : EVFILT_READ;
+    struct kevent ke[4];
+    int n = 0;
+    /* Clear any prior filters so mod(READ) does not leave WRITE armed. */
+    EV_SET(&ke[n++], io->fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    EV_SET(&ke[n++], io->fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+    (void)kevent(st->kq_fd, ke, n, NULL, 0, NULL);
+    n = 0;
     u_short flags = EV_ADD;
     if (events & T_EV_ONCE) flags |= EV_ONESHOT;
-    EV_SET(&ke, io->fd, filter, flags, 0, 0, io);
-    return kevent(st->kq_fd, &ke, 1, NULL, 0, NULL);
+    if (events & T_EV_READ) {
+        EV_SET(&ke[n++], io->fd, EVFILT_READ, flags, 0, 0, io);
+    }
+    if (events & T_EV_WRITE) {
+        EV_SET(&ke[n++], io->fd, EVFILT_WRITE, flags, 0, 0, io);
+    }
+    if (n == 0) return 0;
+    return kevent(st->kq_fd, ke, n, NULL, 0, NULL);
 }
 
 static int t_kqueue_mod(t_evloop *loop, t_evio *io, int events) {
-    t_evloop_kqueue_state *st = (t_evloop_kqueue_state *)loop->backend_state;
-    struct kevent ke;
-    short filter = (events & T_EV_WRITE) ? EVFILT_WRITE : EVFILT_READ;
-    u_short flags = EV_ADD;
-    if (events & T_EV_ONCE) flags |= EV_ONESHOT;
-    EV_SET(&ke, io->fd, filter, flags, 0, 0, io);
-    return kevent(st->kq_fd, &ke, 1, NULL, 0, NULL);
+    return t_kqueue_add(loop, io, events);
 }
 
 static int t_kqueue_del(t_evloop *loop, t_evio *io) {

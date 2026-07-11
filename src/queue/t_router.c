@@ -48,7 +48,8 @@ static int topic_match_pattern(const char *pattern, const char *topic) {
     while (pp && tt) {
         if (strcmp(pp, "*") == 0) {
         } else if (strcmp(pp, "#") == 0) {
-            ok = 1;
+            /* '#' must be the final pattern segment. */
+            ok = (strtok_r(NULL, ".", &save_p) == NULL);
             break;
         } else {
             if (strcmp(pp, tt) != 0) {

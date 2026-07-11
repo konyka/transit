@@ -12,7 +12,7 @@ struct t_cluster {
 };
 
 static void make_key(char *buf, size_t sz, uint64_t id) {
-    snprintf(buf, sz, "%lu", (unsigned long)id);
+    snprintf(buf, sz, "%llu", (unsigned long long)id);
 }
 
 t_cluster *t_cluster_create(uint64_t self_id) {

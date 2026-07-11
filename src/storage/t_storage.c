@@ -243,9 +243,10 @@ int t_storage_flush(t_storage *storage) {
         t_storage_entry *e = (t_storage_entry*)v;
         if (!e) continue;
         uint64_t key = str_to_key(k);
+        uint64_t len64 = (uint64_t)e->data_len;
         uint8_t header[16];
         memcpy(header, &key, 8);
-        memcpy(header + 8, &e->data_len, 8);
+        memcpy(header + 8, &len64, 8);
         ssize_t w = write(fd, header, 16);
         if (w != 16) { close(fd); unlink(tmp); free(tmp); return -1; }
         if (e->data_len > 0) {
