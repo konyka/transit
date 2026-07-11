@@ -540,6 +540,7 @@
             <li>router # must be final; cluster key %llu; storage flush uint64 len; kqueue clears stale WRITE filters</li>
             <li>EINTR retry on conn/admin/tcp/epoll/kqueue; timer cancel bubbles to root; shutdown uses stored admin</li>
             <li>no-loop send blocks to flush; stop wakeup EINTR; accept EINTR retry; timer wait_ms capped to INT_MAX</li>
+            <li>dlq rejects null payload; list splice self-noop; dispatch unsub checks broker; config int range</li>
         </ul>
     </div>
 

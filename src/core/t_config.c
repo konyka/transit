@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <limits.h>
+#include <errno.h>
 
 /* Internal simple data structures: sections containing key/value pairs */
 typedef struct {
@@ -242,8 +244,10 @@ int t_config_get_int(t_config *cfg, const char *section, const char *key, int de
     const char *v = t_config_get(cfg, section, key);
     if (!v || v[0] == '\0') return default_val;
     char *endp = NULL;
+    errno = 0;
     long val = strtol(v, &endp, 10);
     if (endp == v || *endp != '\0') return default_val;
+    if (errno == ERANGE || val < INT_MIN || val > INT_MAX) return default_val;
     return (int)val;
 }
 

@@ -66,7 +66,7 @@ void t_list_remove(t_list *l, t_list_node *node) {
 }
 
 void t_list_splice(t_list *dst, t_list *src) {
-    if (!dst || !src) return;
+    if (!dst || !src || dst == src) return;
     if (!src->head) return;
     if (!dst->head) {
         dst->head = src->head;

@@ -219,7 +219,10 @@ int t_dispatch_unsubscribe(t_dispatch *disp, uint64_t session_id, const char *qu
         if (!sub) continue;
         if (sub->session_id == session_id && sub->queue_name &&
             strcmp(sub->queue_name, queue_name) == 0) {
-            t_broker_unsubscribe(disp->broker, queue_name, dispatch_deliver_cb, sub->cbud);
+            if (t_broker_unsubscribe(disp->broker, queue_name,
+                                     dispatch_deliver_cb, sub->cbud) != 0) {
+                return -1;
+            }
             free(sub->queue_name);
             free(sub->cbud);
             free(sub);
