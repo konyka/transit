@@ -397,26 +397,31 @@ int t_queue_nack(t_queue *q, uint64_t msg_id) {
     if (!q) return -1;
     t_list_node *cur = q->inflight.head;
     int moved = 0;
+    int failed = 0;
     while (cur) {
         t_inflight *inf = (t_inflight *)((char *)cur - offsetof(t_inflight, node));
         t_list_node *next = cur->next;
         if (inf && inf->msg && inf->msg->msg_id == msg_id) {
             if (cur->prev) cur->prev->next = next; else q->inflight.head = next;
             if (next) next->prev = cur->prev; else q->inflight.tail = cur->prev;
+            int ok = 0;
             if (q->type == T_QUEUE_PRIORITY) {
-                if (t_pqueue_push(&q->pri, (int64_t)inf->msg->priority, inf->msg) != 0) {
-                    t_msg_free(inf->msg);
-                }
+                ok = (t_pqueue_push(&q->pri, (int64_t)inf->msg->priority, inf->msg) == 0);
             } else {
-                if (t_vec_push(&q->pending, inf->msg) != 0) {
-                    t_msg_free(inf->msg);
-                }
+                ok = (t_vec_push(&q->pending, inf->msg) == 0);
             }
-            free(inf);
-            moved++;
+            if (!ok) {
+                /* Restore inflight so the message is not lost on OOM. */
+                t_list_push_back(&q->inflight, &inf->node);
+                failed = 1;
+            } else {
+                free(inf);
+                moved++;
+            }
         }
         cur = next;
     }
+    if (failed) return -1;
     return moved ? 0 : -1;
 }
 

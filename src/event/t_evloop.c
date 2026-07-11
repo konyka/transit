@@ -73,14 +73,17 @@ static void evloop_process_timers(t_evloop *loop) {
             continue;
         }
         if (top->expire_ms <= now) {
-            t_timer_entry cur = timer_heap_pop(loop);
-            if (cur.active && cur.callback) {
-                cur.callback(cur.user_data);
+            void (*cb)(void *) = top->callback;
+            void *ud = top->user_data;
+            int64_t repeat = top->repeat_ms;
+            /* Rearm repeating timers in place (no alloc) before the callback. */
+            if (repeat > 0) {
+                top->expire_ms = now + repeat;
+                timer_heap_sift_down(loop->timers, 0, loop->timer_count);
+            } else {
+                timer_heap_pop(loop);
             }
-            if (cur.active && cur.repeat_ms > 0) {
-                cur.expire_ms = now + cur.repeat_ms;
-                (void)timer_heap_push(loop, cur); /* drop repeat on OOM */
-            }
+            if (cb) cb(ud);
             now = t_time_now_ms();
             continue;
         }

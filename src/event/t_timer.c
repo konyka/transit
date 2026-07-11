@@ -128,12 +128,16 @@ int64_t t_timer_process(t_timer *t) {
             continue;
         }
         if (top->expire_ms <= now) {
-            timer_node cur = heap_pop(t);
-            if (cur.cb) cur.cb(cur.user_data);
-            if (cur.active && cur.repeat_ms > 0) {
-                cur.expire_ms = now + cur.repeat_ms;
-                (void)heap_push(t, cur); /* drop repeat on OOM */
+            void (*cb)(void *) = top->cb;
+            void *ud = top->user_data;
+            int64_t repeat = top->repeat_ms;
+            if (repeat > 0) {
+                top->expire_ms = now + repeat;
+                sift_down(t->heap, 0, t->count);
+            } else {
+                heap_pop(t);
             }
+            if (cb) cb(ud);
             now = t_time_now_ms();
         } else {
             break;

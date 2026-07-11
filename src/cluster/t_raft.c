@@ -71,7 +71,10 @@ uint64_t t_raft_last_applied(const t_raft *raft) {
 
 int t_raft_become_candidate(t_raft *raft) {
     if (!raft) return -1;
-    raft->current_term += 1;
+    /* Only start a new election term when entering candidacy. */
+    if (raft->state != T_NODE_CANDIDATE) {
+        raft->current_term += 1;
+    }
     raft->state = T_NODE_CANDIDATE;
     raft->voted_for = raft->self_id; /* vote for self */
     return 0;
