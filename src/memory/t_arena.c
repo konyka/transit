@@ -1,6 +1,7 @@
 #include "t_arena.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 typedef struct t_arena_block {
     void *data;
@@ -59,7 +60,7 @@ void *t_arena_alloc(t_arena *arena, size_t size) {
     if (!arena || size == 0) return NULL;
     t_arena_block *cur = arena->current;
     size_t avail = cur->size - cur->used;
-    if (size <= avail) {
+    if (size <= avail && cur->used + size >= cur->used) {
         void *ptr = (void *)((unsigned char *)cur->data + cur->used);
         cur->used += size;
         return ptr;
@@ -78,13 +79,16 @@ void *t_arena_alloc(t_arena *arena, size_t size) {
 void *t_arena_alloc_aligned(t_arena *arena, size_t size, size_t alignment) {
     if (!arena) return NULL;
     if (alignment <= 1) return t_arena_alloc(arena, size);
+    if (size > SIZE_MAX - alignment) return NULL;
     t_arena_block *cur = arena->current;
     size_t base_addr = (size_t)cur->data + cur->used;
     size_t mis = base_addr % alignment;
     size_t pad = mis ? (alignment - mis) : 0;
-    if (size + pad <= cur->size - cur->used) {
+    size_t need = pad + size;
+    size_t avail = cur->size - cur->used;
+    if (need <= avail && cur->used + need >= cur->used) {
         unsigned char *start = (unsigned char *)cur->data + cur->used + pad;
-        cur->used += pad + size;
+        cur->used += need;
         return (void *)start;
     }
     /* allocate new block and align there */

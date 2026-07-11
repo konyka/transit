@@ -142,7 +142,7 @@ int t_broker_delete_queue(t_broker *broker, const char *domain_name,
 
 int t_broker_publish(t_broker *broker, const char *queue_name,
                      const uint8_t *data, size_t len, int priority) {
-    if (!broker || !queue_name || (len > 0 && !data)) return -1;
+    if (!broker || !broker->running || !queue_name || (len > 0 && !data)) return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     return t_domain_publish(d, queue_name, data, len, priority);

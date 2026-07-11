@@ -43,7 +43,7 @@ static void dispatch_deliver_cb(const char *queue_name, const uint8_t *data,
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)wrapper->session_id);
     t_session *sess = (t_session *)t_map_get(&disp->sessions, key);
-    if (!sess) return;
+    if (!sess || !t_session_is_active(sess)) return;
     /* Update session activity as a delivered message */
     t_session_update_activity(sess);
     t_session_record_recv(sess);
@@ -93,6 +93,7 @@ int t_dispatch_register(t_dispatch *disp, uint64_t session_id, t_session *sess) 
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     if (t_map_contains(&disp->sessions, key)) return -1;
     if (t_map_insert(&disp->sessions, key, sess) != 0) return -1;
+    (void)t_session_connect(sess);
     return 0;
 }
 
@@ -130,7 +131,7 @@ int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     void *sess = t_map_get(&disp->sessions, key);
-    if (!sess) return -1;
+    if (!sess || !t_session_is_active((t_session *)sess)) return -1;
     int r = t_broker_publish(disp->broker, queue_name, data, len, priority);
     if (r == 0) disp->total_published++;
     return r;

@@ -105,7 +105,7 @@ int t_client_disconnect(t_client *client) {
 
 int t_client_open_queue(t_client *client, const char *queue_name, int flags) {
     (void)flags;
-    if (!client || !queue_name) return -1;
+    if (!client || !queue_name || !client->connected) return -1;
     /* ensure exists */
     for (size_t i = 0; i < client->queues_size; ++i) {
         if (strcmp(client->queues[i].name, queue_name) == 0) return 0;
@@ -139,7 +139,7 @@ int t_client_close_queue(t_client *client, const char *queue_name) {
 int t_client_post(t_client *client, const char *queue_name,
                   const uint8_t *data, size_t len, int priority) {
     (void)priority; /* priority currently unused in this stub */
-    if (!client || !queue_name) return -1;
+    if (!client || !queue_name || !client->connected) return -1;
     if (len > 0 && !data) return -1;
     int open = 0;
     for (size_t i = 0; i < client->queues_size; ++i) {
@@ -164,7 +164,7 @@ int t_client_post(t_client *client, const char *queue_name,
 
 int t_client_subscribe(t_client *client, const char *queue_name,
                        t_client_msg_cb cb, void *ud) {
-    if (!client || !queue_name) return -1;
+    if (!client || !queue_name || !client->connected) return -1;
     for (size_t i = 0; i < client->subs_count; ++i) {
         if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0 &&
             client->subs[i].cb == cb && client->subs[i].ud == ud) {

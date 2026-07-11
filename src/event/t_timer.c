@@ -17,6 +17,8 @@ struct t_timer {
     size_t count;
     size_t cap;
     int64_t next_id;
+    int processing;
+    int destroy_pending;
 };
 
 static void swap_nodes(timer_node *a, timer_node *b) {
@@ -89,6 +91,10 @@ t_timer *t_timer_create(void) {
 
 void t_timer_destroy(t_timer *t) {
     if (!t) return;
+    if (t->processing) {
+        t->destroy_pending = 1;
+        return;
+    }
     free(t->heap);
     free(t);
 }
@@ -122,8 +128,9 @@ void t_timer_cancel(t_timer *t, int64_t id) {
 
 int64_t t_timer_process(t_timer *t) {
     if (!t) return -1;
+    t->processing = 1;
     int64_t now = t_time_now_ms();
-    while (t->count > 0) {
+    while (t->count > 0 && !t->destroy_pending) {
         timer_node *top = &t->heap[0];
         if (!top->active) {
             heap_pop(t);
@@ -140,10 +147,17 @@ int64_t t_timer_process(t_timer *t) {
                 heap_pop(t);
             }
             if (cb) cb(ud);
+            if (t->destroy_pending) break;
             now = t_time_now_ms();
         } else {
             break;
         }
+    }
+    t->processing = 0;
+    if (t->destroy_pending) {
+        free(t->heap);
+        free(t);
+        return -1;
     }
     if (t->count == 0) return -1;
     int64_t next = t->heap[0].expire_ms - t_time_now_ms();
