@@ -34,43 +34,40 @@ void t_router_destroy(t_router *router) {
 
 static int topic_match_pattern(const char *pattern, const char *topic) {
     if (!pattern || !topic) return 0;
-    char *p = strdup(pattern);
-    char *t = strdup(topic);
-    if (!p || !t) {
-        free(p); free(t);
-        return 0;
-    }
-    int ok = 1;
-    char *save_p = NULL;
-    char *save_t = NULL;
-    char *pp = strtok_r(p, ".", &save_p);
-    char *tt = strtok_r(t, ".", &save_t);
-    while (pp && tt) {
-        if (strcmp(pp, "*") == 0) {
-        } else if (strcmp(pp, "#") == 0) {
-            /* '#' must be the final pattern segment. */
-            ok = (strtok_r(NULL, ".", &save_p) == NULL);
-            break;
-        } else {
-            if (strcmp(pp, tt) != 0) {
-                ok = 0; break;
-            }
+    const char *p = pattern;
+    const char *t = topic;
+    for (;;) {
+        size_t plen = 0;
+        while (p[plen] && p[plen] != '.') plen++;
+        size_t tlen = 0;
+        while (t[tlen] && t[tlen] != '.') tlen++;
+        int p_end = (p[plen] == '\0');
+        int t_end = (t[tlen] == '\0');
+
+        if (p_end && plen == 0 && t_end && tlen == 0) return 1;
+        if (plen == 1 && p[0] == '#') {
+            return p_end; /* '#' must be the final pattern segment */
         }
-        pp = strtok_r(NULL, ".", &save_p);
-        tt = strtok_r(NULL, ".", &save_t);
-    }
-    if (pp && !tt) {
-        if (strcmp(pp, "#") == 0) {
-            ok = 1;
-        } else {
-            ok = 0;
+        if (t_end && tlen == 0) {
+            /* Topic exhausted: only a trailing '#' may remain. */
+            return (plen == 1 && p[0] == '#' && p_end);
         }
-    } else if (!pp && tt) {
-        ok = 0;
+        if (p_end && plen == 0) {
+            return 0;
+        }
+        if (!(plen == 1 && p[0] == '*') &&
+            !(plen == tlen && memcmp(p, t, plen) == 0)) {
+            return 0;
+        }
+        if (p_end && t_end) return 1;
+        if (p_end) return 0;
+        if (t_end) {
+            p += plen + 1;
+            return (p[0] == '#' && p[1] == '\0');
+        }
+        p += plen + 1;
+        t += tlen + 1;
     }
-    free(p);
-    free(t);
-    return ok;
 }
 
 int t_router_bind(t_router *router, const char *pattern, void *target) {

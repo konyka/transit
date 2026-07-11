@@ -83,15 +83,18 @@ void t_pool_destroy(t_pool *pool) {
 static void t_pool_allocate_chunk_for_class(t_pool_class *cls, size_t pool_chunk_size) {
     /* Determine number of blocks we can fit */
     size_t block = cls->block_size;
-    size_t blocks_per_chunk = pool_chunk_size / block;
+    size_t chunk_bytes = pool_chunk_size;
+    if (chunk_bytes < block) chunk_bytes = block;
+    size_t blocks_per_chunk = chunk_bytes / block;
     if (blocks_per_chunk == 0) blocks_per_chunk = 1;
+    chunk_bytes = blocks_per_chunk * block;
 
     void *mem = NULL;
-    if (posix_memalign(&mem, T_POOL_MIN_ALIGN, pool_chunk_size) != 0) {
+    if (posix_memalign(&mem, T_POOL_MIN_ALIGN, chunk_bytes) != 0) {
         mem = NULL;
     }
     if (!mem) {
-        mem = malloc(pool_chunk_size);
+        mem = malloc(chunk_bytes);
     }
     if (!mem) return;
 
@@ -102,7 +105,7 @@ static void t_pool_allocate_chunk_for_class(t_pool_class *cls, size_t pool_chunk
         return;
     }
     chunk->mem = mem;
-    chunk->chunk_size = pool_chunk_size;
+    chunk->chunk_size = chunk_bytes;
     chunk->next = cls->chunks;
     cls->chunks = chunk;
 

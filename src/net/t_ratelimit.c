@@ -14,6 +14,7 @@ struct t_ratelimit {
 t_ratelimit *t_ratelimit_create(size_t max_tokens, double refill_rate) {
     t_ratelimit *rl = (t_ratelimit *)calloc(1, sizeof(*rl));
     if (!rl) return NULL;
+    if (refill_rate < 0.0) refill_rate = 0.0;
     rl->max_tokens = max_tokens;
     rl->refill_rate = refill_rate;
     rl->tokens = (double)max_tokens;
@@ -37,6 +38,7 @@ static void refill(t_ratelimit *rl, uint64_t now_ms) {
     if (rl->tokens > (double)rl->max_tokens) {
         rl->tokens = (double)rl->max_tokens;
     }
+    if (rl->tokens < 0.0) rl->tokens = 0.0;
     rl->last_refill_ms = now_ms;
 }
 
@@ -55,6 +57,7 @@ int t_ratelimit_allow(t_ratelimit *rl, uint64_t now_ms) {
 size_t t_ratelimit_available(t_ratelimit *rl, uint64_t now_ms) {
     if (!rl) return 0;
     refill(rl, now_ms);
+    if (rl->tokens <= 0.0) return 0;
     return (size_t)rl->tokens;
 }
 

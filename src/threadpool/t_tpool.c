@@ -215,7 +215,8 @@ void t_tpool_destroy(t_tpool *pool) {
         pthread_join(pool->workers[i].thread, NULL);
         void *raw = NULL;
         while (t_mpmc_pop(&pool->workers[i].queue, &raw)) {
-            free(raw);
+            /* Drain leftover work instead of silently dropping it. */
+            run_task((t_task *)raw, pool);
         }
         t_mpmc_destroy(&pool->workers[i].queue);
     }
