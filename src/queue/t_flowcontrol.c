@@ -40,8 +40,13 @@ int t_fc_acquire(t_flowcontrol *fc, size_t count) {
 
 void t_fc_release(t_flowcontrol *fc, size_t count) {
     if (!fc) return;
-    fc->credits += count;
-    if (fc->credits > fc->max_credits) fc->credits = fc->max_credits;
+    if (fc->credits >= fc->max_credits) {
+        fc->credits = fc->max_credits;
+    } else if (count >= fc->max_credits - fc->credits) {
+        fc->credits = fc->max_credits;
+    } else {
+        fc->credits += count;
+    }
     if (fc->credits > 0) fc->blocked = 0;
     t_atomic_fetch_add_int(&fc->total_released, (int)count);
 }

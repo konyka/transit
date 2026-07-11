@@ -114,6 +114,7 @@ int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (hdr.payload_len > 0) {
         msg->payload = (uint8_t*)malloc(hdr.payload_len);
         if (!msg->payload) {
+            memset(&msg->header, 0, sizeof(msg->header));
             msg->payload_len = 0;
             return -1;
         }

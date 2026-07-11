@@ -2,6 +2,7 @@
 #include "t_crc32c.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -49,7 +50,10 @@ static void t_conn_free(t_conn *conn);
 static int t_conn_ensure_recv(t_conn *conn, size_t needed) {
     if (conn->recv_cap >= needed) return 0;
     size_t new_cap = conn->recv_cap ? conn->recv_cap * 2 : T_CONN_INIT_CAP;
-    while (new_cap < needed) new_cap *= 2;
+    while (new_cap < needed) {
+        if (new_cap > SIZE_MAX / 2) return -1;
+        new_cap *= 2;
+    }
     uint8_t *nb = (uint8_t *)realloc(conn->recv_buf, new_cap);
     if (!nb) return -1;
     conn->recv_buf = nb;
@@ -129,13 +133,18 @@ void t_conn_destroy(t_conn *conn)
 int t_conn_send(t_conn *conn, const t_proto_msg *msg)
 {
     if (!conn || !msg || conn->closed) return -1;
-    size_t frame_len = T_PROTO_HEADER_SIZE + msg->payload_len;
     if (msg->payload_len > T_PROTO_MAX_PAYLOAD) return -1;
+    if (msg->payload_len > SIZE_MAX - T_PROTO_HEADER_SIZE) return -1;
+    size_t frame_len = T_PROTO_HEADER_SIZE + msg->payload_len;
+    if (frame_len > SIZE_MAX - conn->send_len) return -1;
 
     size_t needed = conn->send_len + frame_len;
     if (conn->send_cap < needed) {
         size_t new_cap = conn->send_cap ? conn->send_cap * 2 : T_CONN_INIT_CAP;
-        while (new_cap < needed) new_cap *= 2;
+        while (new_cap < needed) {
+            if (new_cap > SIZE_MAX / 2) return -1;
+            new_cap *= 2;
+        }
         uint8_t *new_buf = (uint8_t *)realloc(conn->send_buf, new_cap);
         if (!new_buf) return -1;
         conn->send_buf = new_buf;
