@@ -4,6 +4,7 @@
 #include "t_compiler.h"
 
 void t_signal_install(void);
+void t_signal_uninstall(void);
 
 int t_signal_is_shutdown(void);
 

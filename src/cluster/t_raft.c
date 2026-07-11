@@ -16,6 +16,8 @@ struct t_raft {
     t_raft_entry *log;
     size_t log_cap;
     size_t log_count;
+    t_raft_apply_cb apply_cb;
+    void *apply_ud;
 };
 
 static int ensure_log_cap(t_raft *r, size_t needed) {
@@ -47,6 +49,8 @@ t_raft *t_raft_create(const t_raft_config *cfg) {
     r->log = NULL;
     r->log_cap = 0;
     r->log_count = 0;
+    r->apply_cb = NULL;
+    r->apply_ud = NULL;
     return r;
 }
 
@@ -149,10 +153,18 @@ int t_raft_apply_entries(t_raft *raft) {
     if (!raft) return -1;
     while (raft->last_applied < raft->commit_index) {
         uint64_t next = raft->last_applied + 1;
-        if (!t_raft_get_entry(raft, next)) return -1;
+        const t_raft_entry *e = t_raft_get_entry(raft, next);
+        if (!e) return -1;
+        if (raft->apply_cb) raft->apply_cb(e, raft->apply_ud);
         raft->last_applied = next;
     }
     return 0;
+}
+
+void t_raft_set_apply_cb(t_raft *raft, t_raft_apply_cb cb, void *ud) {
+    if (!raft) return;
+    raft->apply_cb = cb;
+    raft->apply_ud = ud;
 }
 
 size_t t_raft_applied_count(const t_raft *raft) {

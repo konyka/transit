@@ -96,6 +96,17 @@ T_TEST(dispatch_unsubscribe_stops_delivery) {
     t_session_destroy(s);
 }
 
+T_TEST(dispatch_destroy_blocks_session_free_until_released) {
+    t_broker *b = t_broker_create("test-dispatch-ref");
+    t_dispatch *d = t_dispatch_create(b);
+    t_session *s = t_session_create(9);
+    T_ASSERT_EQ(t_dispatch_register(d, 9, s), 0);
+    T_ASSERT_EQ(t_session_destroy(s), -1); /* still registered */
+    t_dispatch_destroy(d);                 /* releases ref */
+    T_ASSERT_EQ(t_session_destroy(s), 0);
+    t_broker_destroy(b);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

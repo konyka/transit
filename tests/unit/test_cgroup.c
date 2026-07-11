@@ -79,6 +79,21 @@ T_TEST(cgroup_dispatch_empty_fails) {
     t_cgroup_destroy(cg);
 }
 
+static void on_remove_self(const char *topic, const uint8_t *payload, size_t len, void *ud) {
+    (void)topic; (void)payload; (void)len;
+    t_cgroup *cg = (t_cgroup *)ud;
+    (void)t_cgroup_remove_consumer(cg, "solo");
+}
+
+T_TEST(cgroup_dispatch_remove_last_in_cb) {
+    t_cgroup *cg = t_cgroup_create("g5");
+    T_ASSERT_EQ(t_cgroup_add_consumer(cg, "solo", on_remove_self, cg), 0);
+    T_ASSERT_EQ(t_cgroup_dispatch(cg, "t", (const uint8_t *)"x", 1), 0);
+    T_ASSERT_EQ((int)t_cgroup_consumer_count(cg), 0);
+    T_ASSERT_EQ((int)t_cgroup_total_dispatched(cg), 1);
+    t_cgroup_destroy(cg);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

@@ -95,11 +95,14 @@ int t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id) {
 
 int t_cgroup_dispatch(t_cgroup *cg, const char *topic, const uint8_t *payload, size_t len) {
     if (!cg || cg->consumer_count == 0) return -1;
-    t_consumer *c = &cg->consumers[cg->next_idx];
-    if (c->cb) {
-        c->cb(topic, payload, len, c->ud);
-    }
-    cg->next_idx = (cg->next_idx + 1) % cg->consumer_count;
+    size_t idx = cg->next_idx % cg->consumer_count;
+    t_cgroup_deliver_cb cb = cg->consumers[idx].cb;
+    void *ud = cg->consumers[idx].ud;
+    /* Advance before callback: remove_consumer in cb may zero the count. */
+    cg->next_idx = (idx + 1) % cg->consumer_count;
+    if (cb) cb(topic, payload, len, ud);
+    if (cg->consumer_count == 0) cg->next_idx = 0;
+    else if (cg->next_idx >= cg->consumer_count) cg->next_idx = 0;
     cg->total_dispatched++;
     return 0;
 }

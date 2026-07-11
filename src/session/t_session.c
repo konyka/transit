@@ -12,6 +12,7 @@ struct t_session {
     uint64_t last_activity_ns;
     size_t msgs_sent;
     size_t msgs_received;
+    size_t refs; /* destroy-guard: dispatch register holds a ref */
     void *user_data;
     t_session_event_cb event_cb;
     void *event_ud;
@@ -32,15 +33,27 @@ t_session *t_session_create(uint64_t session_id) {
     sess->last_activity_ns = 0;
     sess->msgs_sent = 0;
     sess->msgs_received = 0;
+    sess->refs = 0;
     sess->user_data = NULL;
     sess->event_cb = NULL;
     sess->event_ud = NULL;
     return sess;
 }
 
-void t_session_destroy(t_session *sess) {
-    if (!sess) return;
+int t_session_destroy(t_session *sess) {
+    if (!sess) return 0;
+    /* Refuse free while still registered with a dispatch. */
+    if (sess->refs > 0) return -1;
     free(sess);
+    return 0;
+}
+
+void t_session_retain(t_session *sess) {
+    if (sess) sess->refs++;
+}
+
+void t_session_release(t_session *sess) {
+    if (sess && sess->refs > 0) sess->refs--;
 }
 
 uint64_t t_session_id(const t_session *sess) {

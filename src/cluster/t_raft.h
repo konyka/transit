@@ -21,8 +21,11 @@ typedef struct t_raft_config {
     uint64_t heartbeat_interval_ms;
 } t_raft_config;
 
+typedef void (*t_raft_apply_cb)(const t_raft_entry *entry, void *ud);
+
 t_raft            *t_raft_create(const t_raft_config *cfg);
 void               t_raft_destroy(t_raft *raft);
+void               t_raft_set_apply_cb(t_raft *raft, t_raft_apply_cb cb, void *ud);
 uint64_t           t_raft_current_term(const t_raft *raft);
 t_nrole            t_raft_state(const t_raft *raft);
 uint64_t           t_raft_commit_index(const t_raft *raft);

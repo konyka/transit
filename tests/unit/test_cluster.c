@@ -128,6 +128,32 @@ T_TEST(raft_log_append_commit) {
     t_raft_destroy(r);
 }
 
+static int g_apply_calls;
+static size_t g_apply_bytes;
+
+static void on_raft_apply(const t_raft_entry *entry, void *ud) {
+    (void)ud;
+    g_apply_calls++;
+    if (entry) g_apply_bytes += entry->data_len;
+}
+
+T_TEST(raft_apply_invokes_callback) {
+    t_raft_config cfg = {1, 150, 50};
+    t_raft *r = t_raft_create(&cfg);
+    g_apply_calls = 0;
+    g_apply_bytes = 0;
+    t_raft_set_apply_cb(r, on_raft_apply, NULL);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    uint8_t data[] = {9, 8, 7, 6};
+    T_ASSERT_EQ(t_raft_append_entry(r, 1, data, sizeof(data)), 0);
+    T_ASSERT_EQ(t_raft_advance_commit(r, 1), 0);
+    T_ASSERT_EQ(t_raft_apply_entries(r), 0);
+    T_ASSERT_EQ(g_apply_calls, 1);
+    T_ASSERT_EQ((int)g_apply_bytes, 4);
+    t_raft_destroy(r);
+}
+
 T_TEST(raft_voting) {
     t_raft_config cfg = {1, 150, 50};
     t_raft *r = t_raft_create(&cfg);
