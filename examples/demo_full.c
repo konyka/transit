@@ -143,6 +143,7 @@ static void simulate_protocol_wire(void) {
     printf("  crc32c: 0x%08X\n", (unsigned)crc);
 
     t_proto_msg decoded;
+    memset(&decoded, 0, sizeof(decoded));
     if (t_proto_decode_msg(&decoded, wire, (size_t)n) == 0) {
         printf("  decoded: type=%d payload='%.*s'\n",
                decoded.header.type, (int)decoded.payload_len, (char *)decoded.payload);

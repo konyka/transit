@@ -84,8 +84,13 @@ int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
 
 int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (!msg || !buf) return -1;
+    /* Drop prior owned payload from a previous successful decode.
+     * Callers must zero-initialize msg (or set payload=NULL) before first use. */
+    if (msg->payload) {
+        free(msg->payload);
+        msg->payload = NULL;
+    }
     memset(&msg->header, 0, sizeof(msg->header));
-    msg->payload = NULL;
     msg->payload_len = 0;
     if (buf_len < T_PROTO_HEADER_SIZE) return -1;
     t_proto_header hdr;

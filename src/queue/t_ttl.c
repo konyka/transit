@@ -130,8 +130,9 @@ size_t t_ttl_expire(t_ttl *ttl, uint64_t now) {
         /* Stale if removed, or replaced with a different expire_at. */
         if (!e || e->expire_at != (uint64_t)top.priority) continue;
 
-        if (ttl->cb) ttl->cb(e, ttl->ud);
+        /* Remove before callback so reentrant t_ttl_remove cannot double-free. */
         t_map_remove(&ttl->entries, key);
+        if (ttl->cb) ttl->cb(e, ttl->ud);
         ttl_entry_free(e);
         expired++;
     }

@@ -41,6 +41,7 @@ T_TEST(proto_encode_decode) {
     int n = t_proto_encode_msg(&msg, buf, sizeof(buf));
     T_ASSERT(n > 0);
     t_proto_msg msg2;
+    memset(&msg2, 0, sizeof(msg2));
     int r = t_proto_decode_msg(&msg2, buf, (size_t)n);
     T_ASSERT_EQ(r, 0);
     T_ASSERT_EQ((int)msg2.header.magic, T_PROTO_MAGIC);
@@ -82,6 +83,7 @@ T_TEST(proto_decode_rejects_bad_magic) {
     uint32_t crc_be = htonl(crc);
     memcpy(buf + 4, &crc_be, 4);
     t_proto_msg out;
+    memset(&out, 0, sizeof(out));
     T_ASSERT(t_proto_decode_msg(&out, buf, (size_t)n) != 0);
 }
 
@@ -103,6 +105,7 @@ T_TEST(proto_encode_syncs_header_len) {
     int n = t_proto_encode_msg(&msg, buf, sizeof(buf));
     T_ASSERT_EQ(n, (int)(T_PROTO_HEADER_SIZE + 2));
     t_proto_msg out;
+    memset(&out, 0, sizeof(out));
     T_ASSERT_EQ(t_proto_decode_msg(&out, buf, (size_t)n), 0);
     T_ASSERT_EQ((int)out.payload_len, 2);
     free(out.payload);
