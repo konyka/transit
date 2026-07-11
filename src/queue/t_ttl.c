@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 /*
  * TTL tracker: hashmap for O(1) lookup + min-heap by expire_at.
@@ -60,6 +61,8 @@ void t_ttl_destroy(t_ttl *ttl) {
 int t_ttl_add(t_ttl *ttl, uint64_t msg_id, const char *topic,
               const uint8_t *payload, size_t len, uint64_t expire_at) {
     if (!ttl) return -1;
+    /* Heap stores expire_at as int64_t priority; reject values that wrap. */
+    if (expire_at > (uint64_t)INT64_MAX) return -1;
 
     char key[32];
     ttl_key(key, sizeof(key), msg_id);

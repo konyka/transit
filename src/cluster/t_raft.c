@@ -136,6 +136,8 @@ const t_raft_entry *t_raft_get_entry(const t_raft *raft, uint64_t index) {
 int t_raft_advance_commit(t_raft *raft, uint64_t commit_idx) {
     if (!raft) return -1;
     if (commit_idx > raft->log_count) commit_idx = raft->log_count;
+    /* commit_index must be monotonic — never retreat past last_applied. */
+    if (commit_idx < raft->commit_index) return -1;
     raft->commit_index = commit_idx;
     return 0;
 }

@@ -146,6 +146,25 @@ void t_config_destroy(t_config *cfg) {
     free(cfg);
 }
 
+static void cfg_clear(t_config *cfg) {
+    if (!cfg) return;
+    for (size_t i = 0; i < cfg->section_count; ++i) {
+        t_config_section *sec = &cfg->sections[i];
+        if (sec->name) free(sec->name);
+        if (sec->kv) {
+            for (size_t j = 0; j < sec->kv_count; ++j) {
+                free(sec->kv[j].key);
+                free(sec->kv[j].value);
+            }
+            free(sec->kv);
+        }
+    }
+    free(cfg->sections);
+    cfg->sections = NULL;
+    cfg->section_count = 0;
+    cfg->section_cap = 0;
+}
+
 /* Parse file by reading it into memory and delegating to string parser */
 int t_config_parse_file(t_config *cfg, const char *path) {
     if (!cfg || !path) return -1;
@@ -170,8 +189,10 @@ int t_config_parse_file(t_config *cfg, const char *path) {
     return res;
 }
 
-/* Core INI parser: supports sections, key=value, comments (# or ;) */
-int t_config_parse_string(t_config *cfg, const char *data, size_t len) {
+/* Core INI parser: supports sections, key=value, comments (# or ;)
+ * Parses into a temporary config then replaces cfg on success so failures
+ * never leave a half-applied config. */
+static int t_config_parse_string_into(t_config *cfg, const char *data, size_t len) {
     if (!cfg) return -1;
     if (ensure_initialized(cfg) != 0) return -1;
     const char *p = data;
@@ -228,6 +249,26 @@ int t_config_parse_string(t_config *cfg, const char *data, size_t len) {
         if (line_start < end && *line_start == '\n') line_start++;
         p = line_start;
     }
+    return 0;
+}
+
+int t_config_parse_string(t_config *cfg, const char *data, size_t len) {
+    if (!cfg) return -1;
+    t_config *tmp = t_config_create();
+    if (!tmp) return -1;
+    if (t_config_parse_string_into(tmp, data, len) != 0) {
+        t_config_destroy(tmp);
+        return -1;
+    }
+    /* Atomically replace: leave prior cfg untouched until parse succeeds. */
+    cfg_clear(cfg);
+    cfg->sections = tmp->sections;
+    cfg->section_count = tmp->section_count;
+    cfg->section_cap = tmp->section_cap;
+    tmp->sections = NULL;
+    tmp->section_count = 0;
+    tmp->section_cap = 0;
+    t_config_destroy(tmp);
     return 0;
 }
 

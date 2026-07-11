@@ -550,6 +550,7 @@
             <li>dispatch resub failure keeps bookkeeping; domain accepting gated by broker start/stop; client cap + rcbuf alloc overflow guards</li>
             <li>mmap failure leaves fd=-1; coro destroy rejects live states; timer expire overflow-safe; dispatch subscribe needs active session</li>
             <li>raft rejects null payload; IOCP poll batches + callback arity; fc/ratelimit clock rewind; tcp dial waits for connect</li>
+            <li>raft commit monotonic; mmap rejects size 0; ttl expire_at fits int64; config parse atomic replace</li>
         </ul>
     </div>
 
