@@ -159,7 +159,9 @@ int t_raft_request_vote(t_raft *raft, uint64_t candidate_id, uint64_t term) {
 
 int t_raft_grant_vote(t_raft *raft, uint64_t candidate_id) {
     if (!raft) return -1;
+    if (raft->voted_for != 0 && raft->voted_for != candidate_id) return -1;
     raft->voted_for = candidate_id;
+    raft->state = T_NODE_FOLLOWER;
     return 0;
 }
 

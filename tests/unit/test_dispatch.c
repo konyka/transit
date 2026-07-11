@@ -86,7 +86,7 @@ T_TEST(dispatch_unsubscribe_stops_delivery) {
     T_ASSERT_EQ((int)t_dispatch_total_delivered(d), 1);
 
     T_ASSERT_EQ(t_dispatch_unsubscribe(d, 2, "unsub.q"), 0);
-    T_ASSERT_EQ(t_dispatch_publish(d, 2, "unsub.q", msg, 1, 0), 0);
+    T_ASSERT_EQ(t_dispatch_publish(d, 2, "unsub.q", msg, 1, 0), -1);
     T_ASSERT_EQ((int)t_dispatch_total_delivered(d), 1);
     T_ASSERT_EQ(t_dispatch_unsubscribe(d, 2, "unsub.q"), -1);
 

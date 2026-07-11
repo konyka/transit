@@ -137,8 +137,9 @@ T_TEST(raft_voting) {
     T_ASSERT_EQ((int)t_raft_state(r), T_NODE_FOLLOWER);
     T_ASSERT_EQ(t_raft_request_vote(r, 3, 1), 0); /* already voted this term */
     T_ASSERT_EQ((int)t_raft_voted_for(r), 2);
-    T_ASSERT_EQ(t_raft_grant_vote(r, 3), 0);
-    T_ASSERT_EQ((int)t_raft_voted_for(r), 3);
+    T_ASSERT_EQ(t_raft_grant_vote(r, 3), -1); /* cannot override existing vote */
+    T_ASSERT_EQ((int)t_raft_voted_for(r), 2);
+    T_ASSERT_EQ(t_raft_grant_vote(r, 2), 0); /* same candidate ok */
     t_raft_destroy(r);
 }
 

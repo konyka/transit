@@ -87,13 +87,23 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
     /* Push-style: fire-and-forget. Copies are freed after the callback so
      * pending/inflight do not grow unbounded when callers never ack. */
     size_t cons = q->consumers.len;
+    if (cons == 0) return 0;
+    t_msg **copies = (t_msg **)calloc(cons, sizeof(t_msg *));
+    if (!copies) return -1;
+    for (size_t i = 0; i < cons; ++i) {
+        copies[i] = t_msg_copy(m);
+        if (!copies[i]) {
+            for (size_t j = 0; j < i; ++j) t_msg_free(copies[j]);
+            free(copies);
+            return -1;
+        }
+    }
     for (size_t i = 0; i < cons; ++i) {
         t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
-        t_msg *copym = t_msg_copy(m);
-        if (!copym) continue;
-        if (cb && cb->cb) cb->cb(copym, cb->cb_ud);
-        t_msg_free(copym);
+        if (cb && cb->cb) cb->cb(copies[i], cb->cb_ud);
+        t_msg_free(copies[i]);
     }
+    free(copies);
     return 0;
 }
 
@@ -196,23 +206,29 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
         memcpy((void *)m->data, data, len);
     }
 
-    /* BROADCAST: deliver copies to all consumers; drop if none. */
+    /* BROADCAST: deliver copies to all consumers; fail if none. */
     if (q->type == T_QUEUE_BROADCAST) {
-        q->total_published++;
         if (q->consumers.len == 0) {
             t_msg_free(m);
-            return 0;
+            return -1;
         }
-        t_queue_deliver_to_consumers(q, m);
+        if (t_queue_deliver_to_consumers(q, m) != 0) {
+            t_msg_free(m);
+            return -1;
+        }
+        q->total_published++;
         t_msg_free(m);
         return 0;
     }
 
-    q->total_published++;
     if (q->type == T_QUEUE_PRIORITY) {
         /* Push-style consumers: deliver immediately (same as FIFO). */
         if (q->consumers.len > 0) {
-            t_queue_deliver_to_consumers(q, m);
+            if (t_queue_deliver_to_consumers(q, m) != 0) {
+                t_msg_free(m);
+                return -1;
+            }
+            q->total_published++;
             t_msg_free(m);
             return 0;
         }
@@ -220,6 +236,7 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
             t_msg_free(m);
             return -1;
         }
+        q->total_published++;
         return 0;
     }
 
@@ -227,7 +244,11 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
      * enqueue to pending (that caused unbounded memory growth). Pull-style
      * (no consumers) stores in pending for t_queue_consume. */
     if (q->consumers.len > 0) {
-        t_queue_deliver_to_consumers(q, m);
+        if (t_queue_deliver_to_consumers(q, m) != 0) {
+            t_msg_free(m);
+            return -1;
+        }
+        q->total_published++;
         t_msg_free(m);
         return 0;
     }
@@ -236,6 +257,7 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
         t_msg_free(m);
         return -1;
     }
+    q->total_published++;
     return 0;
 }
 
