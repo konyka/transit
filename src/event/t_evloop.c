@@ -184,6 +184,7 @@ int t_evloop_del(t_evloop *loop, t_evio *io) {
 int64_t t_evloop_timer_add(t_evloop *loop, int64_t timeout_ms, int repeat,
                            t_timer_cb callback, void *user_data) {
     if (!loop || timeout_ms < 0) return -1;
+    if (loop->next_timer_id == INT64_MAX) return -1;
     int64_t now = t_time_now_ms();
     if (timeout_ms > 0 && now > INT64_MAX - timeout_ms) return -1;
     t_timer_entry e;
@@ -230,7 +231,8 @@ int t_evloop_run(t_evloop *loop, int timeout_ms) {
             }
         }
         loop->backend->poll(loop, wait_ms);
-        if (evloop_process_timers(loop)) return 0;
+        /* 1 => loop freed inside a timer callback; caller must not destroy. */
+        if (evloop_process_timers(loop)) return 1;
     }
     return 0;
 }

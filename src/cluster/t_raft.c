@@ -79,6 +79,7 @@ int t_raft_become_candidate(t_raft *raft) {
     if (!raft) return -1;
     /* Only start a new election term when entering candidacy. */
     if (raft->state != T_NODE_CANDIDATE) {
+        if (raft->current_term == UINT64_MAX) return -1;
         raft->current_term += 1;
     }
     raft->state = T_NODE_CANDIDATE;

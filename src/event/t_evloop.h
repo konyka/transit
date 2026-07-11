@@ -51,6 +51,8 @@ int64_t t_evloop_timer_add(t_evloop *loop, int64_t timeout_ms, int repeat,
                            t_timer_cb callback, void *user_data);
 void    t_evloop_timer_del(t_evloop *loop, int64_t timer_id);
 
+/* Returns 0 when stopped normally; 1 if loop was destroyed from a timer
+ * callback (caller must not call t_evloop_destroy on the same pointer). */
 int  t_evloop_run(t_evloop *loop, int timeout_ms);
 void t_evloop_stop(t_evloop *loop);
 int  t_evloop_is_running(const t_evloop *loop);

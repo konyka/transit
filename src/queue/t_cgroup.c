@@ -73,12 +73,20 @@ int t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id) {
     if (!cg || !consumer_id) return -1;
     for (size_t i = 0; i < cg->consumer_count; i++) {
         if (strcmp(cg->consumers[i].id, consumer_id) == 0) {
+            size_t last = cg->consumer_count - 1;
+            size_t next = cg->next_idx;
             free(cg->consumers[i].id);
-            cg->consumers[i] = cg->consumers[cg->consumer_count - 1];
-            if (i < cg->next_idx) cg->next_idx--;
+            cg->consumers[i] = cg->consumers[last];
             cg->consumer_count--;
-            if (cg->consumer_count == 0 || cg->next_idx >= cg->consumer_count)
+            if (cg->consumer_count == 0) {
                 cg->next_idx = 0;
+            } else if (next == last) {
+                /* Next was the swapped-out tail; it now lives at i. */
+                cg->next_idx = i;
+            } else if (next >= cg->consumer_count) {
+                cg->next_idx = 0;
+            }
+            /* else: next still points at the same consumer slot */
             return 0;
         }
     }

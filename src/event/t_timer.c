@@ -104,6 +104,7 @@ void t_timer_destroy(t_timer *t) {
 int64_t t_timer_add(t_timer *t, int64_t delay_ms, int64_t repeat_ms,
                     t_timer_fn fn, void *user_data) {
     if (!t || !fn || delay_ms < 0 || repeat_ms < 0) return -1;
+    if (t->next_id == INT64_MAX) return -1;
     int64_t now = t_time_now_ms();
     if (delay_ms > 0 && now > INT64_MAX - delay_ms) return -1;
     timer_node node;
