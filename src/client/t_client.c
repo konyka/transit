@@ -128,6 +128,8 @@ int t_client_close_queue(t_client *client, const char *queue_name) {
                 client->queues[j] = client->queues[j+1];
             }
             client->queues_size--;
+            /* Drop all subscriptions for this queue. */
+            (void)t_client_unsubscribe(client, queue_name);
             return 0;
         }
     }
@@ -139,6 +141,14 @@ int t_client_post(t_client *client, const char *queue_name,
     (void)priority; /* priority currently unused in this stub */
     if (!client || !queue_name) return -1;
     if (len > 0 && !data) return -1;
+    int open = 0;
+    for (size_t i = 0; i < client->queues_size; ++i) {
+        if (strcmp(client->queues[i].name, queue_name) == 0) {
+            open = 1;
+            break;
+        }
+    }
+    if (!open) return -1;
     client->published++;
     /* deliver to any subscribers for this queue */
     for (size_t i = 0; i < client->subs_count; ++i) {
@@ -173,17 +183,20 @@ int t_client_subscribe(t_client *client, const char *queue_name,
 
 int t_client_unsubscribe(t_client *client, const char *queue_name) {
     if (!client || !queue_name) return -1;
-    for (size_t i = 0; i < client->subs_count; ++i) {
+    int removed = 0;
+    for (size_t i = 0; i < client->subs_count; ) {
         if (strcmp(client->subs[i].queue, queue_name) == 0) {
             free(client->subs[i].queue);
             for (size_t j = i; j + 1 < client->subs_count; ++j) {
                 client->subs[j] = client->subs[j+1];
             }
             client->subs_count--;
-            return 0;
+            removed++;
+        } else {
+            ++i;
         }
     }
-    return -1;
+    return removed ? 0 : -1;
 }
 
 size_t t_client_queue_count(const t_client *client) {

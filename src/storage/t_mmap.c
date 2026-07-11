@@ -54,6 +54,8 @@ int t_mmap_open(t_mmap *mm, const char *path) {
 void t_mmap_close(t_mmap *mm) {
     if (!mm) return;
     if (mm->addr && mm->size) {
+        /* Best-effort flush so dirty pages are not silently dropped. */
+        (void)msync(mm->addr, mm->size, MS_SYNC);
         munmap(mm->addr, mm->size);
         mm->addr = NULL;
         mm->size = 0;

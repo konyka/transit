@@ -20,7 +20,12 @@ struct t_raft {
 static int ensure_log_cap(t_raft *r, size_t needed) {
     if (r->log_cap >= needed) return 0;
     size_t newcap = r->log_cap ? r->log_cap * 2 : 4;
-    while (newcap < needed) newcap *= 2;
+    if (r->log_cap && newcap / 2 != r->log_cap) return -1;
+    while (newcap < needed) {
+        if (newcap > SIZE_MAX / 2) return -1;
+        newcap *= 2;
+    }
+    if (newcap > SIZE_MAX / sizeof(t_raft_entry)) return -1;
     t_raft_entry *newlog = (t_raft_entry *)realloc(r->log, newcap * sizeof(t_raft_entry));
     if (!newlog) return -1;
     r->log = newlog;
@@ -136,8 +141,10 @@ int t_raft_advance_commit(t_raft *raft, uint64_t commit_idx) {
 
 int t_raft_apply_entries(t_raft *raft) {
     if (!raft) return -1;
-    if (raft->last_applied < raft->commit_index) {
-        raft->last_applied = raft->commit_index;
+    while (raft->last_applied < raft->commit_index) {
+        uint64_t next = raft->last_applied + 1;
+        if (!t_raft_get_entry(raft, next)) return -1;
+        raft->last_applied = next;
     }
     return 0;
 }

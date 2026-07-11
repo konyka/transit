@@ -1,11 +1,14 @@
 #include <stdlib.h>
 #include <string.h> /* for memcpy if needed */
 #include <stddef.h>
+#include <stdint.h>
 #include "t_vec.h"
 
 static int t_vec_grow(t_vec *v, size_t min_cap) {
     size_t new_cap = v->cap ? v->cap * 2 : 8;
+    if (v->cap && new_cap / 2 != v->cap) return -1;
     if (new_cap < min_cap) new_cap = min_cap;
+    if (new_cap > SIZE_MAX / sizeof(void *)) return -1;
     void **new_items = (void **)realloc(v->items, new_cap * sizeof(void *));
     if (!new_items) return -1;
     v->items = new_items;
@@ -98,6 +101,7 @@ int t_vec_reserve(t_vec *v, size_t capacity) {
     if (capacity <= v->cap) return 0;
     size_t new_cap = capacity;
     if (new_cap < 8) new_cap = 8;
+    if (new_cap > SIZE_MAX / sizeof(void *)) return -1;
     void **new_items = (void **)realloc(v->items, new_cap * sizeof(void *));
     if (!new_items) return -1;
     v->items = new_items;
