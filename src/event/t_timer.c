@@ -113,6 +113,8 @@ void t_timer_cancel(t_timer *t, int64_t id) {
     for (size_t i = 0; i < t->count; ++i) {
         if (t->heap[i].id == id) {
             t->heap[i].active = 0;
+            t->heap[i].expire_ms = 0;
+            sift_up(t->heap, i);
             break;
         }
     }

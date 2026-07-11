@@ -182,6 +182,9 @@ void t_evloop_timer_del(t_evloop *loop, int64_t timer_id) {
     for (size_t i = 0; i < loop->timer_count; ++i) {
         if (loop->timers[i].id == timer_id) {
             loop->timers[i].active = 0;
+            /* Bubble to root so run() can pop cancelled entries promptly. */
+            loop->timers[i].expire_ms = 0;
+            timer_heap_sift_up(loop->timers, i);
             break;
         }
     }

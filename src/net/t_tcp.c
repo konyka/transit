@@ -157,7 +157,7 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
         if (conn->on_read) conn->on_read(conn, buf, (size_t)r, conn->user_data);
         return;
     }
-    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
+    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return;
     conn->closed = 1;
     if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
     if (conn->fd >= 0) {

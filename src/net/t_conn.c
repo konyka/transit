@@ -312,7 +312,7 @@ static void t_conn_handle_read(t_conn *conn)
             t_conn_close_now(conn);
             return;
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return;
             t_conn_close_now(conn);
             return;
         }
@@ -331,7 +331,7 @@ static void t_conn_handle_write(t_conn *conn)
                 memmove(conn->send_buf, conn->send_buf + n, conn->send_len);
             }
         } else if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return;
             t_conn_close_now(conn);
             return;
         } else {

@@ -66,7 +66,10 @@ static int t_epoll_del(t_evloop *loop, t_evio *io) {
 static int t_epoll_poll(t_evloop *loop, int timeout_ms) {
     t_evloop_epoll_state *st = (t_evloop_epoll_state *)loop->backend_state;
     struct epoll_event events[128];
-    int nfds = epoll_wait(st->epoll_fd, events, 128, timeout_ms);
+    int nfds;
+    do {
+        nfds = epoll_wait(st->epoll_fd, events, 128, timeout_ms);
+    } while (nfds < 0 && errno == EINTR);
     if (nfds > 0) {
         for (int i = 0; i < nfds; ++i) {
             t_evio *io = (t_evio *)events[i].data.ptr;

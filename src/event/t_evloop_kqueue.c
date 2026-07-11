@@ -80,7 +80,10 @@ static int t_kqueue_poll(t_evloop *loop, int timeout_ms) {
         tsp = &ts;
     }
     struct kevent events[128];
-    int nfds = kevent(st->kq_fd, NULL, 0, events, 128, tsp);
+    int nfds;
+    do {
+        nfds = kevent(st->kq_fd, NULL, 0, events, 128, tsp);
+    } while (nfds < 0 && errno == EINTR);
     if (nfds > 0) {
         for (int i = 0; i < nfds; i++) {
             t_evio *io = (t_evio *)events[i].udata;
