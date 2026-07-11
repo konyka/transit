@@ -209,12 +209,13 @@ size_t t_storage_count(const t_storage *storage) {
     return t_map_len(&storage->map);
 }
 
-void t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
-    if (!storage || !fn) return;
+int t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
+    if (!storage || !fn) return -1;
     size_t n = t_map_len(&storage->map);
-    if (n == 0) return;
+    if (n == 0) return 0;
+    if (n > SIZE_MAX / sizeof(uint64_t)) return -1;
     uint64_t *keys = (uint64_t *)malloc(n * sizeof(uint64_t));
-    if (!keys) return;
+    if (!keys) return -1;
     size_t count = 0;
     t_map_iter it = t_map_iter_begin(&storage->map);
     const char *k;
@@ -229,6 +230,7 @@ void t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
         if (e) fn(keys[i], e->data, e->data_len, ud);
     }
     free(keys);
+    return 0;
 }
 
 int t_storage_flush(t_storage *storage) {

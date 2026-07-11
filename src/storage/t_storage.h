@@ -28,7 +28,7 @@ int        t_storage_get(t_storage *storage, uint64_t key, void **data, size_t *
 int        t_storage_delete(t_storage *storage, uint64_t key);
 int        t_storage_contains(t_storage *storage, uint64_t key);
 size_t     t_storage_count(const t_storage *storage);
-void       t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud);
+int        t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud);
 int        t_storage_flush(t_storage *storage);
 
 #endif /* T_STORAGE_H */

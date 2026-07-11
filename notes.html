@@ -546,6 +546,7 @@
             <li>evloop destroy deferred in timer cb; storage foreach key snapshot; config double ERANGE; tcp_conn defer free; timer grow</li>
             <li>queue deliver snapshots consumers; slab rejects double-free; arena used/cap saturate; broker subscribe needs running</li>
             <li>queue deliver snapshots (fn,ud) not wrappers; dispatch unregister disconnects session; map/vec grow reject SIZE_MAX wrap</li>
+            <li>cgroup grow rejects wrap; storage foreach returns OOM; client disconnect drops subs; dispatch unsub clears stale bookkeeping</li>
         </ul>
     </div>
 

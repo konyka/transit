@@ -1,6 +1,7 @@
 #include "t_cgroup.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 typedef struct {
     char                *id;
@@ -51,7 +52,9 @@ int t_cgroup_add_consumer(t_cgroup *cg, const char *consumer_id, t_cgroup_delive
         if (strcmp(cg->consumers[i].id, consumer_id) == 0) return -1;
     }
     if (cg->consumer_count >= cg->consumer_cap) {
+        if (cg->consumer_cap > SIZE_MAX / 2) return -1;
         size_t new_cap = cg->consumer_cap * 2;
+        if (new_cap > SIZE_MAX / sizeof(t_consumer)) return -1;
         t_consumer *tmp = (t_consumer *)realloc(cg->consumers, new_cap * sizeof(t_consumer));
         if (!tmp) return -1;
         cg->consumers = tmp;

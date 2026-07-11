@@ -100,6 +100,14 @@ int t_client_connect(t_client *client, const char *host, uint16_t port) {
 int t_client_disconnect(t_client *client) {
     if (!client) return -1;
     client->connected = 0;
+    /* Drop all subscriptions so reconnect cannot revive stale callbacks. */
+    for (size_t i = 0; i < client->subs_count; ++i) {
+        free(client->subs[i].queue);
+    }
+    free(client->subs);
+    client->subs = NULL;
+    client->subs_count = 0;
+    client->subs_cap = 0;
     return 0;
 }
 
