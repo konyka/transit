@@ -150,7 +150,7 @@ int t_broker_publish(t_broker *broker, const char *queue_name,
 
 int t_broker_subscribe(t_broker *broker, const char *queue_name,
                         t_broker_msg_cb cb, void *ud) {
-    if (!broker || !queue_name || !cb) return -1;
+    if (!broker || !broker->running || !queue_name || !cb) return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     return t_domain_subscribe(d, queue_name, cb, ud);

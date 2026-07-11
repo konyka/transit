@@ -89,21 +89,29 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
     size_t cons = q->consumers.len;
     if (cons == 0) return 0;
     t_msg **copies = (t_msg **)calloc(cons, sizeof(t_msg *));
-    if (!copies) return -1;
+    t_cons_cb **cbs = (t_cons_cb **)calloc(cons, sizeof(t_cons_cb *));
+    if (!copies || !cbs) {
+        free(copies);
+        free(cbs);
+        return -1;
+    }
     for (size_t i = 0; i < cons; ++i) {
+        cbs[i] = (t_cons_cb *)q->consumers.items[i];
         copies[i] = t_msg_copy(m);
         if (!copies[i]) {
             for (size_t j = 0; j < i; ++j) t_msg_free(copies[j]);
             free(copies);
+            free(cbs);
             return -1;
         }
     }
     for (size_t i = 0; i < cons; ++i) {
-        t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
+        t_cons_cb *cb = cbs[i];
         if (cb && cb->cb) cb->cb(copies[i], cb->cb_ud);
         t_msg_free(copies[i]);
     }
     free(copies);
+    free(cbs);
     return 0;
 }
 

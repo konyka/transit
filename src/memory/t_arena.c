@@ -141,6 +141,7 @@ size_t t_arena_used(t_arena *arena) {
     size_t total = 0;
     t_arena_block *b = arena->head;
     while (b) {
+        if (total > SIZE_MAX - b->used) return SIZE_MAX;
         total += b->used;
         b = b->next;
     }
@@ -152,6 +153,7 @@ size_t t_arena_capacity(t_arena *arena) {
     size_t cap = 0;
     t_arena_block *b = arena->head;
     while (b) {
+        if (cap > SIZE_MAX - b->size) return SIZE_MAX;
         cap += b->size;
         b = b->next;
     }

@@ -5,6 +5,7 @@
 #include "t_slab.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 
 typedef struct t_slab_page {
     void *mem;           /* raw memory for objects */
@@ -121,7 +122,16 @@ void t_slab_free(t_slab *slab, void *obj) {
     if (!slab || !obj) return;
     t_slab_page *page = t_slab_find_page_for_ptr(slab, obj);
     if (!page) return; /* invalid pointer */
-    int idx = ((char *)obj - (char *)page->mem) / page->object_size;
+    ptrdiff_t off = (char *)obj - (char *)page->mem;
+    if (off < 0 || (size_t)off % page->object_size != 0) return;
+    int idx = (int)((size_t)off / page->object_size);
+    if (idx < 0 || (size_t)idx >= page->capacity) return;
+    /* Reject double-free: object already on the free list. */
+    for (int i = page->free_head; i >= 0; ) {
+        if (i == idx) return;
+        void *slot = (char *)page->mem + (size_t)i * page->object_size;
+        i = *((int *)slot);
+    }
     *((int *)obj) = page->free_head;
     page->free_head = idx;
     if (slab->used > 0) slab->used--;
