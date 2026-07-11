@@ -118,7 +118,13 @@ t_evloop *t_evloop_create(void) {
         free(loop);
         return NULL;
     }
-    loop->backend->add(loop, &loop->wakeup_io, T_EV_READ);
+    if (loop->backend->add(loop, &loop->wakeup_io, T_EV_READ) != 0) {
+        loop->backend->destroy(loop);
+        close(loop->wakeup_fds[0]);
+        close(loop->wakeup_fds[1]);
+        free(loop);
+        return NULL;
+    }
 
     loop->next_timer_id = 1;
     loop->running = 0;

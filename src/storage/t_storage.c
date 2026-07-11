@@ -75,6 +75,7 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
             key_to_str(key, keybuf, sizeof(keybuf));
         }
     }
+    if (pos != total) { free(buf); return -1; }
     free(buf);
     return 0;
 }

@@ -64,7 +64,12 @@ void t_coro_destroy(t_coro *coro) {
 int t_coro_resume(t_coro *coro) {
     if (!coro || coro->state == T_CORO_DEAD) return -1;
     t_coro *prev = g_current_coro;
-    coro->caller = prev ? prev : (t_coro *)calloc(1, sizeof(t_coro));
+    if (prev) {
+        coro->caller = prev;
+    } else {
+        coro->caller = (t_coro *)calloc(1, sizeof(t_coro));
+        if (!coro->caller) return -1;
+    }
     int needs_caller_cleanup = (prev == NULL);
     if (needs_caller_cleanup) {
         coro->caller->state = T_CORO_RUNNING;
