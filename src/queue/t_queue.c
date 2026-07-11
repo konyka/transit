@@ -83,35 +83,45 @@ static t_msg *t_msg_copy(const t_msg *src) {
     return m;
 }
 
+typedef struct t_deliver_snap {
+    t_queue_msg_cb fn;
+    void *ud;
+} t_deliver_snap;
+
 static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
     /* Push-style: fire-and-forget. Copies are freed after the callback so
-     * pending/inflight do not grow unbounded when callers never ack. */
+     * pending/inflight do not grow unbounded when callers never ack.
+     * Snapshot (fn, ud) values — not t_cons_cb* — so a callback that
+     * unsubscribes another consumer cannot UAF freed wrappers. */
     size_t cons = q->consumers.len;
     if (cons == 0) return 0;
     t_msg **copies = (t_msg **)calloc(cons, sizeof(t_msg *));
-    t_cons_cb **cbs = (t_cons_cb **)calloc(cons, sizeof(t_cons_cb *));
-    if (!copies || !cbs) {
+    t_deliver_snap *snaps = (t_deliver_snap *)calloc(cons, sizeof(t_deliver_snap));
+    if (!copies || !snaps) {
         free(copies);
-        free(cbs);
+        free(snaps);
         return -1;
     }
     for (size_t i = 0; i < cons; ++i) {
-        cbs[i] = (t_cons_cb *)q->consumers.items[i];
+        t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
+        if (cb) {
+            snaps[i].fn = cb->cb;
+            snaps[i].ud = cb->cb_ud;
+        }
         copies[i] = t_msg_copy(m);
         if (!copies[i]) {
             for (size_t j = 0; j < i; ++j) t_msg_free(copies[j]);
             free(copies);
-            free(cbs);
+            free(snaps);
             return -1;
         }
     }
     for (size_t i = 0; i < cons; ++i) {
-        t_cons_cb *cb = cbs[i];
-        if (cb && cb->cb) cb->cb(copies[i], cb->cb_ud);
+        if (snaps[i].fn) snaps[i].fn(copies[i], snaps[i].ud);
         t_msg_free(copies[i]);
     }
     free(copies);
-    free(cbs);
+    free(snaps);
     return 0;
 }
 

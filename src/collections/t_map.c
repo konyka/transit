@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include "t_map.h"
 
 /* 64-bit FNV-1a hash */
@@ -85,6 +86,7 @@ static int t_map_grow_if_needed(t_map *m) {
         return t_map_resize(m, 8);
     }
     if (m->len * 10 >= m->cap * 7) {
+        if (m->cap > SIZE_MAX / 2) return -1;
         return t_map_resize(m, m->cap * 2);
     }
     return 0;
@@ -122,6 +124,7 @@ int t_map_insert(t_map *m, const char *key, void *val) {
         }
     }
     /* if we reach here, need to resize and retry */
+    if (m->cap > SIZE_MAX / 2) return -1;
     if (t_map_resize(m, m->cap * 2) == 0) {
         return t_map_insert(m, key, val);
     }

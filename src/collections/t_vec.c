@@ -41,8 +41,11 @@ size_t t_vec_cap(const t_vec *v) {
 
 int t_vec_push(t_vec *v, void *item) {
     if (!v) return -1;
+    if (v->len >= SIZE_MAX) return -1;
+    size_t need = v->len + 1;
+    if (need < v->len) return -1;
     if (v->len >= v->cap) {
-        if (t_vec_grow(v, v->len + 1) != 0) return -1;
+        if (t_vec_grow(v, need) != 0) return -1;
     }
     v->items[v->len++] = item;
     return 0;
@@ -66,10 +69,13 @@ int t_vec_set(t_vec *v, size_t index, void *item) {
 
 int t_vec_insert(t_vec *v, size_t index, void *item) {
     if (!v || index > v->len) return -1;
+    if (v->len >= SIZE_MAX) return -1;
+    size_t need = v->len + 1;
+    if (need < v->len) return -1;
     if (v->len >= v->cap) {
-        if (t_vec_grow(v, v->len + 1) != 0) return -1;
+        if (t_vec_grow(v, need) != 0) return -1;
     }
-    // move tail
+    /* move tail */
     for (size_t i = v->len; i > index; --i) {
         v->items[i] = v->items[i - 1];
     }

@@ -545,13 +545,14 @@
             <li>client/broker require live state; dispatch register connects; arena overflow-safe; timer destroy deferred in cb</li>
             <li>evloop destroy deferred in timer cb; storage foreach key snapshot; config double ERANGE; tcp_conn defer free; timer grow</li>
             <li>queue deliver snapshots consumers; slab rejects double-free; arena used/cap saturate; broker subscribe needs running</li>
+            <li>queue deliver snapshots (fn,ud) not wrappers; dispatch unregister disconnects session; map/vec grow reject SIZE_MAX wrap</li>
         </ul>
     </div>
 
     <hr>
     <p style="text-align:center; color:#999; margin-top:40px;">
         Transit MQ - Pure C High-Performance Message Queue<br>
-        Last updated: 2026-07-10
+        Last updated: 2026-07-11
     </p>
 </body>
 </html>

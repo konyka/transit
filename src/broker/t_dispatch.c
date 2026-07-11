@@ -103,6 +103,7 @@ int t_dispatch_unregister(t_dispatch *disp, uint64_t session_id) {
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     void *v = t_map_remove(&disp->sessions, key);
     if (!v) return -1;
+    (void)t_session_disconnect((t_session *)v);
     /* Drop broker subscriptions for this session to avoid ghost deliveries. */
     for (size_t i = 0; i < disp->subscriptions.len; ) {
         t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
