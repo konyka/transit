@@ -298,6 +298,14 @@ static void t_conn_handle_read(t_conn *conn)
                     memcpy(payload, conn->recv_buf + T_PROTO_HEADER_SIZE, hdr.payload_len);
                 }
 
+                /* Consume before callback so nested reads cannot redeliver. */
+                size_t consumed = total;
+                if (consumed < conn->recv_len) {
+                    memmove(conn->recv_buf, conn->recv_buf + consumed, conn->recv_len - consumed);
+                }
+                conn->recv_len -= consumed;
+                conn->msgs_recv += 1;
+
                 t_proto_msg msg;
                 msg.header = hdr;
                 msg.payload = payload;
@@ -305,13 +313,6 @@ static void t_conn_handle_read(t_conn *conn)
                 if (conn->on_msg) conn->on_msg(conn, &msg, conn->on_msg_ud);
                 free(payload);
                 if (conn->closed) return;
-
-                size_t consumed = total;
-                if (consumed < conn->recv_len) {
-                    memmove(conn->recv_buf, conn->recv_buf + consumed, conn->recv_len - consumed);
-                }
-                conn->recv_len -= consumed;
-                conn->msgs_recv += 1;
             }
         } else if (n == 0) {
             t_conn_close_now(conn);

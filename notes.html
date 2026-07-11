@@ -564,6 +564,8 @@
             <li>cgroup dispatch advances RR before cb (no %0 if last consumer removed)</li>
             <li>session retain/release; destroy refuses while dispatch-registered</li>
             <li>raft apply_cb invokes FSM on committed entries; signal uninstall restores handlers</li>
+            <li>closed queues reject new consumers; conn consumes frame before on_msg</li>
+            <li>tcp on_read heap-copies buffer; flowcontrol credits under mutex</li>
         </ul>
     </div>
 

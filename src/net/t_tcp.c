@@ -168,10 +168,18 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
     t_tcp_conn *conn = (t_tcp_conn *)io->user_data;
     if (!conn || conn->closed) return;
     conn->in_io_cb = 1;
-    unsigned char buf[4096];
-    ssize_t r = t_socket_read(conn->fd, buf, sizeof(buf));
+    unsigned char stack_buf[4096];
+    ssize_t r = t_socket_read(conn->fd, stack_buf, sizeof(stack_buf));
     if (r > 0) {
-        if (conn->on_read) conn->on_read(conn, buf, (size_t)r, conn->user_data);
+        if (conn->on_read) {
+            /* Heap copy so callbacks may retain the pointer until return. */
+            unsigned char *buf = (unsigned char *)malloc((size_t)r);
+            if (buf) {
+                memcpy(buf, stack_buf, (size_t)r);
+                conn->on_read(conn, buf, (size_t)r, conn->user_data);
+                free(buf);
+            }
+        }
     } else if (!(r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))) {
         if (!conn->closed) {
             conn->closed = 1;

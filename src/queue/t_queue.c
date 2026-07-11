@@ -325,7 +325,7 @@ size_t t_queue_pending_count(const t_queue *q) {
 }
 
 uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
-    if (!q || !cb) return 0;
+    if (!q || !cb || q->closed) return 0;
     if (q->next_consumer_id == UINT64_MAX) return 0;
     t_cons_cb *wrapper = (t_cons_cb *)malloc(sizeof(t_cons_cb));
     if (!wrapper) return 0;
