@@ -159,10 +159,23 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
 }
 
 int t_dispatch_unsubscribe(t_dispatch *disp, uint64_t session_id, const char *queue_name) {
-    (void)disp; (void)session_id; (void)queue_name;
-    /* Minimal implementation: remove bookkeeping entry only. Real broker unsubscribe is not exposed here. */
-    (void)disp; (void)session_id; (void)queue_name;
-    return 0;
+    if (!disp || !queue_name) return -1;
+    for (size_t i = 0; i < disp->subscriptions.len; ++i) {
+        t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
+        if (!sub) continue;
+        if (sub->session_id == session_id && sub->queue_name &&
+            strcmp(sub->queue_name, queue_name) == 0) {
+            free(sub->queue_name);
+            free(sub->cbud);
+            free(sub);
+            for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
+                disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
+            }
+            disp->subscriptions.len--;
+            return 0;
+        }
+    }
+    return -1;
 }
 
 size_t t_dispatch_session_count(const t_dispatch *disp) {

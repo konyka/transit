@@ -224,7 +224,7 @@ int t_storage_flush(t_storage *storage) {
         if ((size_t)w != e->data_len) { close(fd); return -1; }
         wrote += (16 + e->data_len);
     }
-    fsync(fd);
+    if (fsync(fd) != 0) { close(fd); return -1; }
     close(fd);
     storage->dirty = 0;
     (void)wrote;
