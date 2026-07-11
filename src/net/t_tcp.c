@@ -143,21 +143,19 @@ t_tcp_conn *t_tcp_conn_create(int fd, t_evloop *loop) {
 
 void t_tcp_conn_destroy(t_tcp_conn *conn) {
     if (!conn) return;
-    if (conn->in_io_cb) {
-        conn->free_pending = 1;
+    if (!conn->closed) {
         conn->closed = 1;
-        /* Drop fd from the loop now so poll does not spin on a closed conn. */
         if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
         if (conn->fd >= 0) {
             t_socket_close(conn->fd);
             conn->fd = -1;
         }
+        if (conn->on_close) conn->on_close(conn, conn->user_data);
+    }
+    if (conn->in_io_cb) {
+        conn->free_pending = 1;
         return;
     }
-    if (conn->loop) {
-        t_evloop_del(conn->loop, &conn->read_io);
-    }
-    if (conn->fd >= 0) t_socket_close(conn->fd);
     free(conn);
 }
 
@@ -172,13 +170,15 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
     if (r > 0) {
         if (conn->on_read) conn->on_read(conn, buf, (size_t)r, conn->user_data);
     } else if (!(r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))) {
-        conn->closed = 1;
-        if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
-        if (conn->fd >= 0) {
-            t_socket_close(conn->fd);
-            conn->fd = -1;
+        if (!conn->closed) {
+            conn->closed = 1;
+            if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+            if (conn->fd >= 0) {
+                t_socket_close(conn->fd);
+                conn->fd = -1;
+            }
+            if (conn->on_close) conn->on_close(conn, conn->user_data);
         }
-        if (conn->on_close) conn->on_close(conn, conn->user_data);
     }
     conn->in_io_cb = 0;
     if (conn->free_pending) t_tcp_conn_destroy(conn);

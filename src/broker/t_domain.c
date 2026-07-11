@@ -27,10 +27,11 @@ typedef struct t_domain_sub_ctx {
 
 static void domain_consume_adapter(const t_msg *msg, void *ud) {
     t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)ud;
-    if (ctx && ctx->cb.cb) {
-        ctx->cb.cb(msg->queue_name, msg->data, msg->data_len, ctx->cb.ud);
-        if (ctx->domain) ctx->domain->total_delivered++;
-    }
+    if (!ctx || !ctx->cb.cb) return;
+    /* Count before user cb — unsubscribe may free ctx inside the callback. */
+    t_domain *d = ctx->domain;
+    if (d) d->total_delivered++;
+    ctx->cb.cb(msg->queue_name, msg->data, msg->data_len, ctx->cb.ud);
 }
 
 t_domain *t_domain_create(const char *name) {

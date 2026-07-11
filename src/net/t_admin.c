@@ -24,6 +24,8 @@ typedef struct {
     char      resp[T_ADMIN_RESP_SIZE];
     size_t    resp_len;
     size_t    resp_sent;
+    int       in_io_cb;
+    int       free_pending;
 } t_admin_client;
 
 struct t_admin {
@@ -133,16 +135,11 @@ void t_admin_stop(t_admin *admin) {
         close(admin->listen_fd);
         admin->listen_fd = -1;
     }
-    for (size_t i = 0; i < admin->client_count; i++) {
-        t_admin_client *c = admin->clients[i];
-        if (c) {
-            t_evloop_del(admin->loop, &c->io);
-            close(c->fd);
-            free(c);
-            admin->clients[i] = NULL;
-        }
+    while (admin->client_count > 0) {
+        t_admin_client *c = admin->clients[0];
+        if (!c) break;
+        admin_remove_client(admin, c);
     }
-    admin->client_count = 0;
     admin->running = 0;
 }
 
@@ -207,8 +204,12 @@ static void admin_accept(t_evio *io, int events, void *ud) {
 }
 
 static void admin_remove_client(t_admin *admin, t_admin_client *c) {
+    if (!admin || !c) return;
     t_evloop_del(admin->loop, &c->io);
-    close(c->fd);
+    if (c->fd >= 0) {
+        close(c->fd);
+        c->fd = -1;
+    }
     for (size_t i = 0; i < admin->client_count; i++) {
         if (admin->clients[i] == c) {
             admin->clients[i] = admin->clients[admin->client_count - 1];
@@ -216,8 +217,28 @@ static void admin_remove_client(t_admin *admin, t_admin_client *c) {
             break;
         }
     }
-    admin->client_count--;
+    if (admin->client_count > 0) admin->client_count--;
+    if (c->in_io_cb) {
+        c->free_pending = 1;
+        return;
+    }
     free(c);
+}
+
+static void admin_set_error_resp(t_admin_client *c, int code) {
+    int n = snprintf(c->resp, sizeof(c->resp),
+        "HTTP/1.1 %d Error\r\n"
+        "Content-Length: 0\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        code);
+    if (n < 0 || (size_t)n >= sizeof(c->resp)) {
+        c->resp_len = 0;
+        c->resp_sent = 0;
+        return;
+    }
+    c->resp_len = (size_t)n;
+    c->resp_sent = 0;
 }
 
 static int headers_complete(const char *buf, size_t len) {
@@ -278,8 +299,7 @@ static void build_response(t_admin *admin, t_admin_client *c) {
         json_escape(esc_role, sizeof(esc_role), stats.cluster_role ? stats.cluster_role : "") < 0 ||
         json_escape(esc_leader, sizeof(esc_leader), stats.cluster_leader ? stats.cluster_leader : "") < 0 ||
         json_escape(esc_node, sizeof(esc_node), stats.node_id ? stats.node_id : "") < 0) {
-        c->resp_len = 0;
-        c->resp_sent = 0;
+        admin_set_error_resp(c, 500);
         return;
     }
 
@@ -320,8 +340,7 @@ static void build_response(t_admin *admin, t_admin_client *c) {
         "\r\n",
         jlen);
     if (hlen < 0 || (size_t)hlen >= sizeof(header)) {
-        c->resp_len = 0;
-        c->resp_sent = 0;
+        admin_set_error_resp(c, 500);
         return;
     }
     if ((size_t)hlen + (size_t)jlen >= sizeof(c->resp)) {
@@ -336,8 +355,7 @@ static void build_response(t_admin *admin, t_admin_client *c) {
             "\r\n",
             jlen);
         if (hlen < 0 || (size_t)hlen >= sizeof(header)) {
-            c->resp_len = 0;
-            c->resp_sent = 0;
+            admin_set_error_resp(c, 500);
             return;
         }
     }
@@ -352,16 +370,18 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
     (void)io;
     t_admin_client *c = (t_admin_client *)ud;
     t_admin *admin = c->admin;
+    c->in_io_cb = 1;
     if (events & T_EV_READ) {
+        if (c->fd < 0 || c->free_pending) goto out;
         ssize_t r = read(c->fd, c->buf + c->len, T_ADMIN_BUF_SIZE - c->len - 1);
         if (r < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) goto out;
             admin_remove_client(admin, c);
-            return;
+            goto out;
         }
         if (r == 0) {
             admin_remove_client(admin, c);
-            return;
+            goto out;
         }
         c->len += (size_t)r;
         c->buf[c->len] = '\0';
@@ -372,34 +392,39 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
                 sscanf(c->buf, "GET %127s", path);
                 if (strcmp(path, "/") == 0 || strcmp(path, "/stats") == 0) {
                     build_response(admin, c);
-                    t_evloop_mod(admin->loop, &c->io, T_EV_WRITE);
-                    return;
+                    if (!c->free_pending && c->fd >= 0)
+                        t_evloop_mod(admin->loop, &c->io, T_EV_WRITE);
+                    goto out;
                 }
             }
             const char *resp404 = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
             strncpy(c->resp, resp404, sizeof(c->resp) - 1);
             c->resp_len = strlen(resp404);
             c->resp_sent = 0;
-            t_evloop_mod(admin->loop, &c->io, T_EV_WRITE);
-            return;
+            if (!c->free_pending && c->fd >= 0)
+                t_evloop_mod(admin->loop, &c->io, T_EV_WRITE);
+            goto out;
         }
         if (c->len >= T_ADMIN_BUF_SIZE - 1) {
             admin_remove_client(admin, c);
-            return;
+            goto out;
         }
     }
-    if (events & T_EV_WRITE) {
+    if ((events & T_EV_WRITE) && !c->free_pending && c->fd >= 0) {
         while (c->resp_sent < c->resp_len) {
             ssize_t w = write(c->fd, c->resp + c->resp_sent, c->resp_len - c->resp_sent);
             if (w > 0) {
                 c->resp_sent += (size_t)w;
             } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
-                return;
+                goto out;
             } else {
                 admin_remove_client(admin, c);
-                return;
+                goto out;
             }
         }
         admin_remove_client(admin, c);
     }
+out:
+    c->in_io_cb = 0;
+    if (c->free_pending) free(c);
 }
