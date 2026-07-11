@@ -202,6 +202,10 @@ void t_tpool_destroy(t_tpool *pool) {
 
     for (size_t i = 0; i < pool->num_workers; ++i) {
         pthread_join(pool->workers[i].thread, NULL);
+        void *raw = NULL;
+        while (t_mpmc_pop(&pool->workers[i].queue, &raw)) {
+            free(raw);
+        }
         t_mpmc_destroy(&pool->workers[i].queue);
     }
     free(pool->workers);

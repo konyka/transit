@@ -263,6 +263,7 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
 
 int t_queue_consume(t_queue *q, t_msg *out_msg) {
     if (!q || q->closed) return -1;
+    if (q->type == T_QUEUE_BROADCAST) return -1;
     /* Priority-based path */
     if (q->type == T_QUEUE_PRIORITY) {
         t_pq_entry top;
@@ -395,6 +396,7 @@ int t_queue_ack(t_queue *q, uint64_t msg_id) {
 
 int t_queue_nack(t_queue *q, uint64_t msg_id) {
     if (!q) return -1;
+    if (q->type == T_QUEUE_BROADCAST) return -1;
     t_list_node *cur = q->inflight.head;
     int moved = 0;
     int failed = 0;

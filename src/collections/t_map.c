@@ -105,9 +105,10 @@ int t_map_insert(t_map *m, const char *key, void *val) {
             if (first_tomb != (size_t)-1) {
                 e = &m->entries[first_tomb];
             }
+            char *nk = strdup(key);
+            if (!nk) return -1;
             if (e->key) free(e->key);
-            e->key = strdup(key);
-            if (!e->key) return -1;
+            e->key = nk;
             e->val = val;
             e->occupied = 1;
             m->len++;

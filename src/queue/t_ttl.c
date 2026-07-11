@@ -64,8 +64,7 @@ int t_ttl_add(t_ttl *ttl, uint64_t msg_id, const char *topic,
     char key[32];
     ttl_key(key, sizeof(key), msg_id);
 
-    void *old = t_map_remove(&ttl->entries, key);
-    if (old) ttl_entry_free((t_ttl_entry *)old);
+    t_ttl_entry *old = (t_ttl_entry *)t_map_get(&ttl->entries, key);
 
     t_ttl_entry *e = (t_ttl_entry *)calloc(1, sizeof(*e));
     if (!e) return -1;
@@ -94,8 +93,12 @@ int t_ttl_add(t_ttl *ttl, uint64_t msg_id, const char *topic,
     if (t_pqueue_push(&ttl->heap, (int64_t)expire_at, (void *)(uintptr_t)msg_id) != 0) {
         t_map_remove(&ttl->entries, key);
         ttl_entry_free(e);
+        if (old && t_map_insert(&ttl->entries, key, old) != 0) {
+            ttl_entry_free(old);
+        }
         return -1;
     }
+    if (old) ttl_entry_free(old);
     return 0;
 }
 
