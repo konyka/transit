@@ -293,7 +293,7 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
     if (!m) return -1;
     t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
     if (!inf) {
-        if (t_vec_push(&q->pending, m) != 0) {
+        if (t_vec_insert(&q->pending, 0, m) != 0) {
             t_msg_free(m);
         }
         return -1;

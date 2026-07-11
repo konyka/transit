@@ -528,6 +528,7 @@
             <li>nack restores inflight on OOM; repeating timers rearm in-place; candidate term bump once</li>
             <li>ttl_add replaces without dropping old on OOM; tpool destroy drains tasks</li>
             <li>map insert strdup-before-free; broadcast rejects consume/nack</li>
+            <li>tpool rr is per-pool; FIFO consume OOM restores to head; proto decode clears payload on fail</li>
         </ul>
     </div>
 

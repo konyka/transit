@@ -18,6 +18,7 @@ struct t_tpool {
     size_t          total_submitted;
     size_t          total_completed;
     size_t          total_stolen;
+    size_t          rr;
     int             stopping;
     pthread_mutex_t wait_mutex;
     pthread_cond_t  wait_cond;
@@ -142,8 +143,7 @@ int t_tpool_submit(t_tpool *pool, t_task_fn fn, void *context) {
     if (!task) return -1;
     task->fn = fn;
     task->context = context;
-    static size_t rr = 0;
-    size_t idx = __sync_fetch_and_add(&rr, 1) % pool->num_workers;
+    size_t idx = __sync_fetch_and_add(&pool->rr, 1) % pool->num_workers;
     if (!t_mpmc_push(&pool->workers[idx].queue, task)) {
         free(task);
         return -1;

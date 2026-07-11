@@ -81,6 +81,8 @@ int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
 
 int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (!msg || !buf) return -1;
+    msg->payload = NULL;
+    msg->payload_len = 0;
     if (buf_len < T_PROTO_HEADER_SIZE) return -1;
     t_proto_header hdr;
     if (t_proto_header_decode(&hdr, buf, buf_len) != 0) return -1;
@@ -107,10 +109,11 @@ int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     msg->payload_len = hdr.payload_len;
     if (hdr.payload_len > 0) {
         msg->payload = (uint8_t*)malloc(hdr.payload_len);
-        if (!msg->payload) return -1;
+        if (!msg->payload) {
+            msg->payload_len = 0;
+            return -1;
+        }
         memcpy(msg->payload, buf + T_PROTO_HEADER_SIZE, hdr.payload_len);
-    } else {
-        msg->payload = NULL;
     }
     return 0;
 }
