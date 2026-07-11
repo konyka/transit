@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "t_client.h"
 
@@ -33,8 +34,12 @@ struct t_client {
 /* Helpers */
 static int client_ensure_queues_cap(t_client *c, size_t need) {
     if (c->queues_size >= need) return 0;
-    size_t new_cap = (c->queues_cap == 0) ? 4 : c->queues_cap * 2;
-    while (need > new_cap) new_cap *= 2;
+    size_t new_cap = (c->queues_cap == 0) ? 4 : c->queues_cap;
+    while (need > new_cap) {
+        if (new_cap > SIZE_MAX / 2) return -1;
+        new_cap *= 2;
+    }
+    if (new_cap > SIZE_MAX / sizeof(t_client_queue_entry)) return -1;
     t_client_queue_entry *newq = (t_client_queue_entry *)realloc(c->queues, new_cap * sizeof(t_client_queue_entry));
     if (!newq) return -1;
     c->queues = newq;
@@ -44,7 +49,12 @@ static int client_ensure_queues_cap(t_client *c, size_t need) {
 
 static int client_ensure_subs_cap(t_client *c, size_t need) {
     if (c->subs_count >= need) return 0;
-    size_t new_cap = (c->subs_cap == 0) ? 4 : c->subs_cap * 2;
+    size_t new_cap = (c->subs_cap == 0) ? 4 : c->subs_cap;
+    while (need > new_cap) {
+        if (new_cap > SIZE_MAX / 2) return -1;
+        new_cap *= 2;
+    }
+    if (new_cap > SIZE_MAX / sizeof(t_client_subscription)) return -1;
     t_client_subscription *news = (t_client_subscription *)realloc(c->subs, new_cap * sizeof(t_client_subscription));
     if (!news) return -1;
     c->subs = news;

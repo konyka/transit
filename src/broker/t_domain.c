@@ -11,6 +11,7 @@ typedef struct t_domain {
     t_vec sub_wrappers;
     size_t total_messages;
     size_t total_delivered;
+    int accepting; /* 0 when owning broker is stopped */
 } t_domain;
 
 /* Internal wrapper for converting t_msg to user-provided callback */
@@ -45,6 +46,7 @@ t_domain *t_domain_create(const char *name) {
     t_vec_init(&d->sub_wrappers);
     d->total_messages = 0;
     d->total_delivered = 0;
+    d->accepting = 1;
     return d;
 }
 
@@ -66,6 +68,15 @@ void t_domain_destroy(t_domain *domain) {
 
 const char *t_domain_name(const t_domain *domain) {
     return domain ? domain->name : NULL;
+}
+
+void t_domain_set_accepting(t_domain *domain, int accepting) {
+    if (!domain) return;
+    domain->accepting = accepting ? 1 : 0;
+}
+
+int t_domain_is_accepting(const t_domain *domain) {
+    return domain ? domain->accepting != 0 : 0;
 }
 
 int t_domain_create_queue(t_domain *domain, const char *queue_name, int type, int flags) {
@@ -114,7 +125,7 @@ void *t_domain_get_queue(t_domain *domain, const char *queue_name) {
 
 int t_domain_publish(t_domain *domain, const char *queue_name,
                      const uint8_t *data, size_t len, int priority) {
-    if (!domain || !queue_name) return -1;
+    if (!domain || !domain->accepting || !queue_name) return -1;
     if (len > 0 && !data) return -1;
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
@@ -127,7 +138,7 @@ int t_domain_publish(t_domain *domain, const char *queue_name,
 
 int t_domain_subscribe(t_domain *domain, const char *queue_name,
                        void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud) {
-    if (!domain || !queue_name || !cb) return -1;
+    if (!domain || !domain->accepting || !queue_name || !cb) return -1;
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
     for (size_t i = 0; i < domain->sub_wrappers.len; ++i) {

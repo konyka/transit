@@ -12,6 +12,10 @@ t_domain *t_domain_create(const char *name);
 void      t_domain_destroy(t_domain *domain);
 const char *t_domain_name(const t_domain *domain);
 
+/* When owned by a broker, toggled by start/stop so domain_* cannot bypass. */
+void      t_domain_set_accepting(t_domain *domain, int accepting);
+int       t_domain_is_accepting(const t_domain *domain);
+
 /* Queue management within a domain */
 int      t_domain_create_queue(t_domain *domain, const char *queue_name, int type, int flags);
 int      t_domain_delete_queue(t_domain *domain, const char *queue_name);

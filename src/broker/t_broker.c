@@ -48,6 +48,7 @@ t_broker *t_broker_create(const char *broker_id) {
         free(b);
         return NULL;
     }
+    t_domain_set_accepting(def, 0); /* closed until t_broker_start */
     return b;
 }
 
@@ -71,12 +72,22 @@ const char *t_broker_id(const t_broker *broker) {
 int t_broker_start(t_broker *broker) {
     if (!broker) return -1;
     broker->running = 1;
+    t_map_iter it = t_map_iter_begin(&broker->domains);
+    const char *k; void *v;
+    while (t_map_iter_next(&it, &k, &v)) {
+        t_domain_set_accepting((t_domain *)v, 1);
+    }
     return 0;
 }
 
 int t_broker_stop(t_broker *broker) {
     if (!broker) return -1;
     broker->running = 0;
+    t_map_iter it = t_map_iter_begin(&broker->domains);
+    const char *k; void *v;
+    while (t_map_iter_next(&it, &k, &v)) {
+        t_domain_set_accepting((t_domain *)v, 0);
+    }
     return 0;
 }
 
@@ -91,6 +102,7 @@ t_domain *t_broker_create_domain(t_broker *broker, const char *domain_name) {
     }
     t_domain *d = t_domain_create(domain_name);
     if (!d) return NULL;
+    t_domain_set_accepting(d, broker->running);
     if (t_map_insert(&broker->domains, domain_name, d) != 0) {
         t_domain_destroy(d);
         return NULL;

@@ -1,12 +1,14 @@
 #include "t_buf.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <limits.h>
 
 /* Create a refcounted buffer with given capacity */
 // Create a refcounted buffer with given capacity
 t_rcbuf *t_rcbuf_create(size_t capacity) {
-    // Allocate header + data block in one chunk for locality
+    /* Allocate header + data block in one chunk for locality */
+    if (capacity > SIZE_MAX - sizeof(t_rcbuf)) return NULL;
     t_rcbuf *rcb = (t_rcbuf *)malloc(sizeof(t_rcbuf) + capacity);
     if (!rcb) return NULL;
     rcb->base = (unsigned char *)(rcb + 1);
