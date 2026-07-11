@@ -285,36 +285,30 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
     if (q->type == T_QUEUE_BROADCAST) return -1;
     /* Priority-based path */
     if (q->type == T_QUEUE_PRIORITY) {
+        if (t_pqueue_len(&q->pri) == 0) return -1;
+        t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
+        if (!inf) return -1;
         t_pq_entry top;
         if (t_pqueue_pop(&q->pri, &top) != 0) {
+            free(inf);
             return -1;
         }
         t_msg *m = (t_msg *)top.data;
-        t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
-        if (!inf) {
-            /* Roll back into heap so the message is not lost. */
-            if (t_pqueue_push(&q->pri, (int64_t)m->priority, m) != 0) {
-                t_msg_free(m);
-            }
-            return -1;
-        }
         inf->msg = m;
         t_list_push_back(&q->inflight, &inf->node);
         *out_msg = *m;
         q->total_consumed++;
         return 0;
     }
-    /* FIFO path */
+    /* FIFO path — allocate inflight before dequeue so OOM cannot drop the msg. */
     if (q->pending.len == 0) {
         return -1;
     }
-    t_msg *m = (t_msg *)t_vec_remove(&q->pending, 0);
-    if (!m) return -1;
     t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
-    if (!inf) {
-        if (t_vec_insert(&q->pending, 0, m) != 0) {
-            t_msg_free(m);
-        }
+    if (!inf) return -1;
+    t_msg *m = (t_msg *)t_vec_remove(&q->pending, 0);
+    if (!m) {
+        free(inf);
         return -1;
     }
     inf->msg = m;
@@ -342,6 +336,30 @@ uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
     if (t_vec_push(&q->consumers, wrapper) != 0) {
         free(wrapper);
         return 0;
+    }
+    /* Pull→push: flush backlog so early posts are not stranded. */
+    if (q->type == T_QUEUE_PRIORITY) {
+        t_pq_entry top;
+        while (t_pqueue_pop(&q->pri, &top) == 0) {
+            t_msg *m = (t_msg *)top.data;
+            if (t_queue_deliver_to_consumers(q, m) != 0) {
+                if (t_pqueue_push(&q->pri, (int64_t)m->priority, m) != 0)
+                    t_msg_free(m);
+                break;
+            }
+            t_msg_free(m);
+        }
+    } else if (q->type == T_QUEUE_FIFO) {
+        while (q->pending.len > 0) {
+            t_msg *m = (t_msg *)t_vec_remove(&q->pending, 0);
+            if (!m) break;
+            if (t_queue_deliver_to_consumers(q, m) != 0) {
+                if (t_vec_insert(&q->pending, 0, m) != 0)
+                    t_msg_free(m);
+                break;
+            }
+            t_msg_free(m);
+        }
     }
     return wrapper->id;
 }

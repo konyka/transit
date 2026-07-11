@@ -168,15 +168,28 @@ int t_client_post(t_client *client, const char *queue_name,
     }
     if (!open) return -1;
     client->published++;
-    /* deliver to any subscribers for this queue */
-    for (size_t i = 0; i < client->subs_count; ++i) {
-        if (strcmp(client->subs[i].queue, queue_name) == 0) {
-            if (client->subs[i].cb) {
-                client->subs[i].cb(queue_name, data, len, client->subs[i].ud);
-                client->consumed++;
+    /* Snapshot (cb,ud) so unsubscribe/disconnect in a callback cannot skip peers. */
+    size_t n = client->subs_count;
+    typedef struct { t_client_msg_cb cb; void *ud; } t_post_snap;
+    t_post_snap *snaps = NULL;
+    size_t snap_n = 0;
+    if (n > 0) {
+        snaps = (t_post_snap *)calloc(n, sizeof(*snaps));
+        if (!snaps) return -1;
+        for (size_t i = 0; i < n; ++i) {
+            if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0 &&
+                client->subs[i].cb) {
+                snaps[snap_n].cb = client->subs[i].cb;
+                snaps[snap_n].ud = client->subs[i].ud;
+                snap_n++;
             }
         }
     }
+    for (size_t i = 0; i < snap_n; ++i) {
+        snaps[i].cb(queue_name, data, len, snaps[i].ud);
+        client->consumed++;
+    }
+    free(snaps);
     return 0;
 }
 

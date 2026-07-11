@@ -555,6 +555,7 @@
             <li>cgroup swap-remove RR; raft term wrap; timer/evloop id INT64_MAX; run returns 1 if loop self-freed</li>
             <li>evloop defer destroy during poll; tcp_conn defer closes fd; queue msg/consumer id wrap reject</li>
             <li>domain count before sub cb; tcp_conn destroy notifies on_close; admin defer free + 500 on escape fail</li>
+            <li>dispatch resub failure drops bookkeeping; queue drains backlog on subscribe; consume alloc-before-pop; client post snapshots</li>
         </ul>
     </div>
 

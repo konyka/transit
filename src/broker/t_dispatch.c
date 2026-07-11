@@ -156,8 +156,15 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
                                      dispatch_deliver_cb, existing->cbud) == 0) {
                 if (t_broker_subscribe(disp->broker, queue_name,
                                        dispatch_deliver_cb, existing->cbud) != 0) {
-                    /* Probe removed a live consumer but restore failed — keep
-                     * bookkeeping so a later subscribe can recover via stale path. */
+                    /* Live consumer was probed off and restore failed — drop
+                     * bookkeeping so state matches broker (not subscribed). */
+                    free(existing->queue_name);
+                    free(existing->cbud);
+                    free(existing);
+                    for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
+                        disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
+                    }
+                    disp->subscriptions.len--;
                     return -1;
                 }
                 return -1; /* duplicate */
