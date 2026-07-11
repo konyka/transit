@@ -172,11 +172,16 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
             return -1;
         }
     } else {
-        /* No event loop: flush synchronously; fail if bytes remain. */
+        /* No event loop: briefly block so the frame is fully flushed. */
+        int flags = fcntl(conn->fd, F_GETFL, 0);
+        if (flags >= 0) (void)fcntl(conn->fd, F_SETFL, flags & ~O_NONBLOCK);
         t_conn_handle_write(conn);
+        if (flags >= 0) (void)fcntl(conn->fd, F_SETFL, flags);
         if (conn->closed || conn->send_len > 0) {
-            if (!conn->closed && conn->send_len >= (size_t)n) {
-                conn->send_len -= (size_t)n;
+            if (!conn->closed) {
+                /* Drop any unsent remnant of this frame to avoid splicing. */
+                if (conn->send_len >= (size_t)n) conn->send_len -= (size_t)n;
+                else conn->send_len = 0;
             }
             conn->msgs_sent -= 1;
             return -1;

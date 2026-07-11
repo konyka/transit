@@ -67,8 +67,11 @@ static void t_tcp_server_accept_cb(t_evio *io, int flags, void *ud) {
         t_sockaddr peer;
         int client = t_socket_accept(srv->fd, &peer);
         if (client < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            else break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            break;
         }
         if (srv->on_accept) {
             srv->on_accept(srv, client, &peer, srv->user_data);

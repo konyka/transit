@@ -170,7 +170,10 @@ static void admin_accept(t_evio *io, int events, void *ud) {
     t_admin *admin = (t_admin *)ud;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    int fd = accept(io->fd, (struct sockaddr *)&addr, &addrlen);
+    int fd;
+    do {
+        fd = accept(io->fd, (struct sockaddr *)&addr, &addrlen);
+    } while (fd < 0 && errno == EINTR);
     if (fd < 0) return;
     set_nonblock(fd);
 

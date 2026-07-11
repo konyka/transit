@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <limits.h>
 
 static void timer_heap_swap(t_timer_entry *a, t_timer_entry *b) {
     t_timer_entry tmp = *a; *a = *b; *b = tmp;
@@ -203,6 +204,7 @@ int t_evloop_run(t_evloop *loop, int timeout_ms) {
                 int64_t now = t_time_now_ms();
                 int64_t diff = loop->timers[0].expire_ms - now;
                 if (diff < 0) diff = 0;
+                if (diff > INT_MAX) diff = INT_MAX;
                 wait_ms = (timeout_ms < 0) ? (int)diff :
                           ((diff < timeout_ms) ? (int)diff : timeout_ms);
             }
@@ -218,7 +220,10 @@ void t_evloop_stop(t_evloop *loop) {
     loop->running = 0;
     if (loop->wakeup_fds[1] >= 0) {
         char b = 1;
-        write(loop->wakeup_fds[1], &b, 1);
+        ssize_t w;
+        do {
+            w = write(loop->wakeup_fds[1], &b, 1);
+        } while (w < 0 && errno == EINTR);
     }
 }
 
