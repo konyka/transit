@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <limits.h>
 #include <errno.h>
 
@@ -34,7 +35,9 @@ static t_config_section *cfg_find_section(t_config *cfg, const char *name, int c
     }
     if (!create_if_missing) return NULL;
     if (cfg->section_count == cfg->section_cap) {
+        if (cfg->section_cap > SIZE_MAX / 2) return NULL;
         size_t new_cap = cfg->section_cap ? cfg->section_cap * 2 : 4;
+        if (new_cap > SIZE_MAX / sizeof(t_config_section)) return NULL;
         t_config_section *tmp = (t_config_section*)realloc(cfg->sections, new_cap * sizeof(t_config_section));
         if (!tmp) return NULL;
         cfg->sections = tmp;
@@ -60,7 +63,9 @@ static t_config_kv* cfg_find_kv(t_config_section *sec, const char *key) {
 
 static int cfg_kv_append(t_config_section *sec, const char *key, const char *value) {
     if (sec->kv_count == sec->kv_cap) {
+        if (sec->kv_cap > SIZE_MAX / 2) return -1;
         size_t new_cap = sec->kv_cap ? sec->kv_cap * 2 : 4;
+        if (new_cap > SIZE_MAX / sizeof(t_config_kv)) return -1;
         t_config_kv *tmp = (t_config_kv*)realloc(sec->kv, new_cap * sizeof(t_config_kv));
         if (!tmp) return -1;
         sec->kv = tmp;

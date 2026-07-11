@@ -85,7 +85,9 @@ static int t_map_grow_if_needed(t_map *m) {
     if (m->cap == 0) {
         return t_map_resize(m, 8);
     }
-    if (m->len * 10 >= m->cap * 7) {
+    /* Grow at ~70% load without overflowing len*10 or cap*7. */
+    size_t threshold = (m->cap / 10) * 7 + ((m->cap % 10) * 7) / 10;
+    if (m->len >= threshold) {
         if (m->cap > SIZE_MAX / 2) return -1;
         return t_map_resize(m, m->cap * 2);
     }

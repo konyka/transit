@@ -75,8 +75,10 @@ int t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id) {
         if (strcmp(cg->consumers[i].id, consumer_id) == 0) {
             free(cg->consumers[i].id);
             cg->consumers[i] = cg->consumers[cg->consumer_count - 1];
+            if (i < cg->next_idx) cg->next_idx--;
             cg->consumer_count--;
-            if (cg->next_idx >= cg->consumer_count) cg->next_idx = 0;
+            if (cg->consumer_count == 0 || cg->next_idx >= cg->consumer_count)
+                cg->next_idx = 0;
             return 0;
         }
     }
