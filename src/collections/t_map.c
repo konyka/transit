@@ -176,7 +176,8 @@ void t_map_clear(t_map *m) {
     if (!m) return;
     if (m->entries) {
         for (size_t i = 0; i < m->cap; ++i) {
-            if (m->entries[i].occupied == 1 && m->entries[i].key) {
+            /* Free live and tombstone keys (remove keeps tombstone keys). */
+            if (m->entries[i].key) {
                 free(m->entries[i].key);
             }
             m->entries[i].key = NULL;

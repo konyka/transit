@@ -1,9 +1,11 @@
 #include "t_pqueue.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 static size_t t_pqueue_next_cap(size_t cap) {
     if (cap == 0) return 16;
+    if (cap > SIZE_MAX / 2) return 0;
     size_t n = cap;
     // grow to next power-of-two for simplicity
     n--;
@@ -15,12 +17,14 @@ static size_t t_pqueue_next_cap(size_t cap) {
 #if SIZE_MAX > 0xFFFFFFFFULL
     n |= n >> 32;
 #endif
+    if (n == SIZE_MAX) return 0;
     return n + 1;
 }
 
 int t_pqueue_init(t_pqueue *pq, size_t capacity) {
     if (!pq) return -1;
     size_t cap = t_pqueue_next_cap(capacity);
+    if (cap == 0 || cap > SIZE_MAX / sizeof(t_pq_entry)) return -1;
     pq->entries = (t_pq_entry*)malloc(cap * sizeof(t_pq_entry));
     if (!pq->entries) return -1;
     pq->len = 0;
@@ -69,7 +73,9 @@ static void t_pqueue_sift_down(t_pqueue *pq, size_t idx) {
 int t_pqueue_push(t_pqueue *pq, int64_t priority, void *data) {
     if (!pq) return -1;
     if (pq->len >= pq->cap) {
+        if (pq->cap > SIZE_MAX / 2) return -1;
         size_t newcap = pq->cap ? pq->cap * 2 : 16;
+        if (newcap > SIZE_MAX / sizeof(t_pq_entry)) return -1;
         t_pq_entry *newbuf = (t_pq_entry*)realloc(pq->entries, newcap * sizeof(t_pq_entry));
         if (!newbuf) return -1;
         pq->entries = newbuf;

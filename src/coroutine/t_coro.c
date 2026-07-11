@@ -62,7 +62,7 @@ void t_coro_destroy(t_coro *coro) {
 }
 
 int t_coro_resume(t_coro *coro) {
-    if (!coro || coro->state == T_CORO_DEAD) return -1;
+    if (!coro || coro->state == T_CORO_DEAD || coro->state == T_CORO_RUNNING) return -1;
     t_coro *prev = g_current_coro;
     if (prev) {
         coro->caller = prev;

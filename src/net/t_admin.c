@@ -227,12 +227,57 @@ static int headers_complete(const char *buf, size_t len) {
     return 0;
 }
 
+/* Escape JSON string into dst; returns bytes written (excl NUL) or -1. */
+static int json_escape(char *dst, size_t dst_cap, const char *src) {
+    if (!dst || dst_cap == 0) return -1;
+    if (!src) src = "";
+    size_t o = 0;
+    for (const unsigned char *p = (const unsigned char *)src; *p; ++p) {
+        const char *esc = NULL;
+        char hex[7];
+        if (*p == '"' || *p == '\\') {
+            hex[0] = '\\'; hex[1] = (char)*p; hex[2] = '\0';
+            esc = hex;
+        } else if (*p == '\n') {
+            esc = "\\n";
+        } else if (*p == '\r') {
+            esc = "\\r";
+        } else if (*p == '\t') {
+            esc = "\\t";
+        } else if (*p < 0x20) {
+            snprintf(hex, sizeof(hex), "\\u%04x", *p);
+            esc = hex;
+        }
+        if (esc) {
+            size_t el = strlen(esc);
+            if (o + el >= dst_cap) return -1;
+            memcpy(dst + o, esc, el);
+            o += el;
+        } else {
+            if (o + 1 >= dst_cap) return -1;
+            dst[o++] = (char)*p;
+        }
+    }
+    dst[o] = '\0';
+    return (int)o;
+}
+
 static void build_response(t_admin *admin, t_admin_client *c) {
     t_admin_stats stats;
     memset(&stats, 0, sizeof(stats));
     stats.version = T_ADMIN_VERSION;
     if (admin->stats_cb) {
         admin->stats_cb(&stats, admin->stats_ud);
+    }
+
+    char esc_ver[64], esc_role[64], esc_leader[64], esc_node[64];
+    if (json_escape(esc_ver, sizeof(esc_ver), stats.version ? stats.version : T_ADMIN_VERSION) < 0 ||
+        json_escape(esc_role, sizeof(esc_role), stats.cluster_role ? stats.cluster_role : "") < 0 ||
+        json_escape(esc_leader, sizeof(esc_leader), stats.cluster_leader ? stats.cluster_leader : "") < 0 ||
+        json_escape(esc_node, sizeof(esc_node), stats.node_id ? stats.node_id : "") < 0) {
+        c->resp_len = 0;
+        c->resp_sent = 0;
+        return;
     }
 
     char json[1024];
@@ -252,14 +297,12 @@ static void build_response(t_admin *admin, t_admin_client *c) {
         "\"cluster_leader\":\"%s\","
         "\"node_id\":\"%s\""
         "}}",
-        stats.version ? stats.version : T_ADMIN_VERSION,
+        esc_ver,
         stats.uptime_ms,
         stats.connections, stats.messages_in, stats.messages_out,
         stats.bytes_in, stats.bytes_out,
         stats.queues, stats.subscriptions, stats.cluster_nodes,
-        stats.cluster_role ? stats.cluster_role : "",
-        stats.cluster_leader ? stats.cluster_leader : "",
-        stats.node_id ? stats.node_id : ""
+        esc_role, esc_leader, esc_node
     );
     if (jlen < 0) jlen = 0;
     if ((size_t)jlen >= sizeof(json)) jlen = (int)(sizeof(json) - 1);

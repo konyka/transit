@@ -105,6 +105,7 @@ t_domain *t_broker_get_domain(t_broker *broker, const char *domain_name) {
 
 int t_broker_remove_domain(t_broker *broker, const char *domain_name) {
     if (!broker || !domain_name) return -1;
+    if (strcmp(domain_name, "default") == 0) return -1;
     void *v = t_map_remove(&broker->domains, domain_name);
     if (!v) return -1;
     t_domain_destroy((t_domain *)v);
