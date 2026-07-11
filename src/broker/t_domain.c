@@ -130,6 +130,13 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
     if (!domain || !queue_name || !cb) return -1;
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
+    for (size_t i = 0; i < domain->sub_wrappers.len; ++i) {
+        t_domain_sub_ctx *existing = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
+        if (existing && existing->cb.cb == cb && existing->cb.ud == ud &&
+            t_queue_has_consumer_ud(q, existing)) {
+            return -1;
+        }
+    }
     t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)malloc(sizeof(t_domain_sub_ctx));
     if (!ctx) return -1;
     ctx->cb.cb = cb;

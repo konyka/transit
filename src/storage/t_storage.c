@@ -54,7 +54,7 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
         memcpy(&key, buf + pos, 8); pos += 8;
         uint64_t len;
         memcpy(&len, buf + pos, 8); pos += 8;
-        if (pos + (size_t)len > total) { free(buf); return -1; }
+        if (len > (uint64_t)(total - pos)) { free(buf); return -1; }
         if (len > 0) {
             t_storage_entry *entry = (t_storage_entry*)malloc(sizeof(t_storage_entry));
             if (!entry) { free(buf); return -1; }

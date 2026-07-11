@@ -513,6 +513,8 @@
             <li>map resize rolls back on place failure; dispatch rejects duplicate session register</li>
             <li>tcp_conn destroy del from evloop; dispatch unregister clears subs; reject duplicate subscribe</li>
             <li>t_buf_copy uses capacity; admin response length clamped to buffer</li>
+            <li>tcp server relisten dels accept_io; domain rejects duplicate subscribe</li>
+            <li>priority+subscribe push delivery; storage load overflow-safe length check</li>
         </ul>
     </div>
 

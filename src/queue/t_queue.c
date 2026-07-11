@@ -210,6 +210,12 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
 
     q->total_published++;
     if (q->type == T_QUEUE_PRIORITY) {
+        /* Push-style consumers: deliver immediately (same as FIFO). */
+        if (q->consumers.len > 0) {
+            t_queue_deliver_to_consumers(q, m);
+            t_msg_free(m);
+            return 0;
+        }
         if (t_pqueue_push(&q->pri, (int64_t)priority, m) != 0) {
             t_msg_free(m);
             return -1;
@@ -326,6 +332,15 @@ int t_queue_remove_consumer_ud(t_queue *q, void *ud) {
         }
     }
     return -1;
+}
+
+int t_queue_has_consumer_ud(const t_queue *q, void *ud) {
+    if (!q) return 0;
+    for (size_t i = 0; i < q->consumers.len; ++i) {
+        t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
+        if (cb && cb->cb_ud == ud) return 1;
+    }
+    return 0;
 }
 
 size_t t_queue_consumer_count(const t_queue *q) {

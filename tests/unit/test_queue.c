@@ -100,6 +100,23 @@ T_TEST(queue_priority_destroy_drains) {
     t_queue_destroy(q); /* must free pending priority msgs */
 }
 
+static int g_pri_delivered;
+static void pri_deliver_cb(const t_msg *msg, void *ud) {
+    (void)msg;
+    (*(int *)ud)++;
+}
+
+T_TEST(queue_priority_subscribe_delivers) {
+    t_queue *q = t_queue_create("test.pri.sub", T_QUEUE_PRIORITY, 0);
+    g_pri_delivered = 0;
+    T_ASSERT(t_queue_add_consumer(q, pri_deliver_cb, &g_pri_delivered) != 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"a", 1, 2), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"b", 1, 1), 0);
+    T_ASSERT_EQ(g_pri_delivered, 2);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 0);
+    t_queue_destroy(q);
+}
+
 static void queue_noop_cb(const t_msg *msg, void *ud) {
     (void)msg;
     (*(int *)ud)++;

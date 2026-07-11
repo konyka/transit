@@ -70,6 +70,7 @@ T_TEST(broker_publish_subscribe) {
     t_broker_create_queue(b, "default", "pub.q", 2, 0); /* BROADCAST */
     g_delivered = 0;
     t_broker_subscribe(b, "pub.q", on_broker_msg, &g_delivered);
+    T_ASSERT_EQ(t_broker_subscribe(b, "pub.q", on_broker_msg, &g_delivered), -1);
     t_broker_publish(b, "pub.q", (const uint8_t *)"hello", 5, 0);
     T_ASSERT_EQ(g_delivered, 1);
     T_ASSERT_EQ((int)t_broker_total_messages(b), 1);

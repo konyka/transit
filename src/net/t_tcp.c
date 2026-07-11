@@ -82,6 +82,7 @@ int t_tcp_server_listen(t_tcp_server *srv, const char *ip, uint16_t port,
                         t_tcp_accept_cb cb, void *ud) {
     if (!srv) return -1;
     if (srv->fd >= 0) {
+        if (srv->loop) t_evloop_del(srv->loop, &srv->accept_io);
         t_socket_close(srv->fd);
         srv->fd = -1;
     }
