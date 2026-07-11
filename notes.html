@@ -557,6 +557,7 @@
             <li>domain count before sub cb; tcp_conn destroy notifies on_close; admin defer free + 500 on escape fail</li>
             <li>dispatch resub failure drops bookkeeping; queue drains backlog on subscribe; consume alloc-before-pop; client post snapshots</li>
             <li>mpmc atomic data publish; client published after snapshot; drain salvage without free; storage put rejects get alias</li>
+            <li>queue drain delivers before dequeue; storage get returns const; coro destroy returns -1 if live</li>
         </ul>
     </div>
 

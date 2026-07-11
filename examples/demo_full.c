@@ -116,7 +116,7 @@ static void simulate_persistent_storage(void) {
         printf("  stored key=%lu\n", (unsigned long)keys[i]);
     }
     for (int i = 0; i < 3; i++) {
-        void *data = NULL; size_t len = 0;
+        const void *data = NULL; size_t len = 0;
         if (t_storage_get(store, keys[i], &data, &len) == 0) {
             printf("  lookup key=%lu -> '%s'\n", (unsigned long)keys[i], (const char *)data);
         }

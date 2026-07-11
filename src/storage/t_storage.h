@@ -23,8 +23,8 @@ typedef void (*t_storage_iter_fn)(uint64_t key, const uint8_t *data, size_t len,
 t_storage *t_storage_create(t_storage_type type, const char *path);
 void       t_storage_destroy(t_storage *storage);
 int        t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len);
-/* Borrowed pointer: valid until next put/delete of the same key (or destroy). */
-int        t_storage_get(t_storage *storage, uint64_t key, void **data, size_t *len);
+/* Borrowed read-only pointer: valid until next put/delete of the same key (or destroy). */
+int        t_storage_get(t_storage *storage, uint64_t key, const void **data, size_t *len);
 int        t_storage_delete(t_storage *storage, uint64_t key);
 int        t_storage_contains(t_storage *storage, uint64_t key);
 size_t     t_storage_count(const t_storage *storage);

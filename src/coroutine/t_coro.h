@@ -18,7 +18,7 @@ typedef enum t_coro_state {
 #define T_CORO_DEFAULT_STACK (64 * 1024)
 
 t_coro      *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size);
-void         t_coro_destroy(t_coro *coro);
+int          t_coro_destroy(t_coro *coro);
 int          t_coro_resume(t_coro *coro);
 int          t_coro_yield(void);
 t_coro_state t_coro_get_state(const t_coro *coro);

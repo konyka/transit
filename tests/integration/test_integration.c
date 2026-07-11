@@ -145,7 +145,7 @@ T_TEST(integration_proto_storage) {
     uint8_t payload[] = {0xCA, 0xFE, 0xBA, 0xBE};
     T_ASSERT_EQ(t_storage_put(s, 42, payload, sizeof(payload)), 0);
 
-    void *out = NULL;
+    const void *out = NULL;
     size_t out_len = 0;
     T_ASSERT_EQ(t_storage_get(s, 42, &out, &out_len), 0);
     T_ASSERT_EQ((int)out_len, (int)sizeof(payload));

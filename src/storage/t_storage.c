@@ -183,7 +183,7 @@ int t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len
     return 0;
 }
 
-int t_storage_get(t_storage *storage, uint64_t key, void **data, size_t *len) {
+int t_storage_get(t_storage *storage, uint64_t key, const void **data, size_t *len) {
     if (!storage || !data || !len) return -1;
     char keybuf[32]; key_to_str(key, keybuf, sizeof(keybuf));
     t_storage_entry *entry = (t_storage_entry*)t_map_get(&storage->map, keybuf);
