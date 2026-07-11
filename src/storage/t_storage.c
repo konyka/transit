@@ -164,6 +164,12 @@ int t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len
 
     /* Preserve old value until insert succeeds (avoid data loss on OOM). */
     t_storage_entry *old = (t_storage_entry*)t_map_get(&storage->map, keybuf);
+    /* Reject put that aliases the live buffer from t_storage_get (would UAF on free). */
+    if (old && data && old->data == data) {
+        free(entry->data);
+        free(entry);
+        return -1;
+    }
     if (t_map_insert(&storage->map, keybuf, entry) != 0) {
         free(entry->data);
         free(entry);

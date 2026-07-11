@@ -343,8 +343,13 @@ uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
         while (t_pqueue_pop(&q->pri, &top) == 0) {
             t_msg *m = (t_msg *)top.data;
             if (t_queue_deliver_to_consumers(q, m) != 0) {
-                if (t_pqueue_push(&q->pri, (int64_t)m->priority, m) != 0)
-                    t_msg_free(m);
+                /* Prefer salvage over free under nested OOM. */
+                if (t_pqueue_push(&q->pri, (int64_t)m->priority, m) != 0 &&
+                    t_vec_insert(&q->pending, 0, m) != 0 &&
+                    t_vec_push(&q->pending, m) != 0) {
+                    /* Last resort: abandon pointer rather than silently free. */
+                    (void)m;
+                }
                 break;
             }
             t_msg_free(m);
@@ -354,8 +359,10 @@ uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
             t_msg *m = (t_msg *)t_vec_remove(&q->pending, 0);
             if (!m) break;
             if (t_queue_deliver_to_consumers(q, m) != 0) {
-                if (t_vec_insert(&q->pending, 0, m) != 0)
-                    t_msg_free(m);
+                if (t_vec_insert(&q->pending, 0, m) != 0 &&
+                    t_vec_push(&q->pending, m) != 0) {
+                    (void)m;
+                }
                 break;
             }
             t_msg_free(m);

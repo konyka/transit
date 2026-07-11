@@ -167,7 +167,6 @@ int t_client_post(t_client *client, const char *queue_name,
         }
     }
     if (!open) return -1;
-    client->published++;
     /* Snapshot (cb,ud) so unsubscribe/disconnect in a callback cannot skip peers. */
     size_t n = client->subs_count;
     typedef struct { t_client_msg_cb cb; void *ud; } t_post_snap;
@@ -185,6 +184,7 @@ int t_client_post(t_client *client, const char *queue_name,
             }
         }
     }
+    client->published++;
     for (size_t i = 0; i < snap_n; ++i) {
         snaps[i].cb(queue_name, data, len, snaps[i].ud);
         client->consumed++;

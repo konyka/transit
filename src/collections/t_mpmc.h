@@ -12,7 +12,7 @@
 
 typedef struct t_mpmc_cell {
     t_atomic_int sequence;
-    void        *data;
+    t_atomic_ptr data;
 } t_mpmc_cell;
 
 typedef struct t_mpmc {

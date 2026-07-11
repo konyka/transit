@@ -21,7 +21,7 @@ int t_mpmc_init(t_mpmc *q, size_t capacity) {
     t_atomic_store_int(&q->dequeue_pos, 0);
     for (size_t i = 0; i < cap; ++i) {
         t_atomic_store_int(&q->cells[i].sequence, (int)i);
-        q->cells[i].data = NULL;
+        t_atomic_store_ptr(&q->cells[i].data, NULL);
     }
     return 0;
 }
@@ -46,7 +46,8 @@ bool t_mpmc_push(t_mpmc *q, void *item) {
         int32_t dif = (int32_t)(seq - pos);
         if (dif == 0) {
             if (t_atomic_cas_int(&q->enqueue_pos, (int)pos, (int)(pos + 1u))) {
-                cell->data = item;
+                /* Publish payload before sequence so pop cannot observe a null data. */
+                t_atomic_store_ptr(&cell->data, item);
                 t_atomic_store_int(&cell->sequence, (int)(pos + 1u));
                 return true;
             }
@@ -65,8 +66,8 @@ bool t_mpmc_pop(t_mpmc *q, void **item) {
         int32_t dif = (int32_t)(seq - (pos + 1u));
         if (dif == 0) {
             if (t_atomic_cas_int(&q->dequeue_pos, (int)pos, (int)(pos + 1u))) {
-                void *d = cell->data;
-                cell->data = NULL;
+                void *d = t_atomic_load_ptr(&cell->data);
+                t_atomic_store_ptr(&cell->data, NULL);
                 t_atomic_store_int(&cell->sequence, (int)(pos + (uint32_t)q->mask + 1u));
                 *item = d;
                 return true;
