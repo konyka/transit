@@ -21,6 +21,8 @@ struct t_tcp_conn {
     void     *user_data;
     t_evloop *loop;
     int       closed;
+    int       in_io_cb;
+    int       free_pending;
 };
 
 t_tcp_conn *t_tcp_conn_create(int fd, t_evloop *loop);

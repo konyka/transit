@@ -2,6 +2,7 @@
 #include "t_time.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 typedef struct timer_node {
     int64_t id;
@@ -56,6 +57,7 @@ static int heap_push(t_timer *t, timer_node node) {
         t->cap = cap;
     }
     if (t->count >= t->cap) {
+        if (t->cap > SIZE_MAX / 2 / sizeof(timer_node)) return -1;
         size_t new_cap = t->cap * 2;
         timer_node *heap = (timer_node *)realloc(t->heap, new_cap * sizeof(timer_node));
         if (!heap) return -1;

@@ -11,6 +11,8 @@ static void timer_heap_swap(t_timer_entry *a, t_timer_entry *b) {
     t_timer_entry tmp = *a; *a = *b; *b = tmp;
 }
 
+static int evloop_process_timers(t_evloop *loop); /* uses t_evloop_destroy */
+
 static void timer_heap_sift_up(t_timer_entry *arr, size_t idx) {
     while (idx > 0) {
         size_t p = (idx - 1) / 2;
@@ -66,9 +68,10 @@ static t_timer_entry timer_heap_pop(t_evloop *loop) {
     return res;
 }
 
-static void evloop_process_timers(t_evloop *loop) {
+static int evloop_process_timers(t_evloop *loop) {
+    loop->processing_timers = 1;
     int64_t now = t_time_now_ms();
-    while (loop->timer_count > 0) {
+    while (loop->timer_count > 0 && !loop->destroy_pending) {
         t_timer_entry *top = &loop->timers[0];
         if (!top->active) {
             timer_heap_pop(loop);
@@ -86,11 +89,18 @@ static void evloop_process_timers(t_evloop *loop) {
                 timer_heap_pop(loop);
             }
             if (cb) cb(ud);
+            if (loop->destroy_pending) break;
             now = t_time_now_ms();
             continue;
         }
         break;
     }
+    loop->processing_timers = 0;
+    if (loop->destroy_pending) {
+        t_evloop_destroy(loop);
+        return 1;
+    }
+    return 0;
 }
 
 t_evloop *t_evloop_create(void) {
@@ -138,6 +148,11 @@ t_evloop *t_evloop_create(void) {
 
 void t_evloop_destroy(t_evloop *loop) {
     if (!loop) return;
+    if (loop->processing_timers) {
+        loop->destroy_pending = 1;
+        t_evloop_stop(loop);
+        return;
+    }
     loop->backend->destroy(loop);
     if (loop->wakeup_fds[0] >= 0) close(loop->wakeup_fds[0]);
     if (loop->wakeup_fds[1] >= 0) close(loop->wakeup_fds[1]);
@@ -210,7 +225,7 @@ int t_evloop_run(t_evloop *loop, int timeout_ms) {
             }
         }
         loop->backend->poll(loop, wait_ms);
-        evloop_process_timers(loop);
+        if (evloop_process_timers(loop)) return 0;
     }
     return 0;
 }

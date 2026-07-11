@@ -211,16 +211,24 @@ size_t t_storage_count(const t_storage *storage) {
 
 void t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
     if (!storage || !fn) return;
+    size_t n = t_map_len(&storage->map);
+    if (n == 0) return;
+    uint64_t *keys = (uint64_t *)malloc(n * sizeof(uint64_t));
+    if (!keys) return;
+    size_t count = 0;
     t_map_iter it = t_map_iter_begin(&storage->map);
     const char *k;
     void *v;
-    while (t_map_iter_next(&it, &k, &v)) {
-        t_storage_entry *e = (t_storage_entry*)v;
-        if (e) {
-            uint64_t k64 = str_to_key(k);
-            fn(k64, e->data, e->data_len, ud);
-        }
+    while (count < n && t_map_iter_next(&it, &k, &v)) {
+        keys[count++] = str_to_key(k);
     }
+    for (size_t i = 0; i < count; ++i) {
+        char keybuf[32];
+        key_to_str(keys[i], keybuf, sizeof(keybuf));
+        t_storage_entry *e = (t_storage_entry *)t_map_get(&storage->map, keybuf);
+        if (e) fn(keys[i], e->data, e->data_len, ud);
+    }
+    free(keys);
 }
 
 int t_storage_flush(t_storage *storage) {

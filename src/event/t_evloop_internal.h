@@ -22,6 +22,8 @@ struct t_evloop {
     size_t         timer_cap;
     int         wakeup_fds[2];
     t_evio      wakeup_io;
+    int         processing_timers;
+    int         destroy_pending;
 };
 
 #endif

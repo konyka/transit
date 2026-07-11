@@ -255,8 +255,9 @@ double t_config_get_double(t_config *cfg, const char *section, const char *key, 
     const char *v = t_config_get(cfg, section, key);
     if (!v || v[0] == '\0') return default_val;
     char *endp = NULL;
+    errno = 0;
     double val = strtod(v, &endp);
-    if (endp == v || *endp != '\0') return default_val;
+    if (endp == v || *endp != '\0' || errno == ERANGE) return default_val;
     return val;
 }
 
