@@ -57,6 +57,8 @@ t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
 
 void t_coro_destroy(t_coro *coro) {
     if (!coro) return;
+    /* Refuse live coroutines — freeing the stack would UAF on resume/yield. */
+    if (coro->state == T_CORO_RUNNING || coro->state == T_CORO_SUSPENDED) return;
     if (coro->stack) free(coro->stack);
     free(coro);
 }

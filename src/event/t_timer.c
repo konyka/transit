@@ -103,10 +103,12 @@ void t_timer_destroy(t_timer *t) {
 
 int64_t t_timer_add(t_timer *t, int64_t delay_ms, int64_t repeat_ms,
                     t_timer_fn fn, void *user_data) {
-    if (!t || !fn) return -1;
+    if (!t || !fn || delay_ms < 0 || repeat_ms < 0) return -1;
+    int64_t now = t_time_now_ms();
+    if (delay_ms > 0 && now > INT64_MAX - delay_ms) return -1;
     timer_node node;
     node.id = t->next_id;
-    node.expire_ms = t_time_now_ms() + delay_ms;
+    node.expire_ms = now + delay_ms;
     node.repeat_ms = repeat_ms;
     node.cb = fn;
     node.user_data = user_data;
@@ -143,7 +145,10 @@ int64_t t_timer_process(t_timer *t) {
             void *ud = top->user_data;
             int64_t repeat = top->repeat_ms;
             if (repeat > 0) {
-                top->expire_ms = now + repeat;
+                if (now > INT64_MAX - repeat)
+                    top->expire_ms = INT64_MAX;
+                else
+                    top->expire_ms = now + repeat;
                 sift_down(t->heap, 0, t->count);
             } else {
                 heap_pop(t);

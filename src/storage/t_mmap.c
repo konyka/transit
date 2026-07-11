@@ -12,6 +12,9 @@
 /* Create a new mmap-backed region for a file. Truncates to 'size'. */
 int t_mmap_create(t_mmap *mm, const char *path, size_t size) {
     if (!mm || !path) return -1;
+    mm->addr = NULL;
+    mm->size = 0;
+    mm->fd = -1;
     int fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) return -1;
     if (ftruncate(fd, (off_t)size) != 0) {
@@ -32,6 +35,9 @@ int t_mmap_create(t_mmap *mm, const char *path, size_t size) {
 /* Open an existing mmap-backed file read-write. */
 int t_mmap_open(t_mmap *mm, const char *path) {
     if (!mm || !path) return -1;
+    mm->addr = NULL;
+    mm->size = 0;
+    mm->fd = -1;
     int fd = open(path, O_RDWR);
     if (fd < 0) return -1;
     struct stat st;

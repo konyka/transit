@@ -548,6 +548,7 @@
             <li>queue deliver snapshots (fn,ud) not wrappers; dispatch unregister disconnects session; map/vec grow reject SIZE_MAX wrap</li>
             <li>cgroup grow rejects wrap; storage foreach returns OOM; client disconnect drops subs; dispatch unsub clears stale bookkeeping</li>
             <li>dispatch resub failure keeps bookkeeping; domain accepting gated by broker start/stop; client cap + rcbuf alloc overflow guards</li>
+            <li>mmap failure leaves fd=-1; coro destroy rejects live states; timer expire overflow-safe; dispatch subscribe needs active session</li>
         </ul>
     </div>
 

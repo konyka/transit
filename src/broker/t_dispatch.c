@@ -140,10 +140,11 @@ int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
 
 int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queue_name) {
     if (!disp || !queue_name) return -1;
-    /* verify session exists */
+    /* verify session exists and is active */
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
-    if (!t_map_contains(&disp->sessions, key)) return -1;
+    void *sess = t_map_get(&disp->sessions, key);
+    if (!sess || !t_session_is_active((t_session *)sess)) return -1;
 
     for (size_t i = 0; i < disp->subscriptions.len; ++i) {
         t_dispatch_sub *existing = (t_dispatch_sub *)disp->subscriptions.items[i];

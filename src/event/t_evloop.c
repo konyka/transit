@@ -83,7 +83,10 @@ static int evloop_process_timers(t_evloop *loop) {
             int64_t repeat = top->repeat_ms;
             /* Rearm repeating timers in place (no alloc) before the callback. */
             if (repeat > 0) {
-                top->expire_ms = now + repeat;
+                if (now > INT64_MAX - repeat)
+                    top->expire_ms = INT64_MAX;
+                else
+                    top->expire_ms = now + repeat;
                 timer_heap_sift_down(loop->timers, 0, loop->timer_count);
             } else {
                 timer_heap_pop(loop);
@@ -180,10 +183,12 @@ int t_evloop_del(t_evloop *loop, t_evio *io) {
 
 int64_t t_evloop_timer_add(t_evloop *loop, int64_t timeout_ms, int repeat,
                            t_timer_cb callback, void *user_data) {
-    if (!loop) return -1;
+    if (!loop || timeout_ms < 0) return -1;
+    int64_t now = t_time_now_ms();
+    if (timeout_ms > 0 && now > INT64_MAX - timeout_ms) return -1;
     t_timer_entry e;
     e.id = loop->next_timer_id;
-    e.expire_ms = t_time_now_ms() + timeout_ms;
+    e.expire_ms = now + timeout_ms;
     e.repeat_ms = repeat;
     e.callback = callback;
     e.user_data = user_data;
