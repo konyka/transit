@@ -1,6 +1,7 @@
 #include "t_buf.h"
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 /* Create a refcounted buffer with given capacity */
 // Create a refcounted buffer with given capacity
@@ -37,7 +38,7 @@ t_rcbuf *t_rcbuf_wrap(void *data, size_t len, size_t cap) {
 /* Increment refcount, return the same pointer */
 t_rcbuf *t_rcbuf_ref(t_rcbuf *rcb) {
     if (rcb) {
-        rcb->refcount++;
+        if (rcb->refcount < INT_MAX) rcb->refcount++;
     }
     return rcb;
 }
@@ -45,6 +46,7 @@ t_rcbuf *t_rcbuf_ref(t_rcbuf *rcb) {
 /* Decrement refcount, free if reaches 0 */
 void t_rcbuf_unref(t_rcbuf *rcb) {
     if (!rcb) return;
+    if (rcb->refcount <= 0) return; /* already freed / over-unref */
     rcb->refcount--;
     if (rcb->refcount == 0) {
         // Free owned base buffer if present

@@ -147,7 +147,31 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
         t_dispatch_sub *existing = (t_dispatch_sub *)disp->subscriptions.items[i];
         if (existing && existing->session_id == session_id && existing->queue_name &&
             strcmp(existing->queue_name, queue_name) == 0) {
-            return -1;
+            /* Live duplicate: unsubscribe probe then restore. Stale (queue
+             * deleted/recreated): tear down bookkeeping and resubscribe. */
+            if (t_broker_unsubscribe(disp->broker, queue_name,
+                                     dispatch_deliver_cb, existing->cbud) == 0) {
+                if (t_broker_subscribe(disp->broker, queue_name,
+                                       dispatch_deliver_cb, existing->cbud) != 0) {
+                    free(existing->queue_name);
+                    free(existing->cbud);
+                    free(existing);
+                    for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
+                        disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
+                    }
+                    disp->subscriptions.len--;
+                    return -1;
+                }
+                return -1;
+            }
+            free(existing->queue_name);
+            free(existing->cbud);
+            free(existing);
+            for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
+                disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
+            }
+            disp->subscriptions.len--;
+            break;
         }
     }
 

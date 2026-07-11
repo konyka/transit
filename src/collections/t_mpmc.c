@@ -1,15 +1,17 @@
 #include "t_mpmc.h"
 #include <stdlib.h>
 #include <string.h>
-
-static inline int t_mpmc_advance_pos(int p) { return p; }
+#include <stdint.h>
 
 static int is_power_of_two(size_t x) { return x && ((x & (x - 1)) == 0); }
 
 int t_mpmc_init(t_mpmc *q, size_t capacity) {
     if (!q) return -1;
     size_t cap = 1;
-    while (cap < capacity) cap <<= 1;
+    while (cap < capacity) {
+        if (cap > SIZE_MAX / 2) return -1;
+        cap <<= 1;
+    }
     if (!is_power_of_two(cap)) cap = 1u << 1; /* fallback */
     q->cells = (t_mpmc_cell*)calloc(cap, sizeof(t_mpmc_cell));
     if (!q->cells) return -1;
@@ -37,23 +39,19 @@ void t_mpmc_destroy(t_mpmc *q) {
 bool t_mpmc_push(t_mpmc *q, void *item) {
     if (!q) return false;
     while (true) {
-        int pos = t_atomic_load_int(&q->enqueue_pos);
-        t_mpmc_cell *cell = &q->cells[(size_t)pos & q->mask];
-        int seq = t_atomic_load_int(&cell->sequence);
-        if (seq == pos) {
-            if (t_atomic_cas_int(&q->enqueue_pos, pos, pos + 1)) {
+        /* Unsigned wrap keeps Vyukov sequence math defined past INT_MAX. */
+        uint32_t pos = (uint32_t)t_atomic_load_int(&q->enqueue_pos);
+        t_mpmc_cell *cell = &q->cells[pos & (uint32_t)q->mask];
+        uint32_t seq = (uint32_t)t_atomic_load_int(&cell->sequence);
+        int32_t dif = (int32_t)(seq - pos);
+        if (dif == 0) {
+            if (t_atomic_cas_int(&q->enqueue_pos, (int)pos, (int)(pos + 1u))) {
                 cell->data = item;
-                t_atomic_store_int(&cell->sequence, pos + 1);
+                t_atomic_store_int(&cell->sequence, (int)(pos + 1u));
                 return true;
-            } else {
-                continue;
             }
-        } else if (seq < pos) {
-            // Queue is full
-            return false;
-        } else {
-            // Not ready yet, retry with updated pos
-            continue;
+        } else if (dif < 0) {
+            return false; /* full */
         }
     }
 }
@@ -61,25 +59,20 @@ bool t_mpmc_push(t_mpmc *q, void *item) {
 bool t_mpmc_pop(t_mpmc *q, void **item) {
     if (!q || !item) return false;
     while (true) {
-        int pos = t_atomic_load_int(&q->dequeue_pos);
-        t_mpmc_cell *cell = &q->cells[(size_t)pos & q->mask];
-        int seq = t_atomic_load_int(&cell->sequence);
-        if (seq == pos + 1) {
-            if (t_atomic_cas_int(&q->dequeue_pos, pos, pos + 1)) {
+        uint32_t pos = (uint32_t)t_atomic_load_int(&q->dequeue_pos);
+        t_mpmc_cell *cell = &q->cells[pos & (uint32_t)q->mask];
+        uint32_t seq = (uint32_t)t_atomic_load_int(&cell->sequence);
+        int32_t dif = (int32_t)(seq - (pos + 1u));
+        if (dif == 0) {
+            if (t_atomic_cas_int(&q->dequeue_pos, (int)pos, (int)(pos + 1u))) {
                 void *d = cell->data;
                 cell->data = NULL;
-                t_atomic_store_int(&cell->sequence, pos + q->mask + 1);
+                t_atomic_store_int(&cell->sequence, (int)(pos + (uint32_t)q->mask + 1u));
                 *item = d;
                 return true;
-            } else {
-                continue;
             }
-        } else if (seq < pos + 1) {
-            // Empty
-            return false;
-        } else {
-            // Not ready yet
-            continue;
+        } else if (dif < 0) {
+            return false; /* empty */
         }
     }
 }

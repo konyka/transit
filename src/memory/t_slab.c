@@ -56,6 +56,8 @@ static t_slab_page *t_slab_new_page(t_slab *slab) {
 
 t_slab *t_slab_create(size_t object_size, size_t alignment) {
     if (object_size == 0) return NULL;
+    /* Free-list stores an int index in each free slot. */
+    if (object_size < sizeof(int)) object_size = sizeof(int);
     t_slab *slab = (t_slab *)calloc(1, sizeof(t_slab));
     if (!slab) return NULL;
     slab->object_size = object_size;
@@ -122,7 +124,7 @@ void t_slab_free(t_slab *slab, void *obj) {
     int idx = ((char *)obj - (char *)page->mem) / page->object_size;
     *((int *)obj) = page->free_head;
     page->free_head = idx;
-    slab->used--;
+    if (slab->used > 0) slab->used--;
 }
 
 size_t t_slab_object_size(t_slab *slab) {
