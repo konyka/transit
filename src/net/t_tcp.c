@@ -122,7 +122,10 @@ t_tcp_conn *t_tcp_dial(t_evloop *loop, const char *ip, uint16_t port) {
 t_tcp_conn *t_tcp_conn_create(int fd, t_evloop *loop) {
     if (fd < 0) return NULL;
     t_tcp_conn *conn = (t_tcp_conn*)calloc(1, sizeof(*conn));
-    if (!conn) return NULL;
+    if (!conn) {
+        t_socket_close(fd);
+        return NULL;
+    }
     conn->fd = fd;
     conn->loop = loop;
     conn->on_read = NULL;

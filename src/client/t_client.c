@@ -56,7 +56,11 @@ static int client_ensure_subs_cap(t_client *c, size_t need) {
 t_client *t_client_create(const char *client_id) {
     t_client *c = (t_client *)calloc(1, sizeof(t_client));
     if (!c) return NULL;
-    c->id = strdup(client_id);
+    c->id = strdup(client_id ? client_id : "");
+    if (!c->id) {
+        free(c);
+        return NULL;
+    }
     c->connected = 0;
     c->queues = NULL; c->queues_cap = 0; c->queues_size = 0;
     c->subs = NULL; c->subs_cap = 0; c->subs_count = 0;
@@ -108,6 +112,7 @@ int t_client_open_queue(t_client *client, const char *queue_name, int flags) {
     }
     if (client_ensure_queues_cap(client, client->queues_size + 1) != 0) return -1;
     char *qn = strdup(queue_name);
+    if (!qn) return -1;
     client->queues[client->queues_size].name = qn;
     client->queues_size++;
     return 0;
@@ -150,8 +155,9 @@ int t_client_subscribe(t_client *client, const char *queue_name,
                        t_client_msg_cb cb, void *ud) {
     if (!client || !queue_name) return -1;
     if (client_ensure_subs_cap(client, client->subs_count + 1) != 0) return -1;
-    // Add subscription
-    client->subs[client->subs_count].queue = strdup(queue_name);
+    char *qn = strdup(queue_name);
+    if (!qn) return -1;
+    client->subs[client->subs_count].queue = qn;
     client->subs[client->subs_count].cb = cb;
     client->subs[client->subs_count].ud = ud;
     client->subs_count++;

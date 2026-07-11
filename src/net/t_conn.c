@@ -68,7 +68,10 @@ t_conn *t_conn_create(int fd, t_evloop *loop)
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
     t_conn *conn = (t_conn *)calloc(1, sizeof(*conn));
-    if (!conn) return NULL;
+    if (!conn) {
+        close(fd);
+        return NULL;
+    }
     conn->fd = fd;
     conn->loop = loop;
     conn->recv_cap = T_CONN_INIT_CAP;
@@ -79,6 +82,7 @@ t_conn *t_conn_create(int fd, t_evloop *loop)
         free(conn->recv_buf);
         free(conn->send_buf);
         free(conn);
+        close(fd);
         return NULL;
     }
     conn->io.fd = fd;

@@ -77,8 +77,16 @@ int t_router_bind(t_router *router, const char *pattern, void *target) {
     t_binding *b = (t_binding *)malloc(sizeof(t_binding));
     if (!b) return -1;
     b->pattern = strdup(pattern);
+    if (!b->pattern) {
+        free(b);
+        return -1;
+    }
     b->target = target;
-    t_vec_push(&router->bindings, b);
+    if (t_vec_push(&router->bindings, b) != 0) {
+        free(b->pattern);
+        free(b);
+        return -1;
+    }
     return 0;
 }
 
