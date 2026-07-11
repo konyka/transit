@@ -139,15 +139,23 @@ size_t t_ttl_expire(t_ttl *ttl, uint64_t now) {
     if (hlen > 64 && live > 0 && hlen > live * 4) {
         t_pqueue fresh;
         if (t_pqueue_init(&fresh, live) == 0) {
+            int ok = 1;
             t_map_iter it = t_map_iter_begin(&ttl->entries);
             const char *k;
             void *val;
             while (t_map_iter_next(&it, &k, &val)) {
                 t_ttl_entry *e = (t_ttl_entry *)val;
-                t_pqueue_push(&fresh, (int64_t)e->expire_at, (void *)(uintptr_t)e->msg_id);
+                if (t_pqueue_push(&fresh, (int64_t)e->expire_at, (void *)(uintptr_t)e->msg_id) != 0) {
+                    ok = 0;
+                    break;
+                }
             }
-            t_pqueue_destroy(&ttl->heap);
-            ttl->heap = fresh;
+            if (ok) {
+                t_pqueue_destroy(&ttl->heap);
+                ttl->heap = fresh;
+            } else {
+                t_pqueue_destroy(&fresh);
+            }
         }
     }
     return expired;

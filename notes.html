@@ -507,6 +507,8 @@
             <li>coro resume calloc check; storage trailing bytes; evloop wakeup registration</li>
             <li>storage fsync failure; dispatch unsubscribe removes bookkeeping or returns -1</li>
             <li>broker/domain unsubscribe + dispatch UAF fix; empty payload publish/storage; conn evloop_mod rollback</li>
+            <li>storage put preserves old on insert fail; domain rejects duplicate queues; DLQ alloc-before-evict</li>
+            <li>proto decode validates magic/version/type; TTL compact aborts on push fail; config fread ferror</li>
         </ul>
     </div>
 

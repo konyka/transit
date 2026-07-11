@@ -36,6 +36,26 @@ void t_dlq_destroy(t_dlq *dlq) {
 
 int t_dlq_push(t_dlq *dlq, const char *topic, const uint8_t *payload, size_t len, const char *reason) {
     if (!dlq) return -1;
+
+    /* Allocate first so a full queue is not evicted on OOM. */
+    char *topic_copy = topic ? strdup(topic) : NULL;
+    if (topic && !topic_copy) return -1;
+    uint8_t *payload_copy = NULL;
+    if (len > 0 && payload) {
+        payload_copy = (uint8_t *)malloc(len);
+        if (!payload_copy) {
+            free(topic_copy);
+            return -1;
+        }
+        memcpy(payload_copy, payload, len);
+    }
+    char *reason_copy = reason ? strdup(reason) : NULL;
+    if (reason && !reason_copy) {
+        free(topic_copy);
+        free(payload_copy);
+        return -1;
+    }
+
     if (dlq->count >= dlq->capacity) {
         t_dlq_entry *oldest = &dlq->entries[dlq->head];
         free(oldest->topic);
@@ -48,28 +68,10 @@ int t_dlq_push(t_dlq *dlq, const char *topic, const uint8_t *payload, size_t len
     }
     size_t idx = (dlq->tail) % dlq->capacity;
     t_dlq_entry *e = &dlq->entries[idx];
-    e->topic = topic ? strdup(topic) : NULL;
-    if (topic && !e->topic) return -1;
-    e->payload_len = len;
-    if (len > 0 && payload) {
-        e->payload = (uint8_t *)malloc(len);
-        if (!e->payload) {
-            free(e->topic);
-            e->topic = NULL;
-            return -1;
-        }
-        memcpy(e->payload, payload, len);
-    } else {
-        e->payload = NULL;
-    }
-    e->reason = reason ? strdup(reason) : NULL;
-    if (reason && !e->reason) {
-        free(e->topic);
-        free(e->payload);
-        e->topic = NULL;
-        e->payload = NULL;
-        return -1;
-    }
+    e->topic = topic_copy;
+    e->payload = payload_copy;
+    e->payload_len = (len > 0 && payload) ? len : 0;
+    e->reason = reason_copy;
     e->timestamp_ms = (uint64_t)t_time_now_ms();
     e->retry_count = 0;
     dlq->tail = (dlq->tail + 1) % dlq->capacity;

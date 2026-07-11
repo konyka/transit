@@ -156,6 +156,11 @@ int t_config_parse_file(t_config *cfg, const char *path) {
     char *data = (char*)malloc((size_t)sz + 1);
     if (!data) { fclose(f); return -1; }
     size_t rd = fread(data, 1, (size_t)sz, f);
+    if (ferror(f)) {
+        free(data);
+        fclose(f);
+        return -1;
+    }
     data[rd] = '\0';
     fclose(f);
     int res = t_config_parse_string(cfg, data, rd);

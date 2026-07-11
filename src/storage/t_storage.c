@@ -152,16 +152,16 @@ int t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len
         entry->data_len = len;
     }
 
-    /* If existing entry, remove to free memory */
-    t_storage_entry *old = (t_storage_entry*)t_map_remove(&storage->map, keybuf);
-    if (old) {
-        free(old->data);
-        free(old);
-    }
+    /* Preserve old value until insert succeeds (avoid data loss on OOM). */
+    t_storage_entry *old = (t_storage_entry*)t_map_get(&storage->map, keybuf);
     if (t_map_insert(&storage->map, keybuf, entry) != 0) {
         free(entry->data);
         free(entry);
         return -1;
+    }
+    if (old) {
+        free(old->data);
+        free(old);
     }
     if (storage->type == T_STORAGE_FILE) storage->dirty = 1;
     return 0;

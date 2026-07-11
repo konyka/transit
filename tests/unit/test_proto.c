@@ -3,6 +3,7 @@
 #include "t_crc32c.h"
 #include <string.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 
 T_TEST(crc32c_empty) {
     uint32_t crc = t_crc32c("", 0);
@@ -62,6 +63,26 @@ T_TEST(proto_validate_ok) {
     msg.payload = NULL;
     msg.payload_len = 0;
     T_ASSERT_EQ(t_proto_msg_validate(&msg), 0);
+}
+
+T_TEST(proto_decode_rejects_bad_magic) {
+    uint8_t buf[64];
+    t_proto_msg msg;
+    t_proto_header_init(&msg.header, T_MSG_ACK, 0);
+    msg.payload = NULL;
+    msg.payload_len = 0;
+    int n = t_proto_encode_msg(&msg, buf, sizeof(buf));
+    T_ASSERT(n > 0);
+    uint32_t bad = htonl(0xDEADBEEF);
+    memcpy(buf, &bad, 4);
+    /* Recompute CRC so failure is due to magic, not checksum. */
+    uint32_t zero = 0;
+    memcpy(buf + 4, &zero, 4);
+    uint32_t crc = t_crc32c(buf, (size_t)n);
+    uint32_t crc_be = htonl(crc);
+    memcpy(buf + 4, &crc_be, 4);
+    t_proto_msg out;
+    T_ASSERT(t_proto_decode_msg(&out, buf, (size_t)n) != 0);
 }
 
 int main(void) {

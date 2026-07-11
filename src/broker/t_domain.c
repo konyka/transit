@@ -70,10 +70,11 @@ const char *t_domain_name(const t_domain *domain) {
 
 int t_domain_create_queue(t_domain *domain, const char *queue_name, int type, int flags) {
     if (!domain || !queue_name) return -1;
+    if (t_map_get(&domain->queues, queue_name)) return -1;
     t_queue *q = t_queue_create(queue_name, (t_qtype)type, flags);
     if (!q) return -1;
     if (t_map_insert(&domain->queues, queue_name, q) != 0) {
-        t_queue_destroy(q); /* shouldn't happen, but safe */
+        t_queue_destroy(q);
         return -1;
     }
     return 0;

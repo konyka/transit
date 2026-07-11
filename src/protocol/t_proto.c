@@ -81,6 +81,11 @@ int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (buf_len < T_PROTO_HEADER_SIZE) return -1;
     t_proto_header hdr;
     if (t_proto_header_decode(&hdr, buf, buf_len) != 0) return -1;
+    if (hdr.magic != T_PROTO_MAGIC ||
+        hdr.version != T_PROTO_VERSION ||
+        hdr.type >= T_MSG_MAX) {
+        return -1;
+    }
     if (hdr.payload_len > T_PROTO_MAX_PAYLOAD) return -1;
     size_t total = T_PROTO_HEADER_SIZE + hdr.payload_len;
     if (buf_len < total) return -1;
