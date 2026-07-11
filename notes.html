@@ -533,6 +533,7 @@
             <li>conn send/recv grow overflow guards; proto decode OOM clears header; fc_release caps without wrap</li>
             <li>consume rejects NULL out; ack/nack use t_list_remove (fix UAF/count); fc acquire(0); conn sync flush</li>
             <li>mmap close msync; client close drops subs; unsubscribe all; post requires open; raft apply/log grow; vec overflow</li>
+            <li>tcp close fd on EOF; config short fread; ringbuf unsigned counters; pool zero full block; evloop timer grow</li>
         </ul>
     </div>
 

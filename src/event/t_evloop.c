@@ -41,6 +41,7 @@ static int timer_heap_push(t_evloop *loop, t_timer_entry entry) {
         loop->timer_cap = cap;
     }
     if (loop->timer_count >= loop->timer_cap) {
+        if (loop->timer_cap > SIZE_MAX / 2 / sizeof(t_timer_entry)) return -1;
         size_t new_cap = loop->timer_cap * 2;
         t_timer_entry *timers = (t_timer_entry *)realloc(loop->timers, new_cap * sizeof(t_timer_entry));
         if (!timers) return -1;

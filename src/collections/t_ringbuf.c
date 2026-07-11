@@ -1,6 +1,7 @@
 #include "t_ringbuf.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 /* Internal helpers */
 static size_t next_power_of_two(size_t v) {
@@ -44,12 +45,14 @@ size_t t_ringbuf_write(t_ringbuf *rb, const void *data, size_t len) {
     size_t written = 0;
     const unsigned char *src = (const unsigned char*)data;
     while (written < len) {
-        int head = t_atomic_load_int(&rb->head);
-        int tail = t_atomic_load_int(&rb->tail);
-        int available = (int)rb->cap - (head - tail);
-        if (available <= 0) break; /* full */
-        size_t to_copy = (len - written) < (size_t)available ? (len - written) : (size_t)available;
-        size_t idx = (size_t)(head & rb->mask);
+        /* Unsigned wrap avoids signed overflow on long-lived counters. */
+        uint32_t head = (uint32_t)t_atomic_load_int(&rb->head);
+        uint32_t tail = (uint32_t)t_atomic_load_int(&rb->tail);
+        uint32_t used = head - tail;
+        if ((size_t)used >= rb->cap) break; /* full */
+        size_t available = rb->cap - (size_t)used;
+        size_t to_copy = (len - written) < available ? (len - written) : available;
+        size_t idx = (size_t)(head & (uint32_t)rb->mask);
         size_t first = rb->cap - idx;
         if (first > to_copy) first = to_copy;
         memcpy(rb->buf + idx, src + written, first);
@@ -57,7 +60,7 @@ size_t t_ringbuf_write(t_ringbuf *rb, const void *data, size_t len) {
             memcpy(rb->buf, src + written + first, to_copy - first);
         }
         written += to_copy;
-        t_atomic_store_int(&rb->head, head + (int)to_copy);
+        t_atomic_store_int(&rb->head, (int)(head + (uint32_t)to_copy));
     }
     return written;
 }
@@ -66,12 +69,12 @@ size_t t_ringbuf_read(t_ringbuf *rb, void *data, size_t len) {
     if (!rb || !data || len == 0) return 0;
     size_t read = 0;
     unsigned char *dst = (unsigned char*)data;
-    int head = t_atomic_load_int(&rb->head);
-    int tail = t_atomic_load_int(&rb->tail);
-    int available = (int)(head - tail);
+    uint32_t head = (uint32_t)t_atomic_load_int(&rb->head);
+    uint32_t tail = (uint32_t)t_atomic_load_int(&rb->tail);
+    uint32_t available = head - tail;
     size_t to_read = (len < (size_t)available) ? len : (size_t)available;
     while (read < to_read) {
-        size_t idx = (size_t)(tail & rb->mask);
+        size_t idx = (size_t)(tail & (uint32_t)rb->mask);
         size_t first = rb->cap - idx;
         size_t want = to_read - read;
         if (first > want) first = want;
@@ -80,7 +83,7 @@ size_t t_ringbuf_read(t_ringbuf *rb, void *data, size_t len) {
             memcpy(dst + read + first, rb->buf, want - first);
         }
         read += want;
-        t_atomic_store_int(&rb->tail, tail + (int)to_read);
+        t_atomic_store_int(&rb->tail, (int)(tail + (uint32_t)to_read));
         break; /* single read loop suffices since we computed to_read above */
     }
     return read;
@@ -88,16 +91,19 @@ size_t t_ringbuf_read(t_ringbuf *rb, void *data, size_t len) {
 
 size_t t_ringbuf_available(const t_ringbuf *rb) {
     if (!rb) return 0;
-    int head = t_atomic_load_int((t_atomic_int*)&rb->head);
-    int tail = t_atomic_load_int((t_atomic_int*)&rb->tail);
-    return (size_t)((rb->cap) - (head - tail));
+    uint32_t head = (uint32_t)t_atomic_load_int((t_atomic_int*)&rb->head);
+    uint32_t tail = (uint32_t)t_atomic_load_int((t_atomic_int*)&rb->tail);
+    uint32_t used = head - tail;
+    if ((size_t)used >= rb->cap) return 0;
+    return rb->cap - (size_t)used;
 }
 
 size_t t_ringbuf_used(const t_ringbuf *rb) {
     if (!rb) return 0;
-    int head = t_atomic_load_int((t_atomic_int*)&rb->head);
-    int tail = t_atomic_load_int((t_atomic_int*)&rb->tail);
-    return (size_t)(head - tail);
+    uint32_t head = (uint32_t)t_atomic_load_int((t_atomic_int*)&rb->head);
+    uint32_t tail = (uint32_t)t_atomic_load_int((t_atomic_int*)&rb->tail);
+    uint32_t used = head - tail;
+    return ((size_t)used > rb->cap) ? rb->cap : (size_t)used;
 }
 
 void t_ringbuf_reset(t_ringbuf *rb) {

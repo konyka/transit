@@ -160,6 +160,10 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
     if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
     conn->closed = 1;
     if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+    if (conn->fd >= 0) {
+        t_socket_close(conn->fd);
+        conn->fd = -1;
+    }
     if (conn->on_close) conn->on_close(conn, conn->user_data);
 }
 
@@ -181,6 +185,6 @@ int t_tcp_conn_stop_read(t_tcp_conn *conn) {
 }
 
 ssize_t t_tcp_conn_write(t_tcp_conn *conn, const void *buf, size_t len) {
-    if (!conn) return -1;
+    if (!conn || conn->closed || conn->fd < 0) return -1;
     return t_socket_write(conn->fd, buf, len);
 }

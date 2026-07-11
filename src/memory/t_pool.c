@@ -143,7 +143,10 @@ void *t_pool_alloc(t_pool *pool, size_t size) {
 
 void *t_pool_alloc_zero(t_pool *pool, size_t size) {
     void *p = t_pool_alloc(pool, size);
-    if (p) memset(p, 0, size);
+    if (!p) return NULL;
+    int idx = t_pool_class_index_for_size(size);
+    size_t clear = (idx < 0) ? size : g_pool_sizes[idx];
+    memset(p, 0, clear);
     return p;
 }
 
@@ -158,7 +161,11 @@ void t_pool_free(t_pool *pool, void *ptr, size_t size) {
     t_pool_class *cls = &pool->classes[idx];
     *((void **)ptr) = cls->free_head;
     cls->free_head = ptr;
-    cls->used_bytes -= cls->block_size;
+    if (cls->used_bytes >= cls->block_size) {
+        cls->used_bytes -= cls->block_size;
+    } else {
+        cls->used_bytes = 0;
+    }
 }
 
 void *t_pool_alloc_array(t_pool *pool, size_t elem_size, size_t count) {
