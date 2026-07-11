@@ -96,7 +96,7 @@ int t_socket_connect(int fd, const t_sockaddr *addr) {
 int t_socket_connect_async(int fd, const t_sockaddr *addr) {
     int rc = t_socket_connect(fd, addr);
     if (rc == 0) return 0;
-    if (errno == EINPROGRESS) return -1; /* still in progress */
+    if (errno == EINPROGRESS || errno == EALREADY) return 1; /* still in progress */
     return -1;
 }
 

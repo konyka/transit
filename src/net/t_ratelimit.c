@@ -32,7 +32,12 @@ static void refill(t_ratelimit *rl, uint64_t now_ms) {
         rl->initialized = 1;
         return;
     }
-    if (now_ms <= rl->last_refill_ms) return;
+    if (now_ms < rl->last_refill_ms) {
+        /* Clock rewind: reset baseline so tokens can recover. */
+        rl->last_refill_ms = now_ms;
+        return;
+    }
+    if (now_ms == rl->last_refill_ms) return;
     double elapsed = (double)(now_ms - rl->last_refill_ms);
     rl->tokens += elapsed * rl->refill_rate;
     if (rl->tokens > (double)rl->max_tokens) {

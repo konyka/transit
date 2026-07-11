@@ -68,27 +68,28 @@ static int t_iocp_poll(t_evloop *loop, int timeout_ms)
     DWORD bytesTransferred;
     ULONG_PTR completionKey;
     LPOVERLAPPED overlapped;
-    int first_wait = 1;
+    int n = 0;
+    const int max_batch = 128;
     for (;;) {
-        DWORD wait_ms = first_wait ? timeout : 0;
-        first_wait = 0;
+        DWORD wait_ms = (n == 0) ? timeout : 0;
         BOOL ok = GetQueuedCompletionStatus(st->iocp_handle, &bytesTransferred, &completionKey, &overlapped, wait_ms);
         if (!ok) {
             DWORD err = GetLastError();
             if (err == WAIT_TIMEOUT) {
-                return 0;
+                return n;
             }
             return -1;
         }
         t_evio *io = (t_evio *)(ULONG_PTR)completionKey;
         if (io == &loop->wakeup_io) {
-            // Wakeup event; ignore payload
+            /* Wakeup event; ignore payload */
+            if (++n >= max_batch) return n;
             continue;
         }
         if (io && io->callback) {
-            /* Assume callback expects (io, io->events) */
-            io->callback(io, io->events);
+            io->callback(io, io->events, io->user_data);
         }
+        if (++n >= max_batch) return n;
     }
 }
 

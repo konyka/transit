@@ -21,6 +21,11 @@ static void fc_maybe_refill(t_flowcontrol *fc) {
         fc->last_refill_ms = now;
         return;
     }
+    /* Clock rewind: reset baseline so credits can recover. */
+    if (now < fc->last_refill_ms) {
+        fc->last_refill_ms = now;
+        return;
+    }
     if (now - fc->last_refill_ms >= fc->refill_interval_ms) {
         fc->credits = fc->max_credits;
         fc->blocked = 0;

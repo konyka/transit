@@ -110,16 +110,17 @@ int t_tcp_server_listen(t_tcp_server *srv, const char *ip, uint16_t port,
 t_tcp_conn *t_tcp_dial(t_evloop *loop, const char *ip, uint16_t port) {
     int fd = t_socket_create(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return NULL;
-    t_socket_set_nonblock(fd);
     t_sockaddr addr;
     if (t_sockaddr_init_ipv4(&addr, ip, port) != 0) {
         t_socket_close(fd);
         return NULL;
     }
-    int rc = t_socket_connect_async(fd, &addr);
-    (void)rc; /* allow both blocking and non-blocking in tests */
-    t_tcp_conn *conn = t_tcp_conn_create(fd, loop);
-    return conn;
+    /* Blocking connect so dial only returns after handshake (or hard error). */
+    if (t_socket_connect(fd, &addr) != 0) {
+        t_socket_close(fd);
+        return NULL;
+    }
+    return t_tcp_conn_create(fd, loop);
 }
 
 /* t_tcp_conn implementations */

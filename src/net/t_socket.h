@@ -23,6 +23,7 @@ int  t_socket_bind(int fd, const t_sockaddr *addr);
 int  t_socket_listen(int fd, int backlog);
 int  t_socket_accept(int fd, t_sockaddr *peer_addr);
 int  t_socket_connect(int fd, const t_sockaddr *addr);
+/* Returns 0 connected, 1 in progress (EINPROGRESS/EALREADY), -1 hard error. */
 int  t_socket_connect_async(int fd, const t_sockaddr *addr);
 
 ssize_t t_socket_read(int fd, void *buf, size_t len);
