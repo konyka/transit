@@ -78,10 +78,11 @@ t_buf t_buf_empty(void) {
 
 size_t t_buf_copy(t_buf *dst, const t_buf *src) {
     if (!dst || !src) return 0;
-    size_t n = dst->len < src->len ? dst->len : src->len;
+    size_t n = dst->cap < src->len ? dst->cap : src->len;
     if (n > 0 && dst->data && src->data) {
         memcpy(dst->data, src->data, n);
     }
+    dst->len = n;
     return n;
 }
 

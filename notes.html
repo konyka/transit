@@ -511,6 +511,8 @@
             <li>proto decode validates magic/version/type; TTL compact aborts on push fail; config fread ferror</li>
             <li>priority queue destroy drains heap; delete_queue clears domain subs; consumer id stable</li>
             <li>map resize rolls back on place failure; dispatch rejects duplicate session register</li>
+            <li>tcp_conn destroy del from evloop; dispatch unregister clears subs; reject duplicate subscribe</li>
+            <li>t_buf_copy uses capacity; admin response length clamped to buffer</li>
         </ul>
     </div>
 

@@ -28,6 +28,30 @@ T_TEST(dispatch_register_session) {
     t_session_destroy(s);
 }
 
+T_TEST(dispatch_unregister_clears_subs) {
+    t_broker *b = t_broker_create("test-dispatch-unreg");
+    t_broker_start(b);
+    t_broker_create_queue(b, "default", "u.q", T_QUEUE_BROADCAST, 0);
+    t_dispatch *d = t_dispatch_create(b);
+    t_session *s = t_session_create(7);
+    T_ASSERT_EQ(t_dispatch_register(d, 7, s), 0);
+    T_ASSERT_EQ(t_dispatch_subscribe(d, 7, "u.q"), 0);
+    T_ASSERT_EQ(t_dispatch_subscribe(d, 7, "u.q"), -1);
+
+    uint8_t msg[] = "x";
+    T_ASSERT_EQ(t_dispatch_publish(d, 7, "u.q", msg, 1, 0), 0);
+    T_ASSERT_EQ((int)t_dispatch_total_delivered(d), 1);
+
+    T_ASSERT_EQ(t_dispatch_unregister(d, 7), 0);
+    T_ASSERT_EQ(t_dispatch_publish(d, 7, "u.q", msg, 1, 0), -1);
+    T_ASSERT_EQ((int)t_dispatch_total_delivered(d), 1);
+
+    t_dispatch_destroy(d);
+    t_broker_stop(b);
+    t_broker_destroy(b);
+    t_session_destroy(s);
+}
+
 T_TEST(dispatch_publish) {
     t_broker *b = t_broker_create("test-dispatch");
     t_broker_start(b);

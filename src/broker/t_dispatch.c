@@ -101,8 +101,27 @@ int t_dispatch_unregister(t_dispatch *disp, uint64_t session_id) {
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     void *v = t_map_remove(&disp->sessions, key);
-    (void)v; /* do not destroy session here – caller owns it */
-    return v ? 0 : -1;
+    if (!v) return -1;
+    /* Drop broker subscriptions for this session to avoid ghost deliveries. */
+    for (size_t i = 0; i < disp->subscriptions.len; ) {
+        t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
+        if (sub && sub->session_id == session_id) {
+            if (sub->queue_name && sub->cbud) {
+                t_broker_unsubscribe(disp->broker, sub->queue_name,
+                                     dispatch_deliver_cb, sub->cbud);
+            }
+            free(sub->queue_name);
+            free(sub->cbud);
+            free(sub);
+            for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
+                disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
+            }
+            disp->subscriptions.len--;
+            continue;
+        }
+        ++i;
+    }
+    return 0;
 }
 
 int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
@@ -123,6 +142,14 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     if (!t_map_contains(&disp->sessions, key)) return -1;
+
+    for (size_t i = 0; i < disp->subscriptions.len; ++i) {
+        t_dispatch_sub *existing = (t_dispatch_sub *)disp->subscriptions.items[i];
+        if (existing && existing->session_id == session_id && existing->queue_name &&
+            strcmp(existing->queue_name, queue_name) == 0) {
+            return -1;
+        }
+    }
 
     /* Prepare per-subscription data */
     t_dispatch_sub *sub = (t_dispatch_sub *)calloc(1, sizeof(t_dispatch_sub));

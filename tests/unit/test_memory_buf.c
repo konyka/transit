@@ -70,6 +70,17 @@ T_TEST(buf_copy) {
     T_ASSERT(memcmp(dst, "source", 6) == 0);
 }
 
+T_TEST(buf_copy_into_rcbuf) {
+    t_rcbuf *rcb = t_rcbuf_create(16);
+    T_ASSERT_NOT_NULL(rcb);
+    t_buf sb = t_buf_from("hello", 5);
+    size_t n = t_buf_copy(&rcb->buf, &sb);
+    T_ASSERT_EQ((int)n, 5);
+    T_ASSERT_EQ((int)rcb->buf.len, 5);
+    T_ASSERT(memcmp(rcb->buf.data, "hello", 5) == 0);
+    t_rcbuf_unref(rcb);
+}
+
 T_TEST(buf_eq) {
     t_buf a = t_buf_from("hello", 5);
     t_buf b = t_buf_from("hello", 5);

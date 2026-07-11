@@ -138,6 +138,9 @@ t_tcp_conn *t_tcp_conn_create(int fd, t_evloop *loop) {
 
 void t_tcp_conn_destroy(t_tcp_conn *conn) {
     if (!conn) return;
+    if (conn->loop) {
+        t_evloop_del(conn->loop, &conn->read_io);
+    }
     if (conn->fd >= 0) t_socket_close(conn->fd);
     free(conn);
 }

@@ -261,7 +261,7 @@ static void build_response(t_admin *admin, t_admin_client *c) {
     if (jlen < 0) jlen = 0;
     if ((size_t)jlen >= sizeof(json)) jlen = (int)(sizeof(json) - 1);
 
-    c->resp_len = (size_t)snprintf(c->resp, sizeof(c->resp),
+    int n = snprintf(c->resp, sizeof(c->resp),
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/json\r\n"
         "Content-Length: %d\r\n"
@@ -269,6 +269,9 @@ static void build_response(t_admin *admin, t_admin_client *c) {
         "\r\n"
         "%s",
         jlen, json);
+    if (n < 0) n = 0;
+    if ((size_t)n >= sizeof(c->resp)) n = (int)(sizeof(c->resp) - 1);
+    c->resp_len = (size_t)n;
     c->resp_sent = 0;
 }
 
