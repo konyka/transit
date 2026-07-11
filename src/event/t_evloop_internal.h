@@ -23,6 +23,7 @@ struct t_evloop {
     int         wakeup_fds[2];
     t_evio      wakeup_io;
     int         processing_timers;
+    int         processing_poll;
     int         destroy_pending;
 };
 

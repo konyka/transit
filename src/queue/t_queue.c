@@ -206,6 +206,7 @@ t_qtype t_queue_get_type(const t_queue *q) {
 int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     if (!q || q->closed) return -1;
     if (len > 0 && !data) return -1;
+    if (q->next_msg_id == UINT64_MAX) return -1;
 
     t_msg *m = (t_msg *)malloc(sizeof(t_msg));
     if (!m) return -1;
@@ -331,6 +332,7 @@ size_t t_queue_pending_count(const t_queue *q) {
 
 uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
     if (!q || !cb) return 0;
+    if (q->next_consumer_id == UINT64_MAX) return 0;
     t_cons_cb *wrapper = (t_cons_cb *)malloc(sizeof(t_cons_cb));
     if (!wrapper) return 0;
     wrapper->cb = cb;

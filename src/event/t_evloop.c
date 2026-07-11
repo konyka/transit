@@ -151,7 +151,7 @@ t_evloop *t_evloop_create(void) {
 
 void t_evloop_destroy(t_evloop *loop) {
     if (!loop) return;
-    if (loop->processing_timers) {
+    if (loop->processing_timers || loop->processing_poll) {
         loop->destroy_pending = 1;
         t_evloop_stop(loop);
         return;
@@ -230,7 +230,13 @@ int t_evloop_run(t_evloop *loop, int timeout_ms) {
                           ((diff < timeout_ms) ? (int)diff : timeout_ms);
             }
         }
+        loop->processing_poll = 1;
         loop->backend->poll(loop, wait_ms);
+        loop->processing_poll = 0;
+        if (loop->destroy_pending) {
+            t_evloop_destroy(loop);
+            return 1;
+        }
         /* 1 => loop freed inside a timer callback; caller must not destroy. */
         if (evloop_process_timers(loop)) return 1;
     }

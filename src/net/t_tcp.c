@@ -146,6 +146,12 @@ void t_tcp_conn_destroy(t_tcp_conn *conn) {
     if (conn->in_io_cb) {
         conn->free_pending = 1;
         conn->closed = 1;
+        /* Drop fd from the loop now so poll does not spin on a closed conn. */
+        if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+        if (conn->fd >= 0) {
+            t_socket_close(conn->fd);
+            conn->fd = -1;
+        }
         return;
     }
     if (conn->loop) {
