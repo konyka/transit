@@ -114,7 +114,11 @@ int t_admin_start(t_admin *admin) {
     admin->listen_io.loop = admin->loop;
     admin->listen_io.events = T_EV_READ;
 
-    t_evloop_add(admin->loop, &admin->listen_io, T_EV_READ);
+    if (t_evloop_add(admin->loop, &admin->listen_io, T_EV_READ) != 0) {
+        close(fd);
+        admin->listen_fd = -1;
+        return -1;
+    }
     admin->running = 1;
     return 0;
 }

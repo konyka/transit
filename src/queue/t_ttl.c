@@ -72,6 +72,10 @@ int t_ttl_add(t_ttl *ttl, uint64_t msg_id, const char *topic,
     e->msg_id = msg_id;
     e->expire_at = expire_at;
     e->topic = topic ? strdup(topic) : NULL;
+    if (topic && !e->topic) {
+        ttl_entry_free(e);
+        return -1;
+    }
     if (payload && len > 0) {
         e->payload = (uint8_t *)malloc(len);
         if (!e->payload) {

@@ -32,19 +32,26 @@ static void timer_heap_sift_down(t_timer_entry *arr, size_t idx, size_t n) {
     }
 }
 
-static void timer_heap_push(t_evloop *loop, t_timer_entry entry) {
+static int timer_heap_push(t_evloop *loop, t_timer_entry entry) {
     if (loop->timers == NULL) {
-        loop->timer_cap = 16;
-        loop->timers = (t_timer_entry *)calloc(loop->timer_cap, sizeof(t_timer_entry));
+        size_t cap = 16;
+        t_timer_entry *timers = (t_timer_entry *)calloc(cap, sizeof(t_timer_entry));
+        if (!timers) return -1;
+        loop->timers = timers;
+        loop->timer_cap = cap;
     }
     if (loop->timer_count >= loop->timer_cap) {
-        loop->timer_cap *= 2;
-        loop->timers = (t_timer_entry *)realloc(loop->timers, loop->timer_cap * sizeof(t_timer_entry));
+        size_t new_cap = loop->timer_cap * 2;
+        t_timer_entry *timers = (t_timer_entry *)realloc(loop->timers, new_cap * sizeof(t_timer_entry));
+        if (!timers) return -1;
+        loop->timers = timers;
+        loop->timer_cap = new_cap;
     }
     size_t idx = loop->timer_count;
     loop->timers[idx] = entry;
     timer_heap_sift_up(loop->timers, idx);
     loop->timer_count++;
+    return 0;
 }
 
 static t_timer_entry timer_heap_pop(t_evloop *loop) {
@@ -72,7 +79,7 @@ static void evloop_process_timers(t_evloop *loop) {
             }
             if (cur.active && cur.repeat_ms > 0) {
                 cur.expire_ms = now + cur.repeat_ms;
-                timer_heap_push(loop, cur);
+                (void)timer_heap_push(loop, cur); /* drop repeat on OOM */
             }
             now = t_time_now_ms();
             continue;
@@ -149,13 +156,14 @@ int64_t t_evloop_timer_add(t_evloop *loop, int64_t timeout_ms, int repeat,
                            t_timer_cb callback, void *user_data) {
     if (!loop) return -1;
     t_timer_entry e;
-    e.id = loop->next_timer_id++;
+    e.id = loop->next_timer_id;
     e.expire_ms = t_time_now_ms() + timeout_ms;
     e.repeat_ms = repeat;
     e.callback = callback;
     e.user_data = user_data;
     e.active = 1;
-    timer_heap_push(loop, e);
+    if (timer_heap_push(loop, e) != 0) return -1;
+    loop->next_timer_id++;
     return e.id;
 }
 
