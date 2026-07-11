@@ -558,6 +558,9 @@
             <li>dispatch resub failure drops bookkeeping; queue drains backlog on subscribe; consume alloc-before-pop; client post snapshots</li>
             <li>mpmc atomic data publish; client published after snapshot; drain salvage without free; storage put rejects get alias</li>
             <li>queue drain delivers before dequeue; storage get returns const; coro destroy returns -1 if live</li>
+            <li>tcp dial clears O_NONBLOCK before connect; FIFO nack restores to head</li>
+            <li>tpool submit/destroy serialize stopping under wait_mutex (no MPMC UAF)</li>
+            <li>evloop_run polls t_shutdown_on_signal each cycle</li>
         </ul>
     </div>
 

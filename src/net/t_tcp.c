@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -115,7 +116,9 @@ t_tcp_conn *t_tcp_dial(t_evloop *loop, const char *ip, uint16_t port) {
         t_socket_close(fd);
         return NULL;
     }
-    /* Blocking connect so dial only returns after handshake (or hard error). */
+    /* t_socket_create is non-blocking; dial needs a completed handshake. */
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) (void)fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
     if (t_socket_connect(fd, &addr) != 0) {
         t_socket_close(fd);
         return NULL;

@@ -437,7 +437,8 @@ int t_queue_nack(t_queue *q, uint64_t msg_id) {
             if (q->type == T_QUEUE_PRIORITY) {
                 ok = (t_pqueue_push(&q->pri, (int64_t)inf->msg->priority, inf->msg) == 0);
             } else {
-                ok = (t_vec_push(&q->pending, inf->msg) == 0);
+                /* Restore to head so FIFO order is preserved. */
+                ok = (t_vec_insert(&q->pending, 0, inf->msg) == 0);
             }
             if (!ok) {
                 /* Restore inflight so the message is not lost on OOM. */

@@ -144,18 +144,20 @@ int t_tpool_submit(t_tpool *pool, t_task_fn fn, void *context) {
     task->fn = fn;
     task->context = context;
     size_t idx = __sync_fetch_and_add(&pool->rr, 1) % pool->num_workers;
-    /* Count before enqueue so wait() cannot race ahead of completion. */
     pthread_mutex_lock(&pool->wait_mutex);
+    if (pool->stopping) {
+        pthread_mutex_unlock(&pool->wait_mutex);
+        free(task);
+        return -1;
+    }
+    /* Count + enqueue under lock so destroy cannot free the queue mid-push. */
     pool->total_submitted++;
-    pthread_mutex_unlock(&pool->wait_mutex);
     if (!t_mpmc_push(&pool->workers[idx].queue, task)) {
-        pthread_mutex_lock(&pool->wait_mutex);
         pool->total_submitted--;
         pthread_mutex_unlock(&pool->wait_mutex);
         free(task);
         return -1;
     }
-    pthread_mutex_lock(&pool->wait_mutex);
     pthread_cond_broadcast(&pool->wait_cond);
     pthread_mutex_unlock(&pool->wait_mutex);
     return 0;
@@ -168,16 +170,18 @@ int t_tpool_submit_to(t_tpool *pool, size_t worker_id, t_task_fn fn, void *conte
     task->fn = fn;
     task->context = context;
     pthread_mutex_lock(&pool->wait_mutex);
+    if (pool->stopping) {
+        pthread_mutex_unlock(&pool->wait_mutex);
+        free(task);
+        return -1;
+    }
     pool->total_submitted++;
-    pthread_mutex_unlock(&pool->wait_mutex);
     if (!t_mpmc_push(&pool->workers[worker_id].queue, task)) {
-        pthread_mutex_lock(&pool->wait_mutex);
         pool->total_submitted--;
         pthread_mutex_unlock(&pool->wait_mutex);
         free(task);
         return -1;
     }
-    pthread_mutex_lock(&pool->wait_mutex);
     pthread_cond_broadcast(&pool->wait_cond);
     pthread_mutex_unlock(&pool->wait_mutex);
     return 0;
@@ -206,8 +210,8 @@ size_t t_tpool_tasks_stolen(const t_tpool *pool) {
 
 void t_tpool_destroy(t_tpool *pool) {
     if (!pool) return;
-    pool->stopping = 1;
     pthread_mutex_lock(&pool->wait_mutex);
+    pool->stopping = 1;
     pthread_cond_broadcast(&pool->wait_cond);
     pthread_mutex_unlock(&pool->wait_mutex);
 

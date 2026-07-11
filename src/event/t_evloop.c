@@ -1,5 +1,6 @@
 #include "t_evloop_internal.h"
 #include "t_time.h"
+#include "t_shutdown.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -239,6 +240,7 @@ int t_evloop_run(t_evloop *loop, int timeout_ms) {
         }
         /* 1 => loop freed inside a timer callback; caller must not destroy. */
         if (evloop_process_timers(loop)) return 1;
+        t_shutdown_on_signal(loop);
     }
     return 0;
 }
