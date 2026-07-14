@@ -6,12 +6,19 @@
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "t_mmap.h"
+
+/* Match storage file-backed dump limit. */
+#define T_MMAP_MAX_SIZE (256 * 1024 * 1024)
 
 /* Create a new mmap-backed region for a file. Truncates to 'size'. */
 int t_mmap_create(t_mmap *mm, const char *path, size_t size) {
     if (!mm || !path || size == 0) return -1;
+    if (size > T_MMAP_MAX_SIZE) return -1;
+    /* Ensure size fits in off_t for ftruncate. */
+    if ((off_t)size < 0 || (size_t)(off_t)size != size) return -1;
     mm->addr = NULL;
     mm->size = 0;
     mm->fd = -1;
@@ -45,7 +52,9 @@ int t_mmap_open(t_mmap *mm, const char *path) {
         close(fd);
         return -1;
     }
-    if (st.st_size <= 0) {
+    if (st.st_size <= 0 ||
+        (uint64_t)st.st_size > (uint64_t)SIZE_MAX ||
+        (uint64_t)st.st_size > T_MMAP_MAX_SIZE) {
         close(fd);
         return -1;
     }

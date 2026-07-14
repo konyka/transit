@@ -36,6 +36,7 @@ void t_dlq_destroy(t_dlq *dlq) {
 
 int t_dlq_push(t_dlq *dlq, const char *topic, const uint8_t *payload, size_t len, const char *reason) {
     if (!dlq || (len > 0 && !payload)) return -1;
+    if (len > T_DLQ_MAX_PAYLOAD) return -1;
 
     /* Allocate first so a full queue is not evicted on OOM. */
     char *topic_copy = topic ? strdup(topic) : NULL;

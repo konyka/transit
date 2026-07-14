@@ -178,7 +178,10 @@ int t_config_parse_file(t_config *cfg, const char *path) {
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (sz < 0) sz = 0;
+    if (sz < 0) { fclose(f); return -1; }
+    if ((unsigned long)sz > SIZE_MAX - 1) { fclose(f); return -1; }
+    /* Cap config files to keep parse memory bounded. */
+    if ((unsigned long)sz > 16 * 1024 * 1024) { fclose(f); return -1; }
     char *data = (char*)malloc((size_t)sz + 1);
     if (!data) { fclose(f); return -1; }
     size_t rd = fread(data, 1, (size_t)sz, f);

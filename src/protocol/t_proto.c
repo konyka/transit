@@ -84,14 +84,6 @@ int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
 
 int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (!msg || !buf) return -1;
-    /* Drop prior owned payload from a previous successful decode.
-     * Callers must zero-initialize msg (or set payload=NULL) before first use. */
-    if (msg->payload) {
-        free(msg->payload);
-        msg->payload = NULL;
-    }
-    memset(&msg->header, 0, sizeof(msg->header));
-    msg->payload_len = 0;
     if (buf_len < T_PROTO_HEADER_SIZE) return -1;
     t_proto_header hdr;
     if (t_proto_header_decode(&hdr, buf, buf_len) != 0) return -1;
@@ -103,7 +95,7 @@ int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (hdr.payload_len > T_PROTO_MAX_PAYLOAD) return -1;
     size_t total = T_PROTO_HEADER_SIZE + hdr.payload_len;
     if (buf_len < total) return -1;
-    // verify CRC over header(with CRC=0) + payload
+    /* verify CRC over header(with CRC=0) + payload */
     uint8_t *tmp = (uint8_t*)malloc(total);
     if (!tmp) return -1;
     memcpy(tmp, buf, total);
@@ -114,16 +106,16 @@ int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (crc_calc != hdr.crc32c) {
         return -1;
     }
+    /* Allocate replacement first so a failed decode keeps the prior payload. */
+    uint8_t *new_payload = NULL;
+    if (hdr.payload_len > 0) {
+        new_payload = (uint8_t*)malloc(hdr.payload_len);
+        if (!new_payload) return -1;
+        memcpy(new_payload, buf + T_PROTO_HEADER_SIZE, hdr.payload_len);
+    }
+    free(msg->payload);
+    msg->payload = new_payload;
     msg->header = hdr;
     msg->payload_len = hdr.payload_len;
-    if (hdr.payload_len > 0) {
-        msg->payload = (uint8_t*)malloc(hdr.payload_len);
-        if (!msg->payload) {
-            memset(&msg->header, 0, sizeof(msg->header));
-            msg->payload_len = 0;
-            return -1;
-        }
-        memcpy(msg->payload, buf + T_PROTO_HEADER_SIZE, hdr.payload_len);
-    }
     return 0;
 }

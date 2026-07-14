@@ -111,6 +111,25 @@ T_TEST(proto_encode_syncs_header_len) {
     free(out.payload);
 }
 
+T_TEST(proto_decode_preserves_payload_on_fail) {
+    uint8_t good[64], bad[64];
+    t_proto_msg src;
+    t_proto_header_init(&src.header, T_MSG_ACK, 4);
+    src.payload = (uint8_t *)"keep";
+    src.payload_len = 4;
+    int n = t_proto_encode_msg(&src, good, sizeof(good));
+    T_ASSERT(n > 0);
+    t_proto_msg out;
+    memset(&out, 0, sizeof(out));
+    T_ASSERT_EQ(t_proto_decode_msg(&out, good, (size_t)n), 0);
+    T_ASSERT(memcmp(out.payload, "keep", 4) == 0);
+    memset(bad, 0, sizeof(bad));
+    T_ASSERT(t_proto_decode_msg(&out, bad, sizeof(bad)) != 0);
+    T_ASSERT(out.payload != NULL);
+    T_ASSERT(memcmp(out.payload, "keep", 4) == 0);
+    free(out.payload);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

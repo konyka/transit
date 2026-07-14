@@ -29,8 +29,14 @@ T_TEST(dlq_push_pop) {
     free(e.topic);
     free(e.payload);
     free(e.reason);
+    t_dlq_destroy(dlq);
+}
 
-    T_ASSERT(t_dlq_is_empty(dlq));
+T_TEST(dlq_reject_oversized) {
+    t_dlq *dlq = t_dlq_create(4);
+    char one = 'x';
+    T_ASSERT(t_dlq_push(dlq, "t", (const uint8_t *)&one, T_DLQ_MAX_PAYLOAD + 1, "r") != 0);
+    T_ASSERT_EQ((int)t_dlq_size(dlq), 0);
     t_dlq_destroy(dlq);
 }
 

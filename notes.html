@@ -576,6 +576,8 @@
             <li>storage flush aborts above T_STORAGE_MAX_FILE (symmetric with load)</li>
             <li>remove_consumer_ud removes all matches; queue post caps at T_QUEUE_MAX_PAYLOAD</li>
             <li>ttl_add pushes heap before map insert (no silent drop of replaced entry)</li>
+            <li>proto decode keeps prior payload on failure; dlq/ttl reject oversized payloads</li>
+            <li>mmap open/create size bounds; config file reject oversized/ftell errors</li>
         </ul>
     </div>
 
