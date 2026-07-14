@@ -571,6 +571,8 @@
             <li>conn/tcp/admin close on T_EV_ERROR (EPOLLHUP/ERR); send destroy serializes on send_mu</li>
             <li>queue drain_backlog shared by subscribe+post; incomplete flush rolls back consumer</li>
             <li>router_route documents truncation when return == max_targets</li>
+            <li>conn send/recv buffer caps; storage put/load reject oversized values/files</li>
+            <li>document push consumer callback lifetime (no retain after return)</li>
         </ul>
     </div>
 

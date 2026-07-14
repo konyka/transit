@@ -9,6 +9,11 @@
 #include "t_storage.h"
 #include "t_map.h"
 
+/* Align with wire payload limit; reject oversized entries on put/load. */
+#define T_STORAGE_MAX_VALUE (16 * 1024 * 1024)
+/* Whole-file load is in-memory; refuse pathological dumps. */
+#define T_STORAGE_MAX_FILE  (256 * 1024 * 1024)
+
 /* Private storage implementation */
 /* We forward-declare the internal structure to be compatible with the
    header which defines 'typedef struct t_storage t_storage;'. */
@@ -42,6 +47,7 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
     if (fstat(fd, &stf) != 0) { close(fd); return -1; }
     size_t total = (size_t)stf.st_size;
     if (total == 0) { close(fd); return 0; }
+    if (total > T_STORAGE_MAX_FILE) { close(fd); return -1; }
     uint8_t *buf = (uint8_t*)malloc(total);
     if (!buf) { close(fd); return -1; }
     ssize_t r = read(fd, buf, total);
@@ -55,6 +61,7 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
         uint64_t len;
         memcpy(&len, buf + pos, 8); pos += 8;
         if (len > (uint64_t)(total - pos)) { free(buf); return -1; }
+        if (len > T_STORAGE_MAX_VALUE) { free(buf); return -1; }
         if (len > 0) {
             t_storage_entry *entry = (t_storage_entry*)malloc(sizeof(t_storage_entry));
             if (!entry) { free(buf); return -1; }
@@ -149,6 +156,7 @@ void t_storage_destroy(t_storage *storage) {
 
 int t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len) {
     if (!storage || (len > 0 && !data)) return -1;
+    if (len > T_STORAGE_MAX_VALUE) return -1;
     char keybuf[32]; key_to_str(key, keybuf, sizeof(keybuf));
     t_storage_entry *entry = (t_storage_entry*)malloc(sizeof(t_storage_entry));
     if (!entry) return -1;

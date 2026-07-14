@@ -29,6 +29,7 @@ typedef struct t_msg {
 
 typedef struct t_queue t_queue;
 
+/* Push callback: msg/data are valid only for the duration of the call; do not retain. */
 typedef void (*t_queue_msg_cb)(const t_msg *msg, void *ud);
 
 t_queue      *t_queue_create(const char *name, t_qtype type, int flags);

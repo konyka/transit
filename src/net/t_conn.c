@@ -48,8 +48,11 @@ static void t_conn_io_cb(t_evio *io, int events, void *user_data);
 static void t_conn_free(t_conn *conn);
 
 #define T_CONN_INIT_CAP 4096
+/* Cap outbound buffering so a slow peer cannot grow send_buf without bound. */
+#define T_CONN_MAX_SEND_BUF (64 * 1024 * 1024)
 
 static int t_conn_ensure_recv(t_conn *conn, size_t needed) {
+    if (needed > T_PROTO_HEADER_SIZE + (size_t)T_PROTO_MAX_PAYLOAD) return -1;
     if (conn->recv_cap >= needed) return 0;
     size_t new_cap = conn->recv_cap ? conn->recv_cap * 2 : T_CONN_INIT_CAP;
     while (new_cap < needed) {
@@ -169,6 +172,10 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
     }
 
     size_t needed = conn->send_len + frame_len;
+    if (needed > T_CONN_MAX_SEND_BUF) {
+        pthread_mutex_unlock(&conn->send_mu);
+        return -1;
+    }
     if (conn->send_cap < needed) {
         size_t new_cap = conn->send_cap ? conn->send_cap * 2 : T_CONN_INIT_CAP;
         while (new_cap < needed) {
@@ -178,6 +185,7 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
             }
             new_cap *= 2;
         }
+        if (new_cap > T_CONN_MAX_SEND_BUF) new_cap = T_CONN_MAX_SEND_BUF;
         uint8_t *new_buf = (uint8_t *)realloc(conn->send_buf, new_cap);
         if (!new_buf) {
             pthread_mutex_unlock(&conn->send_mu);

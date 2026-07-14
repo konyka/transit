@@ -68,6 +68,16 @@ T_TEST(storage_mem_empty_value) {
     t_storage_destroy(s);
 }
 
+T_TEST(storage_mem_reject_oversized) {
+    t_storage *s = t_storage_create(T_STORAGE_MEM, NULL);
+    /* 16MiB+1 must fail without attempting a huge successful put. */
+    size_t too_big = (16 * 1024 * 1024) + 1;
+    char one = 'x';
+    T_ASSERT(t_storage_put(s, 1, &one, too_big) != 0);
+    T_ASSERT_EQ((int)t_storage_count(s), 0);
+    t_storage_destroy(s);
+}
+
 /* Simple mmap lifecyle tests */
 T_TEST(mmap_create_close) {
     const char *path = "/tmp/test_transit_mmap.bin";
