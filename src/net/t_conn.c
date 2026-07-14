@@ -64,8 +64,13 @@ static int t_conn_ensure_recv(t_conn *conn, size_t needed) {
 }
 
 static void t_conn_close_now(t_conn *conn) {
-    if (conn->closed) return;
+    pthread_mutex_lock(&conn->send_mu);
+    if (conn->closed) {
+        pthread_mutex_unlock(&conn->send_mu);
+        return;
+    }
     conn->closed = 1;
+    pthread_mutex_unlock(&conn->send_mu);
     if (conn->loop) t_evloop_del(conn->loop, &conn->io);
     conn->io.user_data = NULL;
     if (conn->fd >= 0) {
@@ -77,8 +82,15 @@ static void t_conn_close_now(t_conn *conn) {
 
 static void t_conn_free(t_conn *conn) {
     if (!conn) return;
+    /* Serialize with t_conn_send / handle_write before destroying the mutex. */
+    pthread_mutex_lock(&conn->send_mu);
     free(conn->recv_buf);
     free(conn->send_buf);
+    conn->recv_buf = NULL;
+    conn->send_buf = NULL;
+    conn->recv_len = 0;
+    conn->send_len = 0;
+    pthread_mutex_unlock(&conn->send_mu);
     pthread_mutex_destroy(&conn->send_mu);
     if (conn->fd >= 0) close(conn->fd);
     free(conn);
@@ -407,6 +419,8 @@ static void t_conn_io_cb(t_evio *io, int events, void *user_data)
     t_conn *conn = (t_conn *)io->user_data;
     if (!conn) return;
     conn->in_io_cb = 1;
+    /* EPOLLHUP/ERR may arrive without EPOLLIN; close so send buffers do not stall. */
+    if ((events & T_EV_ERROR) && !conn->closed) t_conn_close_now(conn);
     if ((events & T_EV_READ) && !conn->closed) t_conn_handle_read(conn);
     if ((events & T_EV_WRITE) && !conn->closed) t_conn_handle_write(conn);
     conn->in_io_cb = 0;

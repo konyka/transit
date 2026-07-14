@@ -125,6 +125,32 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
     return 0;
 }
 
+/* Deliver any stranded backlog after a partial subscribe flush.
+ * Returns 0 if empty/drained, -1 if deliver failed (messages stay queued). */
+static int t_queue_drain_backlog(t_queue *q) {
+    if (!q || q->consumers.len == 0) return 0;
+    if (q->type == T_QUEUE_PRIORITY) {
+        t_pq_entry top;
+        while (t_pqueue_peek(&q->pri, &top) == 0) {
+            t_msg *m = (t_msg *)top.data;
+            if (t_queue_deliver_to_consumers(q, m) != 0) return -1;
+            if (t_pqueue_pop(&q->pri, &top) != 0) return -1;
+            t_msg_free(m);
+        }
+        return 0;
+    }
+    if (q->type == T_QUEUE_FIFO) {
+        while (q->pending.len > 0) {
+            t_msg *m = (t_msg *)t_vec_get(&q->pending, 0);
+            if (!m) break;
+            if (t_queue_deliver_to_consumers(q, m) != 0) return -1;
+            (void)t_vec_remove(&q->pending, 0);
+            t_msg_free(m);
+        }
+    }
+    return 0;
+}
+
 /* Create a new t_queue */
 t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     t_queue *q = (t_queue *)malloc(sizeof(t_queue));
@@ -243,6 +269,10 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     if (q->type == T_QUEUE_PRIORITY) {
         /* Push-style consumers: deliver immediately (same as FIFO). */
         if (q->consumers.len > 0) {
+            if (t_queue_drain_backlog(q) != 0) {
+                t_msg_free(m);
+                return -1;
+            }
             if (t_queue_deliver_to_consumers(q, m) != 0) {
                 t_msg_free(m);
                 return -1;
@@ -263,6 +293,10 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
      * enqueue to pending (that caused unbounded memory growth). Pull-style
      * (no consumers) stores in pending for t_queue_consume. */
     if (q->consumers.len > 0) {
+        if (t_queue_drain_backlog(q) != 0) {
+            t_msg_free(m);
+            return -1;
+        }
         if (t_queue_deliver_to_consumers(q, m) != 0) {
             t_msg_free(m);
             return -1;
@@ -338,23 +372,11 @@ uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
         return 0;
     }
     /* Pull→push: flush backlog so early posts are not stranded.
-     * Deliver before dequeue so OOM cannot strand messages. */
-    if (q->type == T_QUEUE_PRIORITY) {
-        t_pq_entry top;
-        while (t_pqueue_peek(&q->pri, &top) == 0) {
-            t_msg *m = (t_msg *)top.data;
-            if (t_queue_deliver_to_consumers(q, m) != 0) break;
-            if (t_pqueue_pop(&q->pri, &top) != 0) break;
-            t_msg_free(m);
-        }
-    } else if (q->type == T_QUEUE_FIFO) {
-        while (q->pending.len > 0) {
-            t_msg *m = (t_msg *)t_vec_get(&q->pending, 0);
-            if (!m) break;
-            if (t_queue_deliver_to_consumers(q, m) != 0) break;
-            (void)t_vec_remove(&q->pending, 0);
-            t_msg_free(m);
-        }
+     * Deliver before dequeue so OOM cannot strand messages.
+     * If flush cannot finish, roll back this consumer so post stays pull-mode. */
+    if (t_queue_drain_backlog(q) != 0) {
+        (void)t_queue_remove_consumer(q, wrapper->id);
+        return 0;
     }
     return wrapper->id;
 }

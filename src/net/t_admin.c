@@ -371,6 +371,10 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
     t_admin_client *c = (t_admin_client *)ud;
     t_admin *admin = c->admin;
     c->in_io_cb = 1;
+    if ((events & T_EV_ERROR) && !c->free_pending) {
+        admin_remove_client(admin, c);
+        goto out;
+    }
     if (events & T_EV_READ) {
         if (c->fd < 0 || c->free_pending) goto out;
         ssize_t r = read(c->fd, c->buf + c->len, T_ADMIN_BUF_SIZE - c->len - 1);

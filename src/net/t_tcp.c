@@ -163,11 +163,25 @@ void t_tcp_conn_destroy(t_tcp_conn *conn) {
 }
 
 static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
-    (void)flags;
     (void)ud;
     t_tcp_conn *conn = (t_tcp_conn *)io->user_data;
     if (!conn || conn->closed) return;
     conn->in_io_cb = 1;
+    if (flags & T_EV_ERROR) {
+        /* Hangup/error without readable data: close instead of stalling. */
+        if (!conn->closed) {
+            conn->closed = 1;
+            if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+            if (conn->fd >= 0) {
+                t_socket_close(conn->fd);
+                conn->fd = -1;
+            }
+            if (conn->on_close) conn->on_close(conn, conn->user_data);
+        }
+        conn->in_io_cb = 0;
+        if (conn->free_pending) t_tcp_conn_destroy(conn);
+        return;
+    }
     unsigned char stack_buf[4096];
     ssize_t r = t_socket_read(conn->fd, stack_buf, sizeof(stack_buf));
     if (r > 0) {

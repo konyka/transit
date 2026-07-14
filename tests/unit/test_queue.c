@@ -82,6 +82,20 @@ T_TEST(queue_fifo_subscribe_no_pending_growth) {
     t_queue_destroy(q);
 }
 
+T_TEST(queue_fifo_subscribe_drains_backlog) {
+    t_queue *q = t_queue_create("test.fifo.drain", T_QUEUE_FIFO, 0);
+    g_fifo_cb_count = 0;
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"a", 1, 0), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"b", 1, 0), 0);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 2);
+    T_ASSERT(t_queue_add_consumer(q, fifo_cb, &g_fifo_cb_count) != 0);
+    T_ASSERT_EQ(g_fifo_cb_count, 2);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"c", 1, 0), 0);
+    T_ASSERT_EQ(g_fifo_cb_count, 3);
+    t_queue_destroy(q);
+}
+
 T_TEST(queue_priority_pending_count) {
     t_queue *q = t_queue_create("test.pri.count", T_QUEUE_PRIORITY, 0);
     t_queue_post(q, (const uint8_t *)"a", 1, 5);

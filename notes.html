@@ -568,13 +568,16 @@
             <li>tcp on_read heap-copies buffer; flowcontrol credits under mutex</li>
             <li>tcp read OOM closes conn; write loops/returns partial; conn send_mu</li>
             <li>t_timer_process returns -2 when callback destroyed the timer</li>
+            <li>conn/tcp/admin close on T_EV_ERROR (EPOLLHUP/ERR); send destroy serializes on send_mu</li>
+            <li>queue drain_backlog shared by subscribe+post; incomplete flush rolls back consumer</li>
+            <li>router_route documents truncation when return == max_targets</li>
         </ul>
     </div>
 
     <hr>
     <p style="text-align:center; color:#999; margin-top:40px;">
         Transit MQ - Pure C High-Performance Message Queue<br>
-        Last updated: 2026-07-11
+        Last updated: 2026-07-14
     </p>
 </body>
 </html>
