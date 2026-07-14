@@ -268,6 +268,10 @@ int t_storage_flush(t_storage *storage) {
         if (!e) continue;
         uint64_t key = str_to_key(k);
         uint64_t len64 = (uint64_t)e->data_len;
+        if ((uint64_t)wrote > T_STORAGE_MAX_FILE ||
+            (uint64_t)(16 + e->data_len) > T_STORAGE_MAX_FILE - (uint64_t)wrote) {
+            close(fd); unlink(tmp); free(tmp); return -1;
+        }
         uint8_t header[16];
         memcpy(header, &key, 8);
         memcpy(header + 8, &len64, 8);
@@ -284,7 +288,6 @@ int t_storage_flush(t_storage *storage) {
     if (rename(tmp, storage->path) != 0) { unlink(tmp); free(tmp); return -1; }
     free(tmp);
     storage->dirty = 0;
-    (void)wrote;
     return 0;
 }
 

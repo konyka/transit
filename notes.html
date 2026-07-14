@@ -573,6 +573,9 @@
             <li>router_route documents truncation when return == max_targets</li>
             <li>conn send/recv buffer caps; storage put/load reject oversized values/files</li>
             <li>document push consumer callback lifetime (no retain after return)</li>
+            <li>storage flush aborts above T_STORAGE_MAX_FILE (symmetric with load)</li>
+            <li>remove_consumer_ud removes all matches; queue post caps at T_QUEUE_MAX_PAYLOAD</li>
+            <li>ttl_add pushes heap before map insert (no silent drop of replaced entry)</li>
         </ul>
     </div>
 

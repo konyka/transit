@@ -148,6 +148,25 @@ T_TEST(queue_remove_consumer_by_id) {
     t_queue_destroy(q);
 }
 
+T_TEST(queue_remove_consumer_ud_all) {
+    t_queue *q = t_queue_create("test.cons.ud", T_QUEUE_FIFO, 0);
+    int ud = 0;
+    T_ASSERT(t_queue_add_consumer(q, queue_noop_cb, &ud) != 0);
+    T_ASSERT(t_queue_add_consumer(q, queue_noop_cb, &ud) != 0);
+    T_ASSERT_EQ((int)t_queue_consumer_count(q), 2);
+    T_ASSERT_EQ(t_queue_remove_consumer_ud(q, &ud), 0);
+    T_ASSERT_EQ((int)t_queue_consumer_count(q), 0);
+    t_queue_destroy(q);
+}
+
+T_TEST(queue_post_reject_oversized) {
+    t_queue *q = t_queue_create("test.big", T_QUEUE_FIFO, 0);
+    char one = 'x';
+    T_ASSERT(t_queue_post(q, (const uint8_t *)&one, T_QUEUE_MAX_PAYLOAD + 1, 0) != 0);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 0);
+    t_queue_destroy(q);
+}
+
 T_TEST(router_create_destroy) {
     t_router *r = t_router_create();
     T_ASSERT_NOT_NULL(r);

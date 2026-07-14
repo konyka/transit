@@ -18,6 +18,9 @@ typedef enum t_queue_flags {
     T_QUEUE_FLAG_AUTODELETE = 1 << 2
 } t_queue_flags;
 
+/* Align with T_PROTO_MAX_PAYLOAD / storage value cap. */
+#define T_QUEUE_MAX_PAYLOAD (16 * 1024 * 1024)
+
 typedef struct t_msg {
     uint64_t        msg_id;
     const char     *queue_name;

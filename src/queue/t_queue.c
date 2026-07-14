@@ -232,6 +232,7 @@ t_qtype t_queue_get_type(const t_queue *q) {
 int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     if (!q || q->closed) return -1;
     if (len > 0 && !data) return -1;
+    if (len > T_QUEUE_MAX_PAYLOAD) return -1;
     if (q->next_msg_id == UINT64_MAX) return -1;
 
     t_msg *m = (t_msg *)malloc(sizeof(t_msg));
@@ -398,7 +399,8 @@ int t_queue_remove_consumer(t_queue *q, uint64_t consumer_id) {
 
 int t_queue_remove_consumer_ud(t_queue *q, void *ud) {
     if (!q) return -1;
-    for (size_t i = 0; i < q->consumers.len; ++i) {
+    int removed = 0;
+    for (size_t i = 0; i < q->consumers.len; ) {
         t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
         if (cb && cb->cb_ud == ud) {
             free(cb);
@@ -406,10 +408,12 @@ int t_queue_remove_consumer_ud(t_queue *q, void *ud) {
                 q->consumers.items[j] = q->consumers.items[j + 1];
             }
             q->consumers.len--;
-            return 0;
+            removed++;
+            continue;
         }
+        i++;
     }
-    return -1;
+    return removed ? 0 : -1;
 }
 
 int t_queue_has_consumer_ud(const t_queue *q, void *ud) {

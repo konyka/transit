@@ -88,17 +88,14 @@ int t_ttl_add(t_ttl *ttl, uint64_t msg_id, const char *topic,
         e->payload_len = len;
     }
 
-    if (t_map_insert(&ttl->entries, key, e) != 0) {
+    if (t_pqueue_push(&ttl->heap, (int64_t)expire_at, (void *)(uintptr_t)msg_id) != 0) {
         ttl_entry_free(e);
         return -1;
     }
-    /* Heap stores msg_id; stale nodes detected via expire_at mismatch. */
-    if (t_pqueue_push(&ttl->heap, (int64_t)expire_at, (void *)(uintptr_t)msg_id) != 0) {
-        t_map_remove(&ttl->entries, key);
+    /* Insert after heap push so OOM cannot drop `old` while map is empty. */
+    if (t_map_insert(&ttl->entries, key, e) != 0) {
         ttl_entry_free(e);
-        if (old && t_map_insert(&ttl->entries, key, old) != 0) {
-            ttl_entry_free(old);
-        }
+        /* Stale heap node is skipped by expire() on map miss / expire mismatch. */
         return -1;
     }
     if (old) ttl_entry_free(old);
