@@ -167,6 +167,21 @@ T_TEST(queue_post_reject_oversized) {
     t_queue_destroy(q);
 }
 
+T_TEST(queue_close_allows_drain) {
+    t_queue *q = t_queue_create("test.close.drain", T_QUEUE_FIFO, 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"a", 1, 0), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"b", 1, 0), 0);
+    t_queue_close(q);
+    T_ASSERT(t_queue_post(q, (const uint8_t *)"c", 1, 0) != 0);
+    t_msg msg;
+    T_ASSERT_EQ(t_queue_consume(q, &msg), 0);
+    T_ASSERT(memcmp(msg.data, "a", 1) == 0);
+    T_ASSERT_EQ(t_queue_consume(q, &msg), 0);
+    T_ASSERT(memcmp(msg.data, "b", 1) == 0);
+    T_ASSERT(t_queue_consume(q, &msg) != 0);
+    t_queue_destroy(q);
+}
+
 T_TEST(router_create_destroy) {
     t_router *r = t_router_create();
     T_ASSERT_NOT_NULL(r);

@@ -316,7 +316,9 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
 }
 
 int t_queue_consume(t_queue *q, t_msg *out_msg) {
-    if (!q || !out_msg || q->closed) return -1;
+    if (!q || !out_msg) return -1;
+    /* Closed queues still allow draining pending/priority backlog. */
+    if (q->closed && t_queue_pending_count(q) == 0) return -1;
     if (q->type == T_QUEUE_BROADCAST) return -1;
     /* Priority-based path */
     if (q->type == T_QUEUE_PRIORITY) {

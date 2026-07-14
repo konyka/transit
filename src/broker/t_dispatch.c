@@ -148,6 +148,34 @@ int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     void *sess = t_map_get(&disp->sessions, key);
     if (!sess || !t_session_is_active((t_session *)sess)) return -1;
+
+    /* After delete/recreate, local bookkeeping can outlive broker consumers.
+     * Heal before publish so FIFO messages are not stranded in pending. */
+    for (size_t i = 0; i < disp->subscriptions.len; ) {
+        t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
+        if (!sub || !sub->queue_name || strcmp(sub->queue_name, queue_name) != 0) {
+            i++;
+            continue;
+        }
+        if (t_broker_has_subscription(disp->broker, queue_name,
+                                      dispatch_deliver_cb, sub->cbud)) {
+            i++;
+            continue;
+        }
+        if (t_broker_subscribe(disp->broker, queue_name,
+                               dispatch_deliver_cb, sub->cbud) == 0) {
+            i++;
+            continue;
+        }
+        free(sub->queue_name);
+        free(sub->cbud);
+        free(sub);
+        for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
+            disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
+        }
+        disp->subscriptions.len--;
+    }
+
     int r = t_broker_publish(disp->broker, queue_name, data, len, priority);
     if (r == 0) disp->total_published++;
     return r;

@@ -176,6 +176,14 @@ int t_broker_unsubscribe(t_broker *broker, const char *queue_name,
     return t_domain_unsubscribe(d, queue_name, cb, ud);
 }
 
+int t_broker_has_subscription(t_broker *broker, const char *queue_name,
+                              t_broker_msg_cb cb, void *ud) {
+    if (!broker || !queue_name || !cb) return 0;
+    t_domain *d = broker_find_queue_domain(broker, queue_name);
+    if (!d) return 0;
+    return t_domain_has_subscription(d, queue_name, cb, ud);
+}
+
 size_t t_broker_total_queues(const t_broker *broker) {
     if (!broker) return 0;
     size_t sum = 0;

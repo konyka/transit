@@ -578,6 +578,8 @@
             <li>ttl_add pushes heap before map insert (no silent drop of replaced entry)</li>
             <li>proto decode keeps prior payload on failure; dlq/ttl reject oversized payloads</li>
             <li>mmap open/create size bounds; config file reject oversized/ftell errors</li>
+            <li>domain delete clears wrappers by queue_name; dispatch heals stale subs on publish</li>
+            <li>client_post payload cap; closed queues still allow consume drain</li>
         </ul>
     </div>
 

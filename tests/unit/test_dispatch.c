@@ -107,6 +107,25 @@ T_TEST(dispatch_destroy_blocks_session_free_until_released) {
     t_broker_destroy(b);
 }
 
+T_TEST(dispatch_heals_after_queue_recreate) {
+    t_broker *b = t_broker_create("test-dispatch-heal");
+    t_broker_start(b);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "heal.q", T_QUEUE_FIFO, 0), 0);
+    t_dispatch *d = t_dispatch_create(b);
+    t_session *s = t_session_create(3);
+    T_ASSERT_EQ(t_dispatch_register(d, 3, s), 0);
+    T_ASSERT_EQ(t_dispatch_subscribe(d, 3, "heal.q"), 0);
+    T_ASSERT_EQ(t_broker_delete_queue(b, "default", "heal.q"), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "heal.q", T_QUEUE_FIFO, 0), 0);
+    uint8_t msg[] = "z";
+    T_ASSERT_EQ(t_dispatch_publish(d, 3, "heal.q", msg, 1, 0), 0);
+    T_ASSERT_EQ((int)t_dispatch_total_delivered(d), 1);
+    t_dispatch_destroy(d);
+    t_broker_stop(b);
+    t_broker_destroy(b);
+    t_session_destroy(s);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

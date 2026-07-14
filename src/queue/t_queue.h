@@ -56,6 +56,7 @@ int           t_queue_nack(t_queue *q, uint64_t msg_id);
 int           t_queue_requeue(t_queue *q, uint64_t msg_id);
 
 void          t_queue_close(t_queue *q);
+/* After close, post/subscribe are rejected; consume may still drain pending. */
 int           t_queue_is_closed(const t_queue *q);
 
 size_t        t_queue_total_published(const t_queue *q);

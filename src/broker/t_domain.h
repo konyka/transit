@@ -29,6 +29,9 @@ int      t_domain_subscribe(t_domain *domain, const char *queue_name,
                             void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud);
 int      t_domain_unsubscribe(t_domain *domain, const char *queue_name,
                               void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud);
+/* 1 if (cb,ud) is live on queue_name. */
+int      t_domain_has_subscription(t_domain *domain, const char *queue_name,
+                                   void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud);
 
 /* Stats */
 size_t   t_domain_total_messages(const t_domain *domain);

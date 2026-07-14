@@ -23,6 +23,7 @@ typedef struct t_domain_sub_cb {
 typedef struct t_domain_sub_ctx {
     t_domain_sub_cb cb;
     t_domain       *domain;
+    char           *queue_name;
 } t_domain_sub_ctx;
 
 static void domain_consume_adapter(const t_msg *msg, void *ud) {
@@ -60,7 +61,11 @@ void t_domain_destroy(t_domain *domain) {
     }
     t_map_destroy(&domain->queues);
     for (size_t i = 0; i < t_vec_len(&domain->sub_wrappers); i++) {
-        free(t_vec_get(&domain->sub_wrappers, i));
+        t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)t_vec_get(&domain->sub_wrappers, i);
+        if (ctx) {
+            free(ctx->queue_name);
+            free(ctx);
+        }
     }
     t_vec_destroy(&domain->sub_wrappers);
     free(domain->name);
@@ -97,10 +102,12 @@ int t_domain_delete_queue(t_domain *domain, const char *queue_name) {
     void *ptr = t_map_get(&domain->queues, queue_name);
     if (!ptr) return -1;
     t_queue *q = (t_queue *)ptr;
-    /* Drop domain subscription wrappers bound to this queue before destroy. */
+    /* Always drop wrappers bound to this queue (even if consumer already gone). */
     for (size_t i = 0; i < domain->sub_wrappers.len; ) {
         t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
-        if (ctx && t_queue_remove_consumer_ud(q, ctx) == 0) {
+        if (ctx && ctx->queue_name && strcmp(ctx->queue_name, queue_name) == 0) {
+            (void)t_queue_remove_consumer_ud(q, ctx);
+            free(ctx->queue_name);
             free(ctx);
             for (size_t j = i; j + 1 < domain->sub_wrappers.len; ++j) {
                 domain->sub_wrappers.items[j] = domain->sub_wrappers.items[j + 1];
@@ -145,6 +152,7 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
     for (size_t i = 0; i < domain->sub_wrappers.len; ++i) {
         t_domain_sub_ctx *existing = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
         if (existing && existing->cb.cb == cb && existing->cb.ud == ud &&
+            existing->queue_name && strcmp(existing->queue_name, queue_name) == 0 &&
             t_queue_has_consumer_ud(q, existing)) {
             return -1;
         }
@@ -154,14 +162,21 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
     ctx->cb.cb = cb;
     ctx->cb.ud = ud;
     ctx->domain = domain;
+    ctx->queue_name = strdup(queue_name);
+    if (!ctx->queue_name) {
+        free(ctx);
+        return -1;
+    }
 
     uint64_t cid = t_queue_add_consumer(q, domain_consume_adapter, ctx);
     if (cid == 0) {
+        free(ctx->queue_name);
         free(ctx);
         return -1;
     }
     if (t_vec_push(&domain->sub_wrappers, ctx) != 0) {
         t_queue_remove_consumer_ud(q, ctx);
+        free(ctx->queue_name);
         free(ctx);
         return -1;
     }
@@ -176,7 +191,9 @@ int t_domain_unsubscribe(t_domain *domain, const char *queue_name,
     for (size_t i = 0; i < domain->sub_wrappers.len; ++i) {
         t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
         if (!ctx || ctx->cb.cb != cb || ctx->cb.ud != ud) continue;
+        if (!ctx->queue_name || strcmp(ctx->queue_name, queue_name) != 0) continue;
         if (t_queue_remove_consumer_ud(q, ctx) != 0) continue;
+        free(ctx->queue_name);
         free(ctx);
         for (size_t j = i; j + 1 < domain->sub_wrappers.len; ++j) {
             domain->sub_wrappers.items[j] = domain->sub_wrappers.items[j + 1];
@@ -185,6 +202,22 @@ int t_domain_unsubscribe(t_domain *domain, const char *queue_name,
         return 0;
     }
     return -1;
+}
+
+int t_domain_has_subscription(t_domain *domain, const char *queue_name,
+                              void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud) {
+    if (!domain || !queue_name || !cb) return 0;
+    t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
+    if (!q) return 0;
+    for (size_t i = 0; i < domain->sub_wrappers.len; ++i) {
+        t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
+        if (ctx && ctx->cb.cb == cb && ctx->cb.ud == ud &&
+            ctx->queue_name && strcmp(ctx->queue_name, queue_name) == 0 &&
+            t_queue_has_consumer_ud(q, ctx)) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 size_t t_domain_total_messages(const t_domain *domain) {

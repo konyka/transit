@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "t_client.h"
+#include "t_queue.h"
 
 /* Minimal in-process client implementation with queue registry and subscriptions. */
 typedef struct t_client_queue_entry {
@@ -159,6 +160,7 @@ int t_client_post(t_client *client, const char *queue_name,
     (void)priority; /* priority currently unused in this stub */
     if (!client || !queue_name || !client->connected) return -1;
     if (len > 0 && !data) return -1;
+    if (len > T_QUEUE_MAX_PAYLOAD) return -1;
     int open = 0;
     for (size_t i = 0; i < client->queues_size; ++i) {
         if (strcmp(client->queues[i].name, queue_name) == 0) {
