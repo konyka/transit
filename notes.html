@@ -583,13 +583,15 @@
             <li>drain_backlog dequeues before deliver (no reentrant consume UAF)</li>
             <li>priority posts always heap then drain; dispatch heal failure aborts publish</li>
             <li>pool_free resolves size class from pointer ownership</li>
+            <li>priority post accepts on heap push (drain best-effort; no false -1 retry dup)</li>
+            <li>fc_acquire rejects count&gt;max without latching blocked; ringbuf rejects oversized cap</li>
         </ul>
     </div>
 
     <hr>
     <p style="text-align:center; color:#999; margin-top:40px;">
         Transit MQ - Pure C High-Performance Message Queue<br>
-        Last updated: 2026-07-14
+        Last updated: 2026-07-15
     </p>
 </body>
 </html>

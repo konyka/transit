@@ -54,6 +54,15 @@ T_TEST(fc_stats) {
     t_fc_destroy(fc);
 }
 
+T_TEST(fc_oversized_acquire_does_not_block) {
+    t_flowcontrol *fc = t_fc_create(10, 0);
+    T_ASSERT(t_fc_acquire(fc, 100) != 0);
+    T_ASSERT(!t_fc_is_blocked(fc));
+    T_ASSERT_EQ((int)t_fc_available(fc), 10);
+    T_ASSERT_EQ(t_fc_acquire(fc, 3), 0);
+    t_fc_destroy(fc);
+}
+
 T_TEST(fc_release_caps_at_max) {
     t_flowcontrol *fc = t_fc_create(10, 0);
     t_fc_acquire(fc, 5);

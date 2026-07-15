@@ -63,6 +63,12 @@ int t_fc_acquire(t_flowcontrol *fc, size_t count) {
         pthread_mutex_unlock(&fc->mu);
         return 0; /* no-op: do not clear blocked */
     }
+    /* Impossible request: reject without latching blocked forever. */
+    if (count > fc->max_credits) {
+        pthread_mutex_unlock(&fc->mu);
+        t_atomic_fetch_add_int(&fc->total_rejected, (int)count);
+        return -1;
+    }
     if (fc->credits >= count) {
         fc->credits -= count;
         fc->blocked = 0;

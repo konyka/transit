@@ -285,9 +285,10 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
             return -1;
         }
         q->total_published++;
-        if (q->consumers.len > 0 && t_queue_drain_backlog(q) != 0) {
-            return -1;
-        }
+        /* Drain is best-effort: message is already accepted. Returning -1
+         * here would make callers retry and risk duplicate delivery. */
+        if (q->consumers.len > 0)
+            (void)t_queue_drain_backlog(q);
         return 0;
     }
 
