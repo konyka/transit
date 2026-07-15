@@ -138,6 +138,8 @@ int t_domain_delete_queue(t_domain *domain, const char *queue_name) {
     void *ptr = t_map_get(&domain->queues, queue_name);
     if (!ptr) return -1;
     t_queue *q = (t_queue *)ptr;
+    /* Fanout still holds q and snap ud — refuse rather than destroy under deliver. */
+    if (t_queue_is_delivering(q)) return -1;
     /* Always drop wrappers bound to this queue (even if consumer already gone). */
     for (size_t i = 0; i < domain->sub_wrappers.len; ) {
         t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];

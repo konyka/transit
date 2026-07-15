@@ -589,6 +589,8 @@
             <li>no-loop conn send closes on partial flush (no half-frame truncate); write retries EINTR</li>
             <li>file storage destroy flushes dirty map before free; create treats ENOENT as empty</li>
             <li>file storage create treats missing path as empty (ENOENT)</li>
+            <li>no-loop conn send defers destroy under sync flush; drain mod failure closes</li>
+            <li>domain delete_queue refuses while queue delivering; client_post defers destroy</li>
         </ul>
     </div>
 

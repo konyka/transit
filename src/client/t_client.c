@@ -30,6 +30,8 @@ struct t_client {
 
     size_t published;
     size_t consumed;
+    int posting;      /* set while fanout callbacks run */
+    int free_pending; /* destroy deferred until post returns */
 };
 
 /* Helpers */
@@ -81,6 +83,10 @@ t_client *t_client_create(const char *client_id) {
 
 void t_client_destroy(t_client *client) {
     if (!client) return;
+    if (client->posting) {
+        client->free_pending = 1;
+        return;
+    }
     if (client->id) free(client->id);
     for (size_t i = 0; i < client->queues_size; ++i) {
         free(client->queues[i].name);
@@ -186,12 +192,20 @@ int t_client_post(t_client *client, const char *queue_name,
             }
         }
     }
+    client->posting = 1;
     client->published++;
+    size_t delivered = 0;
     for (size_t i = 0; i < snap_n; ++i) {
         snaps[i].cb(queue_name, data, len, snaps[i].ud);
-        client->consumed++;
+        delivered++;
     }
+    client->consumed += delivered;
+    client->posting = 0;
     free(snaps);
+    if (client->free_pending) {
+        t_client_destroy(client);
+        return 0;
+    }
     return 0;
 }
 

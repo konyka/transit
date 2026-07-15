@@ -39,6 +39,7 @@ struct t_conn {
 
     int closed;
     int in_io_cb;
+    int in_sync_send; /* set while no-loop flush runs (on_close may destroy) */
     int free_pending;
 };
 
@@ -147,7 +148,7 @@ void t_conn_destroy(t_conn *conn)
 {
     if (!conn) return;
     if (!conn->closed) t_conn_close_now(conn);
-    if (conn->in_io_cb) {
+    if (conn->in_io_cb || conn->in_sync_send) {
         conn->free_pending = 1;
         return;
     }
@@ -221,23 +222,32 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
         }
         pthread_mutex_unlock(&conn->send_mu);
     } else {
-        /* No event loop: briefly block so the frame is fully flushed. */
+        /* No event loop: briefly block so the frame is fully flushed.
+         * Hold in_sync_send so on_close→destroy cannot free under us. */
+        conn->in_sync_send = 1;
         int flags = fcntl(conn->fd, F_GETFL, 0);
         if (flags >= 0) (void)fcntl(conn->fd, F_SETFL, flags & ~O_NONBLOCK);
         /* handle_write takes send_mu; unlock first to avoid deadlock. */
         pthread_mutex_unlock(&conn->send_mu);
         t_conn_handle_write(conn);
-        if (flags >= 0) (void)fcntl(conn->fd, F_SETFL, flags);
+        if (flags >= 0 && conn->fd >= 0) (void)fcntl(conn->fd, F_SETFL, flags);
         pthread_mutex_lock(&conn->send_mu);
-        if (conn->closed || conn->send_len > 0) {
-            /* Incomplete flush: close instead of truncating a half-frame
-             * (truncation desyncs the peer on the next successful send). */
+        int fail = (conn->closed || conn->send_len > 0);
+        if (fail && !conn->closed) {
+            /* Incomplete flush: close instead of truncating a half-frame. */
             conn->msgs_sent -= 1;
             pthread_mutex_unlock(&conn->send_mu);
-            if (!conn->closed) t_conn_close_now(conn);
+            t_conn_close_now(conn);
+        } else {
+            if (fail) conn->msgs_sent -= 1;
+            pthread_mutex_unlock(&conn->send_mu);
+        }
+        conn->in_sync_send = 0;
+        if (conn->free_pending) {
+            t_conn_free(conn);
             return -1;
         }
-        pthread_mutex_unlock(&conn->send_mu);
+        if (fail) return -1;
     }
     return 0;
 }
@@ -415,7 +425,10 @@ static void t_conn_handle_write(t_conn *conn)
         return;
     }
     if (drained && conn->loop) {
-        t_evloop_mod(conn->loop, &conn->io, T_EV_READ);
+        if (t_evloop_mod(conn->loop, &conn->io, T_EV_READ) != 0) {
+            /* Leaving EPOLLOUT armed causes a writable busy-loop. */
+            t_conn_close_now(conn);
+        }
     }
 }
 

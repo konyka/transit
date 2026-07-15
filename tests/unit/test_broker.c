@@ -130,6 +130,28 @@ T_TEST(broker_fanout_unsub_sibling) {
     t_broker_destroy(b);
 }
 
+static void on_fanout_delete(const char *q, const uint8_t *d, size_t n, void *ud) {
+    (void)d; (void)n;
+    fanout_ctx *f = (fanout_ctx *)ud;
+    f->killer++;
+    /* Must not destroy the queue under active fanout. */
+    T_ASSERT_EQ(t_broker_delete_queue(f->b, "default", q), -1);
+}
+
+T_TEST(broker_fanout_delete_refused) {
+    fanout_ctx ctx = {0};
+    t_broker *b = t_broker_create("broker-fanout-del");
+    ctx.b = b;
+    t_broker_start(b);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "del.q", 2, 0), 0);
+    T_ASSERT_EQ(t_broker_subscribe(b, "del.q", on_fanout_delete, &ctx), 0);
+    T_ASSERT_EQ(t_broker_publish(b, "del.q", (const uint8_t *)"x", 1, 0), 0);
+    T_ASSERT_EQ(ctx.killer, 1);
+    T_ASSERT_EQ(t_broker_delete_queue(b, "default", "del.q"), 0);
+    t_broker_stop(b);
+    t_broker_destroy(b);
+}
+
 T_TEST(broker_stats) {
     t_broker *b = t_broker_create("broker-6");
     t_broker_start(b);
