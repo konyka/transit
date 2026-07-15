@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/stat.h>
 
 #include "t_storage.h"
@@ -42,7 +43,10 @@ static uint64_t str_to_key(const char *s) {
 static int t_storage_fs_load(t_storage *st, const char *path) {
     if (!st || !path) return -1;
     int fd = open(path, O_RDONLY);
-    if (fd < 0) return -1;
+    if (fd < 0) {
+        /* Missing file = empty store (created on first flush/destroy). */
+        return (errno == ENOENT) ? 0 : -1;
+    }
     struct stat stf;
     if (fstat(fd, &stf) != 0) { close(fd); return -1; }
     size_t total = (size_t)stf.st_size;
@@ -138,6 +142,10 @@ t_storage *t_storage_create(t_storage_type type, const char *path) {
 
 void t_storage_destroy(t_storage *storage) {
     if (!storage) return;
+    /* Persist dirty file-backed state before tearing down the map. */
+    if (storage->type == T_STORAGE_FILE && storage->dirty) {
+        (void)t_storage_flush(storage);
+    }
     /* Free stored entries */
     t_map_iter it = t_map_iter_begin(&storage->map);
     const char *k;

@@ -78,6 +78,23 @@ T_TEST(storage_mem_reject_oversized) {
     t_storage_destroy(s);
 }
 
+T_TEST(storage_file_destroy_flushes) {
+    const char *path = "test_transit_storage_destroy.bin";
+    unlink(path);
+    t_storage *s = t_storage_create(T_STORAGE_FILE, path);
+    T_ASSERT_NOT_NULL(s);
+    T_ASSERT_EQ(t_storage_put(s, 7, "persist", 7), 0);
+    t_storage_destroy(s); /* must flush dirty without explicit flush */
+    t_storage *s2 = t_storage_create(T_STORAGE_FILE, path);
+    T_ASSERT_NOT_NULL(s2);
+    const void *data = NULL; size_t len = 0;
+    T_ASSERT_EQ(t_storage_get(s2, 7, &data, &len), 0);
+    T_ASSERT_EQ((int)len, 7);
+    T_ASSERT(memcmp(data, "persist", 7) == 0);
+    t_storage_destroy(s2);
+    unlink(path);
+}
+
 /* Simple mmap lifecyle tests */
 T_TEST(mmap_create_close) {
     const char *path = "/tmp/test_transit_mmap.bin";

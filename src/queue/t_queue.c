@@ -47,6 +47,7 @@ struct t_queue {
     t_list inflight;        /* t_inflight entries */
     t_pqueue pri;          /* used when type == T_QUEUE_PRIORITY */
     int has_prio;
+    int delivering;        /* nest count while fanout callbacks run */
 
     size_t total_published;
     size_t total_consumed;
@@ -116,10 +117,12 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
             return -1;
         }
     }
+    q->delivering++;
     for (size_t i = 0; i < cons; ++i) {
         if (snaps[i].fn) snaps[i].fn(copies[i], snaps[i].ud);
         t_msg_free(copies[i]);
     }
+    q->delivering--;
     free(copies);
     free(snaps);
     return 0;
@@ -182,6 +185,7 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     t_vec_init(&q->consumers);
     t_list_init(&q->inflight);
     q->has_prio = (type == T_QUEUE_PRIORITY) ? 1 : 0;
+    q->delivering = 0;
     if (q->has_prio) {
         if (t_pqueue_init(&q->pri, 16) != 0) {
             free(q->name);
@@ -495,6 +499,10 @@ void t_queue_close(t_queue *q) {
 
 int t_queue_is_closed(const t_queue *q) {
     return q ? q->closed : 1;
+}
+
+int t_queue_is_delivering(const t_queue *q) {
+    return q ? q->delivering > 0 : 0;
 }
 
 size_t t_queue_total_published(const t_queue *q) {

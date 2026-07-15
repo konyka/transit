@@ -230,13 +230,11 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
         if (flags >= 0) (void)fcntl(conn->fd, F_SETFL, flags);
         pthread_mutex_lock(&conn->send_mu);
         if (conn->closed || conn->send_len > 0) {
-            if (!conn->closed) {
-                /* Drop any unsent remnant of this frame to avoid splicing. */
-                if (conn->send_len >= (size_t)n) conn->send_len -= (size_t)n;
-                else conn->send_len = 0;
-            }
+            /* Incomplete flush: close instead of truncating a half-frame
+             * (truncation desyncs the peer on the next successful send). */
             conn->msgs_sent -= 1;
             pthread_mutex_unlock(&conn->send_mu);
+            if (!conn->closed) t_conn_close_now(conn);
             return -1;
         }
         pthread_mutex_unlock(&conn->send_mu);
@@ -398,7 +396,8 @@ static void t_conn_handle_write(t_conn *conn)
                 memmove(conn->send_buf, conn->send_buf + n, conn->send_len);
             }
         } else if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 pthread_mutex_unlock(&conn->send_mu);
                 return;
             }

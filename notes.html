@@ -585,6 +585,10 @@
             <li>pool_free resolves size class from pointer ownership</li>
             <li>priority post accepts on heap push (drain best-effort; no false -1 retry dup)</li>
             <li>fc_acquire rejects count&gt;max without latching blocked; ringbuf rejects oversized cap</li>
+            <li>domain fanout defers ctx free while queue delivering (sibling unsub UAF)</li>
+            <li>no-loop conn send closes on partial flush (no half-frame truncate); write retries EINTR</li>
+            <li>file storage destroy flushes dirty map before free; create treats ENOENT as empty</li>
+            <li>file storage create treats missing path as empty (ENOENT)</li>
         </ul>
     </div>
 

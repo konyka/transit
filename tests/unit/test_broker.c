@@ -94,6 +94,42 @@ T_TEST(broker_fifo_subscribe_delivered) {
     t_broker_destroy(b);
 }
 
+typedef struct {
+    t_broker *b;
+    int killer;
+    int victim;
+} fanout_ctx;
+
+static void on_fanout_victim(const char *q, const uint8_t *d, size_t n, void *ud) {
+    (void)q; (void)d; (void)n;
+    ((fanout_ctx *)ud)->victim++;
+}
+
+static void on_fanout_killer(const char *q, const uint8_t *d, size_t n, void *ud) {
+    (void)d; (void)n;
+    fanout_ctx *f = (fanout_ctx *)ud;
+    f->killer++;
+    (void)t_broker_unsubscribe(f->b, q, on_fanout_victim, f);
+}
+
+T_TEST(broker_fanout_unsub_sibling) {
+    /* First consumer unsubscribes the second during delivery; must not UAF. */
+    fanout_ctx ctx = {0};
+    t_broker *b = t_broker_create("broker-fanout-uaf");
+    ctx.b = b;
+    t_broker_start(b);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "fan.q", 2, 0), 0);
+    T_ASSERT_EQ(t_broker_subscribe(b, "fan.q", on_fanout_killer, &ctx), 0);
+    T_ASSERT_EQ(t_broker_subscribe(b, "fan.q", on_fanout_victim, &ctx), 0);
+    T_ASSERT_EQ(t_broker_publish(b, "fan.q", (const uint8_t *)"x", 1, 0), 0);
+    T_ASSERT_EQ(ctx.killer, 1);
+    T_ASSERT_EQ(t_broker_publish(b, "fan.q", (const uint8_t *)"y", 1, 0), 0);
+    T_ASSERT_EQ(ctx.killer, 2);
+    T_ASSERT(ctx.victim <= 1);
+    t_broker_stop(b);
+    t_broker_destroy(b);
+}
+
 T_TEST(broker_stats) {
     t_broker *b = t_broker_create("broker-6");
     t_broker_start(b);
