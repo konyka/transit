@@ -580,6 +580,9 @@
             <li>mmap open/create size bounds; config file reject oversized/ftell errors</li>
             <li>domain delete clears wrappers by queue_name; dispatch heals stale subs on publish</li>
             <li>client_post payload cap; closed queues still allow consume drain</li>
+            <li>drain_backlog dequeues before deliver (no reentrant consume UAF)</li>
+            <li>priority posts always heap then drain; dispatch heal failure aborts publish</li>
+            <li>pool_free resolves size class from pointer ownership</li>
         </ul>
     </div>
 

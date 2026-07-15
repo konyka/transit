@@ -41,6 +41,25 @@ static int t_pool_class_index_for_size(size_t size) {
     return -1; /* too large for pool */
 }
 
+/* Resolve class from pointer ownership so a wrong size cannot corrupt freelists. */
+static int t_pool_class_index_for_ptr(t_pool *pool, void *ptr) {
+    uintptr_t p = (uintptr_t)ptr;
+    for (int i = 0; i < T_POOL_SIZE_CLASSES; ++i) {
+        t_pool_class *cls = &pool->classes[i];
+        size_t block = cls->block_size;
+        if (block == 0) continue;
+        for (t_pool_chunk *c = cls->chunks; c; c = c->next) {
+            if (!c->mem || c->chunk_size < block) continue;
+            uintptr_t base = (uintptr_t)c->mem;
+            uintptr_t end = base + c->chunk_size;
+            if (p < base || p >= end) continue;
+            if ((p - base) % block != 0) continue;
+            return i;
+        }
+    }
+    return -1;
+}
+
 
 
 /* Create a new memory pool. If chunk_size == 0, use 64KB. */
@@ -155,9 +174,11 @@ void *t_pool_alloc_zero(t_pool *pool, size_t size) {
 
 void t_pool_free(t_pool *pool, void *ptr, size_t size) {
     if (!pool || !ptr) return;
-    int idx = t_pool_class_index_for_size(size);
+    int idx = t_pool_class_index_for_ptr(pool, ptr);
     if (idx < 0) {
-        /* Large allocation – free directly */
+        /* Large allocation (or unknown) – free directly.
+         * Ignore caller size so a mismatched size cannot poison a freelist. */
+        (void)size;
         free(ptr);
         return;
     }

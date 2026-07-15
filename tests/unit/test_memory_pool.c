@@ -78,6 +78,21 @@ T_TEST(pool_large_allocation) {
     t_pool_destroy(p);
 }
 
+T_TEST(pool_free_ignores_wrong_size) {
+    t_pool *p = t_pool_create(0);
+    void *a = t_pool_alloc(p, 32);
+    void *b = t_pool_alloc(p, 32);
+    T_ASSERT_NOT_NULL(a);
+    T_ASSERT_NOT_NULL(b);
+    /* Mismatched size must not place the 32-byte block on the 64-byte freelist. */
+    t_pool_free(p, a, 64);
+    void *c = t_pool_alloc(p, 32);
+    T_ASSERT(c == a);
+    t_pool_free(p, b, 32);
+    t_pool_free(p, c, 32);
+    t_pool_destroy(p);
+}
+
 T_TEST(pool_alloc_array) {
     t_pool *p = t_pool_create(0);
     int *arr = (int *)t_pool_alloc_array(p, sizeof(int), 100);

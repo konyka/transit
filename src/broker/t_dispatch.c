@@ -150,7 +150,9 @@ int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
     if (!sess || !t_session_is_active((t_session *)sess)) return -1;
 
     /* After delete/recreate, local bookkeeping can outlive broker consumers.
-     * Heal before publish so FIFO messages are not stranded in pending. */
+     * Heal before publish so FIFO messages are not stranded in pending.
+     * If any heal fails, abort publish rather than silently drop delivery. */
+    int heal_failed = 0;
     for (size_t i = 0; i < disp->subscriptions.len; ) {
         t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
         if (!sub || !sub->queue_name || strcmp(sub->queue_name, queue_name) != 0) {
@@ -174,7 +176,9 @@ int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
             disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
         }
         disp->subscriptions.len--;
+        heal_failed = 1;
     }
+    if (heal_failed) return -1;
 
     int r = t_broker_publish(disp->broker, queue_name, data, len, priority);
     if (r == 0) disp->total_published++;

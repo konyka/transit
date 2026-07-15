@@ -126,25 +126,35 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
 }
 
 /* Deliver any stranded backlog after a partial subscribe flush.
+ * Dequeue before deliver so a reentrant consume cannot UAF the same msg.
  * Returns 0 if empty/drained, -1 if deliver failed (messages stay queued). */
 static int t_queue_drain_backlog(t_queue *q) {
     if (!q || q->consumers.len == 0) return 0;
     if (q->type == T_QUEUE_PRIORITY) {
         t_pq_entry top;
         while (t_pqueue_peek(&q->pri, &top) == 0) {
-            t_msg *m = (t_msg *)top.data;
-            if (t_queue_deliver_to_consumers(q, m) != 0) return -1;
             if (t_pqueue_pop(&q->pri, &top) != 0) return -1;
+            t_msg *m = (t_msg *)top.data;
+            if (t_queue_deliver_to_consumers(q, m) != 0) {
+                if (t_pqueue_push(&q->pri, top.priority, m) != 0) {
+                    t_msg_free(m);
+                }
+                return -1;
+            }
             t_msg_free(m);
         }
         return 0;
     }
     if (q->type == T_QUEUE_FIFO) {
         while (q->pending.len > 0) {
-            t_msg *m = (t_msg *)t_vec_get(&q->pending, 0);
+            t_msg *m = (t_msg *)t_vec_remove(&q->pending, 0);
             if (!m) break;
-            if (t_queue_deliver_to_consumers(q, m) != 0) return -1;
-            (void)t_vec_remove(&q->pending, 0);
+            if (t_queue_deliver_to_consumers(q, m) != 0) {
+                if (t_vec_insert(&q->pending, 0, m) != 0) {
+                    t_msg_free(m);
+                }
+                return -1;
+            }
             t_msg_free(m);
         }
     }
@@ -268,25 +278,16 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     }
 
     if (q->type == T_QUEUE_PRIORITY) {
-        /* Push-style consumers: deliver immediately (same as FIFO). */
-        if (q->consumers.len > 0) {
-            if (t_queue_drain_backlog(q) != 0) {
-                t_msg_free(m);
-                return -1;
-            }
-            if (t_queue_deliver_to_consumers(q, m) != 0) {
-                t_msg_free(m);
-                return -1;
-            }
-            q->total_published++;
-            t_msg_free(m);
-            return 0;
-        }
+        /* Always enter the heap so push consumers still see priority order
+         * when multiple messages are pending (e.g. after a partial drain). */
         if (t_pqueue_push(&q->pri, (int64_t)priority, m) != 0) {
             t_msg_free(m);
             return -1;
         }
         q->total_published++;
+        if (q->consumers.len > 0 && t_queue_drain_backlog(q) != 0) {
+            return -1;
+        }
         return 0;
     }
 

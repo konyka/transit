@@ -131,6 +131,29 @@ T_TEST(queue_priority_subscribe_delivers) {
     t_queue_destroy(q);
 }
 
+static char g_pri_order[2][8];
+static int g_pri_order_n;
+static void pri_order_cb(const t_msg *msg, void *ud) {
+    (void)ud;
+    if (!msg || !msg->data || g_pri_order_n >= 2) return;
+    size_t n = msg->data_len < 7 ? msg->data_len : 7;
+    memcpy(g_pri_order[g_pri_order_n], msg->data, n);
+    g_pri_order[g_pri_order_n][n] = '\0';
+    g_pri_order_n++;
+}
+
+T_TEST(queue_priority_subscribe_orders_backlog) {
+    t_queue *q = t_queue_create("test.pri.order", T_QUEUE_PRIORITY, 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"low", 3, 10), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"high", 4, 1), 0);
+    g_pri_order_n = 0;
+    T_ASSERT(t_queue_add_consumer(q, pri_order_cb, NULL) != 0);
+    T_ASSERT_EQ(g_pri_order_n, 2);
+    T_ASSERT(strcmp(g_pri_order[0], "high") == 0);
+    T_ASSERT(strcmp(g_pri_order[1], "low") == 0);
+    t_queue_destroy(q);
+}
+
 static void queue_noop_cb(const t_msg *msg, void *ud) {
     (void)msg;
     (*(int *)ud)++;
