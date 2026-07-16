@@ -25,6 +25,9 @@ struct t_evloop {
     int         processing_timers;
     int         processing_poll;
     int         destroy_pending;
+    void      **deferred_free;
+    size_t      deferred_free_len;
+    size_t      deferred_free_cap;
 };
 
 #endif

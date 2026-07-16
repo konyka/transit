@@ -206,6 +206,8 @@ static void admin_accept(t_evio *io, int events, void *ud) {
 static void admin_remove_client(t_admin *admin, t_admin_client *c) {
     if (!admin || !c) return;
     t_evloop_del(admin->loop, &c->io);
+    c->io.callback = NULL;
+    c->io.user_data = NULL;
     if (c->fd >= 0) {
         close(c->fd);
         c->fd = -1;
@@ -222,7 +224,7 @@ static void admin_remove_client(t_admin *admin, t_admin_client *c) {
         c->free_pending = 1;
         return;
     }
-    free(c);
+    t_evloop_defer_free(admin->loop, c);
 }
 
 static void admin_set_error_resp(t_admin_client *c, int code) {
@@ -430,5 +432,5 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
     }
 out:
     c->in_io_cb = 0;
-    if (c->free_pending) free(c);
+    if (c->free_pending) t_evloop_defer_free(admin->loop, c);
 }

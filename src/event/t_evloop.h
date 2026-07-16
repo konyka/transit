@@ -57,4 +57,8 @@ int  t_evloop_run(t_evloop *loop, int timeout_ms);
 void t_evloop_stop(t_evloop *loop);
 int  t_evloop_is_running(const t_evloop *loop);
 
+/* Free ptr after the current poll batch (safe while processing_poll).
+ * If loop is NULL or not inside poll, frees immediately. */
+void t_evloop_defer_free(t_evloop *loop, void *ptr);
+
 #endif /* T_EVLOOP_H */

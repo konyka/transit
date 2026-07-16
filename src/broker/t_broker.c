@@ -26,6 +26,29 @@ static void broker_try_complete_destroy(t_broker *broker) {
     if (broker && broker->free_pending) t_broker_destroy(broker);
 }
 
+/* Remove domains destroyed during fanout while still in the broker map. */
+static void broker_reap_domains(t_broker *broker) {
+    if (!broker) return;
+    for (;;) {
+        const char *victim = NULL;
+        t_map_iter it = t_map_iter_begin(&broker->domains);
+        const char *k;
+        void *v;
+        while (t_map_iter_next(&it, &k, &v)) {
+            t_domain *d = (t_domain *)v;
+            if (t_domain_is_free_pending(d) && !t_domain_is_delivering(d)) {
+                victim = k;
+                break;
+            }
+        }
+        if (!victim) break;
+        v = t_map_remove(&broker->domains, victim);
+        if (!v) break;
+        t_domain_set_broker_owned((t_domain *)v, 0);
+        t_domain_destroy((t_domain *)v);
+    }
+}
+
 static t_domain *broker_find_queue_domain(t_broker *broker, const char *queue_name) {
     t_domain *def = t_broker_get_domain(broker, "default");
     if (def && t_domain_get_queue(def, queue_name)) return def;
@@ -58,7 +81,9 @@ t_broker *t_broker_create(const char *broker_id) {
         free(b);
         return NULL;
     }
+    t_domain_set_broker_owned(def, 1);
     if (t_map_insert(&b->domains, "default", def) != 0) {
+        t_domain_set_broker_owned(def, 0);
         t_domain_destroy(def);
         free(b->broker_id);
         free(b);
@@ -79,6 +104,7 @@ void t_broker_destroy(t_broker *broker) {
     t_map_iter it = t_map_iter_begin(&broker->domains);
     const char *k; void *v;
     while (t_map_iter_next(&it, &k, &v)) {
+        t_domain_set_broker_owned((t_domain *)v, 0);
         t_domain_destroy((t_domain *)v);
     }
     t_map_destroy(&broker->domains);
@@ -124,7 +150,9 @@ t_domain *t_broker_create_domain(t_broker *broker, const char *domain_name) {
     t_domain *d = t_domain_create(domain_name);
     if (!d) return NULL;
     t_domain_set_accepting(d, broker->running);
+    t_domain_set_broker_owned(d, 1);
     if (t_map_insert(&broker->domains, domain_name, d) != 0) {
+        t_domain_set_broker_owned(d, 0);
         t_domain_destroy(d);
         return NULL;
     }
@@ -144,6 +172,7 @@ int t_broker_remove_domain(t_broker *broker, const char *domain_name) {
     /* Refuse while fanout holds the domain; map would otherwise lose the pointer. */
     if (t_domain_is_delivering((t_domain *)v)) return -1;
     v = t_map_remove(&broker->domains, domain_name);
+    t_domain_set_broker_owned((t_domain *)v, 0);
     t_domain_destroy((t_domain *)v);
     return 0;
 }
@@ -173,7 +202,10 @@ int t_broker_delete_queue(t_broker *broker, const char *domain_name,
     if (!broker || !domain_name || !queue_name) return -1;
     t_domain *d = t_broker_get_domain(broker, domain_name);
     if (!d) return -1;
-    return t_domain_delete_queue(d, queue_name);
+    int r = t_domain_delete_queue(d, queue_name);
+    broker_reap_domains(broker);
+    broker_try_complete_destroy(broker);
+    return r;
 }
 
 int t_broker_publish(t_broker *broker, const char *queue_name,
@@ -182,6 +214,7 @@ int t_broker_publish(t_broker *broker, const char *queue_name,
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_publish(d, queue_name, data, len, priority);
+    broker_reap_domains(broker);
     broker_try_complete_destroy(broker);
     return r;
 }
@@ -192,6 +225,7 @@ int t_broker_subscribe(t_broker *broker, const char *queue_name,
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_subscribe(d, queue_name, cb, ud);
+    broker_reap_domains(broker);
     broker_try_complete_destroy(broker);
     return r;
 }
@@ -202,6 +236,7 @@ int t_broker_unsubscribe(t_broker *broker, const char *queue_name,
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_unsubscribe(d, queue_name, cb, ud);
+    broker_reap_domains(broker);
     broker_try_complete_destroy(broker);
     return r;
 }

@@ -14,6 +14,37 @@ static void timer_heap_swap(t_timer_entry *a, t_timer_entry *b) {
 
 static int evloop_process_timers(t_evloop *loop); /* uses t_evloop_destroy */
 
+static void evloop_flush_deferred_free(t_evloop *loop) {
+    if (!loop || !loop->deferred_free) return;
+    for (size_t i = 0; i < loop->deferred_free_len; ++i) {
+        free(loop->deferred_free[i]);
+        loop->deferred_free[i] = NULL;
+    }
+    loop->deferred_free_len = 0;
+}
+
+void t_evloop_defer_free(t_evloop *loop, void *ptr) {
+    if (!ptr) return;
+    if (!loop || !loop->processing_poll) {
+        free(ptr);
+        return;
+    }
+    if (loop->deferred_free_len >= loop->deferred_free_cap) {
+        size_t ncap = loop->deferred_free_cap ? loop->deferred_free_cap * 2 : 8;
+        if (ncap > SIZE_MAX / sizeof(void *)) {
+            /* Leak: freeing under a live poll batch can UAF later events. */
+            return;
+        }
+        void **n = (void **)realloc(loop->deferred_free, ncap * sizeof(void *));
+        if (!n) {
+            return;
+        }
+        loop->deferred_free = n;
+        loop->deferred_free_cap = ncap;
+    }
+    loop->deferred_free[loop->deferred_free_len++] = ptr;
+}
+
 static void timer_heap_sift_up(t_timer_entry *arr, size_t idx) {
     while (idx > 0) {
         size_t p = (idx - 1) / 2;
@@ -157,6 +188,10 @@ void t_evloop_destroy(t_evloop *loop) {
         t_evloop_stop(loop);
         return;
     }
+    evloop_flush_deferred_free(loop);
+    free(loop->deferred_free);
+    loop->deferred_free = NULL;
+    loop->deferred_free_cap = 0;
     loop->backend->destroy(loop);
     if (loop->wakeup_fds[0] >= 0) close(loop->wakeup_fds[0]);
     if (loop->wakeup_fds[1] >= 0) close(loop->wakeup_fds[1]);
@@ -179,6 +214,9 @@ int t_evloop_mod(t_evloop *loop, t_evio *io, int events) {
 
 int t_evloop_del(t_evloop *loop, t_evio *io) {
     if (!loop || !io) return -1;
+    /* Disarm so same-batch kevents/epolls cannot invoke a freed owner. */
+    io->callback = NULL;
+    io->user_data = NULL;
     return loop->backend->del(loop, io);
 }
 
@@ -234,6 +272,7 @@ int t_evloop_run(t_evloop *loop, int timeout_ms) {
         loop->processing_poll = 1;
         loop->backend->poll(loop, wait_ms);
         loop->processing_poll = 0;
+        evloop_flush_deferred_free(loop);
         if (loop->destroy_pending) {
             t_evloop_destroy(loop);
             return 1;

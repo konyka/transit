@@ -14,6 +14,7 @@ typedef struct t_domain {
     size_t total_delivered;
     int accepting; /* 0 when owning broker is stopped */
     int free_pending; /* destroy deferred while a queue is delivering */
+    int broker_owned; /* broker map completes destroy */
 } t_domain;
 
 /* Internal wrapper for converting t_msg to user-provided callback */
@@ -107,8 +108,39 @@ int t_domain_is_delivering(const t_domain *domain) {
     return domain_any_delivering(domain);
 }
 
+int t_domain_is_free_pending(const t_domain *domain) {
+    return domain ? domain->free_pending != 0 : 0;
+}
+
+void t_domain_set_broker_owned(t_domain *domain, int owned) {
+    if (domain) domain->broker_owned = owned ? 1 : 0;
+}
+
 static void domain_try_complete_destroy(t_domain *domain) {
-    if (domain && domain->free_pending) t_domain_destroy(domain);
+    /* Broker-owned domains must be removed from the broker map first. */
+    if (domain && domain->free_pending && !domain->broker_owned)
+        t_domain_destroy(domain);
+}
+
+/* Drop a queue that was destroyed during fanout while still map-owned. */
+static void domain_reap_queue_if_pending(t_domain *domain, const char *queue_name, t_queue *q) {
+    if (!domain || !queue_name || !q || !t_queue_is_free_pending(q)) return;
+    if (t_queue_is_delivering(q)) return;
+    for (size_t i = 0; i < domain->sub_wrappers.len; ) {
+        t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
+        if (ctx && ctx->queue_name && strcmp(ctx->queue_name, queue_name) == 0) {
+            for (size_t j = i; j + 1 < domain->sub_wrappers.len; ++j) {
+                domain->sub_wrappers.items[j] = domain->sub_wrappers.items[j + 1];
+            }
+            domain->sub_wrappers.len--;
+            domain_retire_ctx(domain, NULL, ctx);
+            continue;
+        }
+        ++i;
+    }
+    t_map_remove(&domain->queues, queue_name);
+    t_queue_set_owner_held(q, 0);
+    t_queue_destroy(q);
 }
 
 void t_domain_destroy(t_domain *domain) {
@@ -122,7 +154,9 @@ void t_domain_destroy(t_domain *domain) {
     t_map_iter it = t_map_iter_begin(&domain->queues);
     const char *k; void *v;
     while (t_map_iter_next(&it, &k, &v)) {
-        t_queue_destroy((t_queue *)v);
+        t_queue *q = (t_queue *)v;
+        t_queue_set_owner_held(q, 0);
+        t_queue_destroy(q);
     }
     t_map_destroy(&domain->queues);
     for (size_t i = 0; i < t_vec_len(&domain->sub_wrappers); i++) {
@@ -152,7 +186,9 @@ int t_domain_create_queue(t_domain *domain, const char *queue_name, int type, in
     if (t_map_get(&domain->queues, queue_name)) return -1;
     t_queue *q = t_queue_create(queue_name, (t_qtype)type, flags);
     if (!q) return -1;
+    t_queue_set_owner_held(q, 1);
     if (t_map_insert(&domain->queues, queue_name, q) != 0) {
+        t_queue_set_owner_held(q, 0);
         t_queue_destroy(q);
         return -1;
     }
@@ -181,6 +217,7 @@ int t_domain_delete_queue(t_domain *domain, const char *queue_name) {
         }
         ++i;
     }
+    t_queue_set_owner_held(q, 0);
     t_queue_destroy(q);
     t_map_remove(&domain->queues, queue_name);
     domain_purge_deferred(domain);
@@ -208,6 +245,7 @@ int t_domain_publish(t_domain *domain, const char *queue_name,
     if (r == 0) {
         domain->total_messages += 1;
     }
+    domain_reap_queue_if_pending(domain, queue_name, q);
     domain_purge_deferred(domain);
     domain_try_complete_destroy(domain);
     return r;
@@ -251,6 +289,7 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
         free(ctx);
         return -1;
     }
+    domain_reap_queue_if_pending(domain, queue_name, q);
     domain_purge_deferred(domain);
     domain_try_complete_destroy(domain);
     return 0;

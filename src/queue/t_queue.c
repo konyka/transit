@@ -49,6 +49,7 @@ struct t_queue {
     int has_prio;
     int delivering;        /* nest count while fanout callbacks run */
     int free_pending;      /* destroy deferred until delivering == 0 */
+    int owner_held;        /* map owner (domain) completes destroy */
 
     size_t total_published;
     size_t total_consumed;
@@ -126,8 +127,13 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
     q->delivering--;
     free(copies);
     free(snaps);
-    if (q->free_pending) t_queue_destroy(q);
+    /* Do not destroy here: callers (post/drain) still touch q. */
     return 0;
+}
+
+static void queue_try_complete_destroy(t_queue *q) {
+    if (q && q->free_pending && q->delivering == 0 && !q->owner_held)
+        t_queue_destroy(q);
 }
 
 /* Deliver any stranded backlog after a partial subscribe flush.
@@ -137,7 +143,7 @@ static int t_queue_drain_backlog(t_queue *q) {
     if (!q || q->consumers.len == 0) return 0;
     if (q->type == T_QUEUE_PRIORITY) {
         t_pq_entry top;
-        while (t_pqueue_peek(&q->pri, &top) == 0) {
+        while (!q->free_pending && t_pqueue_peek(&q->pri, &top) == 0) {
             if (t_pqueue_pop(&q->pri, &top) != 0) return -1;
             t_msg *m = (t_msg *)top.data;
             if (t_queue_deliver_to_consumers(q, m) != 0) {
@@ -151,7 +157,7 @@ static int t_queue_drain_backlog(t_queue *q) {
         return 0;
     }
     if (q->type == T_QUEUE_FIFO) {
-        while (q->pending.len > 0) {
+        while (!q->free_pending && q->pending.len > 0) {
             t_msg *m = (t_msg *)t_vec_remove(&q->pending, 0);
             if (!m) break;
             if (t_queue_deliver_to_consumers(q, m) != 0) {
@@ -189,6 +195,7 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     q->has_prio = (type == T_QUEUE_PRIORITY) ? 1 : 0;
     q->delivering = 0;
     q->free_pending = 0;
+    q->owner_held = 0;
     if (q->has_prio) {
         if (t_pqueue_init(&q->pri, 16) != 0) {
             free(q->name);
@@ -282,10 +289,12 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
         }
         if (t_queue_deliver_to_consumers(q, m) != 0) {
             t_msg_free(m);
+            queue_try_complete_destroy(q);
             return -1;
         }
         q->total_published++;
         t_msg_free(m);
+        queue_try_complete_destroy(q);
         return 0;
     }
 
@@ -301,6 +310,7 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
          * here would make callers retry and risk duplicate delivery. */
         if (q->consumers.len > 0)
             (void)t_queue_drain_backlog(q);
+        queue_try_complete_destroy(q);
         return 0;
     }
 
@@ -310,14 +320,22 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     if (q->consumers.len > 0) {
         if (t_queue_drain_backlog(q) != 0) {
             t_msg_free(m);
+            queue_try_complete_destroy(q);
+            return -1;
+        }
+        if (q->free_pending) {
+            t_msg_free(m);
+            queue_try_complete_destroy(q);
             return -1;
         }
         if (t_queue_deliver_to_consumers(q, m) != 0) {
             t_msg_free(m);
+            queue_try_complete_destroy(q);
             return -1;
         }
         q->total_published++;
         t_msg_free(m);
+        queue_try_complete_destroy(q);
         return 0;
     }
 
@@ -393,9 +411,12 @@ uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
      * If flush cannot finish, roll back this consumer so post stays pull-mode. */
     if (t_queue_drain_backlog(q) != 0) {
         (void)t_queue_remove_consumer(q, wrapper->id);
+        queue_try_complete_destroy(q);
         return 0;
     }
-    return wrapper->id;
+    uint64_t id = wrapper->id;
+    queue_try_complete_destroy(q);
+    return id;
 }
 
 int t_queue_remove_consumer(t_queue *q, uint64_t consumer_id) {
@@ -511,6 +532,14 @@ int t_queue_is_closed(const t_queue *q) {
 
 int t_queue_is_delivering(const t_queue *q) {
     return q ? q->delivering > 0 : 0;
+}
+
+int t_queue_is_free_pending(const t_queue *q) {
+    return q ? q->free_pending != 0 : 0;
+}
+
+void t_queue_set_owner_held(t_queue *q, int held) {
+    if (q) q->owner_held = held ? 1 : 0;
 }
 
 size_t t_queue_total_published(const t_queue *q) {

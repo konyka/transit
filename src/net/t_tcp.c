@@ -149,6 +149,8 @@ void t_tcp_conn_destroy(t_tcp_conn *conn) {
     if (!conn->closed) {
         conn->closed = 1;
         if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+        conn->read_io.callback = NULL;
+        conn->read_io.user_data = NULL;
         if (conn->fd >= 0) {
             t_socket_close(conn->fd);
             conn->fd = -1;
@@ -159,7 +161,9 @@ void t_tcp_conn_destroy(t_tcp_conn *conn) {
         conn->free_pending = 1;
         return;
     }
-    free(conn);
+    conn->read_io.callback = NULL;
+    conn->read_io.user_data = NULL;
+    t_evloop_defer_free(conn->loop, conn);
 }
 
 static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
@@ -172,6 +176,8 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
         if (!conn->closed) {
             conn->closed = 1;
             if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+            conn->read_io.callback = NULL;
+            conn->read_io.user_data = NULL;
             if (conn->fd >= 0) {
                 t_socket_close(conn->fd);
                 conn->fd = -1;
@@ -203,6 +209,8 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
         if (!conn->closed) {
             conn->closed = 1;
             if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+            conn->read_io.callback = NULL;
+            conn->read_io.user_data = NULL;
             if (conn->fd >= 0) {
                 t_socket_close(conn->fd);
                 conn->fd = -1;

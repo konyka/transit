@@ -594,6 +594,9 @@
             <li>domain purge skips while any queue delivering; client_post nesting count</li>
             <li>dispatch duplicate subscribe uses has_subscription (no unsub/restore race)</li>
             <li>queue/domain/broker destroy defer while delivering; tcp server del-before-close</li>
+            <li>evloop defer_free after poll batch; del nulls callback (same-batch t_evio UAF)</li>
+            <li>queue destroy not completed inside deliver (post/drain still touch q)</li>
+            <li>domain/broker map owners reap free_pending before free (stale map UAF)</li>
         </ul>
     </div>
 

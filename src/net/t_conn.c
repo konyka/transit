@@ -76,6 +76,7 @@ static void t_conn_close_now(t_conn *conn) {
     conn->closed = 1;
     pthread_mutex_unlock(&conn->send_mu);
     if (conn->loop) t_evloop_del(conn->loop, &conn->io);
+    conn->io.callback = NULL;
     conn->io.user_data = NULL;
     if (conn->fd >= 0) {
         close(conn->fd);
@@ -97,7 +98,10 @@ static void t_conn_free(t_conn *conn) {
     pthread_mutex_unlock(&conn->send_mu);
     pthread_mutex_destroy(&conn->send_mu);
     if (conn->fd >= 0) close(conn->fd);
-    free(conn);
+    conn->io.callback = NULL;
+    conn->io.user_data = NULL;
+    /* Keep t_evio storage alive until the current poll batch ends. */
+    t_evloop_defer_free(conn->loop, conn);
 }
 
 t_conn *t_conn_create(int fd, t_evloop *loop)
