@@ -34,8 +34,21 @@ static void domain_free_ctx(t_domain_sub_ctx *ctx) {
     free(ctx);
 }
 
+static int domain_any_delivering(const t_domain *domain) {
+    if (!domain) return 0;
+    t_map_iter it = t_map_iter_begin(&domain->queues);
+    const char *k;
+    void *v;
+    while (t_map_iter_next(&it, &k, &v)) {
+        if (t_queue_is_delivering((const t_queue *)v)) return 1;
+    }
+    return 0;
+}
+
 static void domain_purge_deferred(t_domain *domain) {
     if (!domain) return;
+    /* Snapshots from any in-flight fanout may still point at deferred ctx. */
+    if (domain_any_delivering(domain)) return;
     for (size_t i = 0; i < domain->deferred_free.len; ++i) {
         domain_free_ctx((t_domain_sub_ctx *)domain->deferred_free.items[i]);
     }

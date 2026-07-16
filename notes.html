@@ -591,6 +591,8 @@
             <li>file storage create treats missing path as empty (ENOENT)</li>
             <li>no-loop conn send defers destroy under sync flush; drain mod failure closes</li>
             <li>domain delete_queue refuses while queue delivering; client_post defers destroy</li>
+            <li>domain purge skips while any queue delivering; client_post nesting count</li>
+            <li>dispatch duplicate subscribe uses has_subscription (no unsub/restore race)</li>
         </ul>
     </div>
 

@@ -83,7 +83,7 @@ t_client *t_client_create(const char *client_id) {
 
 void t_client_destroy(t_client *client) {
     if (!client) return;
-    if (client->posting) {
+    if (client->posting > 0) {
         client->free_pending = 1;
         return;
     }
@@ -192,7 +192,7 @@ int t_client_post(t_client *client, const char *queue_name,
             }
         }
     }
-    client->posting = 1;
+    client->posting++;
     client->published++;
     size_t delivered = 0;
     for (size_t i = 0; i < snap_n; ++i) {
@@ -200,9 +200,9 @@ int t_client_post(t_client *client, const char *queue_name,
         delivered++;
     }
     client->consumed += delivered;
-    client->posting = 0;
+    client->posting--;
     free(snaps);
-    if (client->free_pending) {
+    if (client->posting == 0 && client->free_pending) {
         t_client_destroy(client);
         return 0;
     }
