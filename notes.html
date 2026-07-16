@@ -603,6 +603,8 @@
             <li>dispatch defers cbud free while queue fanout holds snap ud</li>
             <li>dispatch orphan reap after fanout (session ref leak on mid-deliver destroy)</li>
             <li>fc stats clamp size_t into int atomics; client unsub null-safe</li>
+            <li>socket accept sets O_NONBLOCK and retries EINTR</li>
+            <li>broker retain/release so destroy waits for live dispatch</li>
         </ul>
     </div>
 

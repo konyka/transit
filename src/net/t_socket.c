@@ -72,8 +72,16 @@ int t_socket_listen(int fd, int backlog) {
 int t_socket_accept(int fd, t_sockaddr *peer_addr) {
     struct sockaddr_in sa;
     socklen_t slen = sizeof(sa);
-    int nfd = accept(fd, (struct sockaddr *)&sa, &slen);
+    int nfd;
+    do {
+        nfd = accept(fd, (struct sockaddr *)&sa, &slen);
+    } while (nfd < 0 && errno == EINTR);
     if (nfd < 0) return -1;
+    /* Match t_socket_create: accepted fds are non-blocking for the evloop. */
+    if (set_nonblock(nfd) < 0) {
+        close(nfd);
+        return -1;
+    }
     if (peer_addr) {
         peer_addr->u.ipv4.family = AF_INET;
         peer_addr->u.ipv4.addr = ntohl(sa.sin_addr.s_addr);

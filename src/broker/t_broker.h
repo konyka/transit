@@ -12,6 +12,9 @@ typedef void (*t_broker_msg_cb)(const char *queue_name, const uint8_t *data, siz
 
 t_broker *t_broker_create(const char *broker_id);
 void      t_broker_destroy(t_broker *broker);
+/* Dispatch (and similar) retain the broker so destroy waits for release. */
+void      t_broker_retain(t_broker *broker);
+void      t_broker_release(t_broker *broker);
 
 const char *t_broker_id(const t_broker *broker);
 int         t_broker_start(t_broker *broker);

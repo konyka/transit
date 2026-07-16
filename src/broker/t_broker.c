@@ -10,7 +10,8 @@ typedef struct t_broker {
     char *broker_id;
     t_map domains; /* map domain_name -> t_domain* */
     int running;
-    int free_pending; /* destroy deferred while a domain is delivering */
+    int free_pending; /* destroy deferred while delivering or ext_refs > 0 */
+    size_t ext_refs;  /* e.g. live t_dispatch handles */
 } t_broker;
 
 static int broker_any_delivering(const t_broker *broker) {
@@ -97,7 +98,7 @@ t_broker *t_broker_create(const char *broker_id) {
 
 void t_broker_destroy(t_broker *broker) {
     if (!broker) return;
-    if (broker_any_delivering(broker)) {
+    if (broker_any_delivering(broker) || broker->ext_refs > 0) {
         broker->free_pending = 1;
         return;
     }
@@ -112,6 +113,16 @@ void t_broker_destroy(t_broker *broker) {
     t_map_destroy(&broker->domains);
     free(broker->broker_id);
     free(broker);
+}
+
+void t_broker_retain(t_broker *broker) {
+    if (broker) broker->ext_refs++;
+}
+
+void t_broker_release(t_broker *broker) {
+    if (!broker || broker->ext_refs == 0) return;
+    broker->ext_refs--;
+    if (broker->free_pending) t_broker_destroy(broker);
 }
 
 const char *t_broker_id(const t_broker *broker) {

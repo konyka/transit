@@ -128,6 +128,7 @@ t_dispatch *t_dispatch_create(t_broker *broker) {
     t_dispatch *d = (t_dispatch *)calloc(1, sizeof(t_dispatch));
     if (!d) return NULL;
     d->broker = broker;
+    t_broker_retain(broker);
     t_map_init(&d->sessions);
     t_vec_init(&d->subscriptions);
     t_vec_init(&d->deferred_cbud);
@@ -180,7 +181,10 @@ void t_dispatch_destroy(t_dispatch *disp) {
         }
     }
     t_map_destroy(&disp->sessions);
+    t_broker *broker = disp->broker;
+    disp->broker = NULL;
     free(disp);
+    t_broker_release(broker);
 }
 
 static void dispatch_try_complete_destroy(t_dispatch *disp) {
