@@ -244,6 +244,7 @@ int t_domain_publish(t_domain *domain, const char *queue_name,
     domain_purge_deferred(domain);
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
+    if (t_queue_is_free_pending(q)) return -1;
     int r = t_queue_post(q, data, len, priority);
     if (r == 0) {
         domain->total_messages += 1;

@@ -112,7 +112,7 @@ int t_cgroup_dispatch(t_cgroup *cg, const char *topic, const uint8_t *payload, s
     cg->dispatching = 0;
     if (cg->free_pending) {
         t_cgroup_destroy(cg);
-        return 0;
+        return -1; /* cg freed; caller must not touch it */
     }
     if (cg->consumer_count == 0) cg->next_idx = 0;
     else if (cg->next_idx >= cg->consumer_count) cg->next_idx = 0;

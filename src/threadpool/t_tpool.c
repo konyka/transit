@@ -215,7 +215,10 @@ size_t t_tpool_worker_count(const t_tpool *pool) {
 void t_tpool_wait(t_tpool *pool) {
     if (!pool || !pool->workers) return;
     pthread_mutex_lock(&pool->wait_mutex);
-    while (pool->total_completed < pool->total_submitted) {
+    /* Exit when destroy starts so waiters release wait_mutex before it is
+     * destroyed (in-task destroy joins peers then tears down the cond). */
+    while (!pool->destroying &&
+           pool->total_completed < pool->total_submitted) {
         pthread_cond_wait(&pool->wait_cond, &pool->wait_mutex);
     }
     pthread_mutex_unlock(&pool->wait_mutex);

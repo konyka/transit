@@ -259,7 +259,7 @@ t_qtype t_queue_get_type(const t_queue *q) {
 }
 
 int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
-    if (!q || q->closed) return -1;
+    if (!q || q->closed || q->free_pending) return -1;
     if (len > 0 && !data) return -1;
     if (len > T_QUEUE_MAX_PAYLOAD) return -1;
     if (q->next_msg_id == UINT64_MAX) return -1;

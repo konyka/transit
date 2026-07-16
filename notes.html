@@ -608,6 +608,9 @@
             <li>evloop wake pipe is non-blocking so stop cannot hang</li>
             <li>domain subscribe rejects free_pending queues (no false success)</li>
             <li>storage load/flush retry EINTR and short read/write</li>
+            <li>cgroup dispatch returns -1 after deferred destroy (no UAF caller)</li>
+            <li>queue/domain publish reject free_pending (no false success)</li>
+            <li>tpool wait exits on destroying so in-task destroy cannot UAF waiters</li>
         </ul>
     </div>
 
