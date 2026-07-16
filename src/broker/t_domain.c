@@ -13,6 +13,7 @@ typedef struct t_domain {
     size_t total_messages;
     size_t total_delivered;
     int accepting; /* 0 when owning broker is stopped */
+    int free_pending; /* destroy deferred while a queue is delivering */
 } t_domain;
 
 /* Internal wrapper for converting t_msg to user-provided callback */
@@ -102,8 +103,21 @@ t_domain *t_domain_create(const char *name) {
     return d;
 }
 
+int t_domain_is_delivering(const t_domain *domain) {
+    return domain_any_delivering(domain);
+}
+
+static void domain_try_complete_destroy(t_domain *domain) {
+    if (domain && domain->free_pending) t_domain_destroy(domain);
+}
+
 void t_domain_destroy(t_domain *domain) {
     if (!domain) return;
+    if (domain_any_delivering(domain)) {
+        domain->free_pending = 1;
+        return;
+    }
+    domain->free_pending = 0;
     domain_purge_deferred(domain);
     t_map_iter it = t_map_iter_begin(&domain->queues);
     const char *k; void *v;
@@ -170,6 +184,7 @@ int t_domain_delete_queue(t_domain *domain, const char *queue_name) {
     t_queue_destroy(q);
     t_map_remove(&domain->queues, queue_name);
     domain_purge_deferred(domain);
+    domain_try_complete_destroy(domain);
     return 0;
 }
 
@@ -194,6 +209,7 @@ int t_domain_publish(t_domain *domain, const char *queue_name,
         domain->total_messages += 1;
     }
     domain_purge_deferred(domain);
+    domain_try_complete_destroy(domain);
     return r;
 }
 
@@ -236,6 +252,7 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
         return -1;
     }
     domain_purge_deferred(domain);
+    domain_try_complete_destroy(domain);
     return 0;
 }
 
@@ -255,6 +272,7 @@ int t_domain_unsubscribe(t_domain *domain, const char *queue_name,
         domain->sub_wrappers.len--;
         domain_retire_ctx(domain, q, ctx);
         if (!t_queue_is_delivering(q)) domain_purge_deferred(domain);
+        domain_try_complete_destroy(domain);
         return 0;
     }
     return -1;

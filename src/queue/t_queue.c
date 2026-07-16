@@ -48,6 +48,7 @@ struct t_queue {
     t_pqueue pri;          /* used when type == T_QUEUE_PRIORITY */
     int has_prio;
     int delivering;        /* nest count while fanout callbacks run */
+    int free_pending;      /* destroy deferred until delivering == 0 */
 
     size_t total_published;
     size_t total_consumed;
@@ -125,6 +126,7 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
     q->delivering--;
     free(copies);
     free(snaps);
+    if (q->free_pending) t_queue_destroy(q);
     return 0;
 }
 
@@ -186,6 +188,7 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     t_list_init(&q->inflight);
     q->has_prio = (type == T_QUEUE_PRIORITY) ? 1 : 0;
     q->delivering = 0;
+    q->free_pending = 0;
     if (q->has_prio) {
         if (t_pqueue_init(&q->pri, 16) != 0) {
             free(q->name);
@@ -199,6 +202,11 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
 
 void t_queue_destroy(t_queue *q) {
     if (!q) return;
+    if (q->delivering > 0) {
+        q->free_pending = 1;
+        return;
+    }
+    q->free_pending = 0;
     /* Free pending messages */
     for (size_t i = 0; i < q->pending.len; ++i) {
         t_msg *m = (t_msg *)q->pending.items[i];

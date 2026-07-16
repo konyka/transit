@@ -8,7 +8,23 @@ typedef struct t_broker {
     char *broker_id;
     t_map domains; /* map domain_name -> t_domain* */
     int running;
+    int free_pending; /* destroy deferred while a domain is delivering */
 } t_broker;
+
+static int broker_any_delivering(const t_broker *broker) {
+    if (!broker) return 0;
+    t_map_iter it = t_map_iter_begin((t_map *)&broker->domains);
+    const char *k;
+    void *v;
+    while (t_map_iter_next(&it, &k, &v)) {
+        if (t_domain_is_delivering((const t_domain *)v)) return 1;
+    }
+    return 0;
+}
+
+static void broker_try_complete_destroy(t_broker *broker) {
+    if (broker && broker->free_pending) t_broker_destroy(broker);
+}
 
 static t_domain *broker_find_queue_domain(t_broker *broker, const char *queue_name) {
     t_domain *def = t_broker_get_domain(broker, "default");
@@ -54,6 +70,11 @@ t_broker *t_broker_create(const char *broker_id) {
 
 void t_broker_destroy(t_broker *broker) {
     if (!broker) return;
+    if (broker_any_delivering(broker)) {
+        broker->free_pending = 1;
+        return;
+    }
+    broker->free_pending = 0;
     /* destroy all domains */
     t_map_iter it = t_map_iter_begin(&broker->domains);
     const char *k; void *v;
@@ -118,8 +139,11 @@ t_domain *t_broker_get_domain(t_broker *broker, const char *domain_name) {
 int t_broker_remove_domain(t_broker *broker, const char *domain_name) {
     if (!broker || !domain_name) return -1;
     if (strcmp(domain_name, "default") == 0) return -1;
-    void *v = t_map_remove(&broker->domains, domain_name);
+    void *v = t_map_get(&broker->domains, domain_name);
     if (!v) return -1;
+    /* Refuse while fanout holds the domain; map would otherwise lose the pointer. */
+    if (t_domain_is_delivering((t_domain *)v)) return -1;
+    v = t_map_remove(&broker->domains, domain_name);
     t_domain_destroy((t_domain *)v);
     return 0;
 }
@@ -157,7 +181,9 @@ int t_broker_publish(t_broker *broker, const char *queue_name,
     if (!broker || !broker->running || !queue_name || (len > 0 && !data)) return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
-    return t_domain_publish(d, queue_name, data, len, priority);
+    int r = t_domain_publish(d, queue_name, data, len, priority);
+    broker_try_complete_destroy(broker);
+    return r;
 }
 
 int t_broker_subscribe(t_broker *broker, const char *queue_name,
@@ -165,7 +191,9 @@ int t_broker_subscribe(t_broker *broker, const char *queue_name,
     if (!broker || !broker->running || !queue_name || !cb) return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
-    return t_domain_subscribe(d, queue_name, cb, ud);
+    int r = t_domain_subscribe(d, queue_name, cb, ud);
+    broker_try_complete_destroy(broker);
+    return r;
 }
 
 int t_broker_unsubscribe(t_broker *broker, const char *queue_name,
@@ -173,7 +201,9 @@ int t_broker_unsubscribe(t_broker *broker, const char *queue_name,
     if (!broker || !queue_name || !cb) return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
-    return t_domain_unsubscribe(d, queue_name, cb, ud);
+    int r = t_domain_unsubscribe(d, queue_name, cb, ud);
+    broker_try_complete_destroy(broker);
+    return r;
 }
 
 int t_broker_has_subscription(t_broker *broker, const char *queue_name,

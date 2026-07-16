@@ -28,11 +28,11 @@ t_tcp_server *t_tcp_server_create(t_evloop *loop) {
 void t_tcp_server_destroy(t_tcp_server *srv) {
     if (!srv) return;
     if (srv->fd >= 0) {
+        /* Del before close so a recycled fd cannot steal this epoll slot. */
+        if (srv->loop) t_evloop_del(srv->loop, &srv->accept_io);
         t_socket_close(srv->fd);
         srv->fd = -1;
     }
-    // Remove accept io from loop if registered
-    t_evloop_del(srv->loop, &srv->accept_io);
     free(srv);
 }
 

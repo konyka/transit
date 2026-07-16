@@ -15,6 +15,8 @@ const char *t_domain_name(const t_domain *domain);
 /* When owned by a broker, toggled by start/stop so domain_* cannot bypass. */
 void      t_domain_set_accepting(t_domain *domain, int accepting);
 int       t_domain_is_accepting(const t_domain *domain);
+/* 1 if any queue in the domain is inside a push fanout. */
+int       t_domain_is_delivering(const t_domain *domain);
 
 /* Queue management within a domain */
 int      t_domain_create_queue(t_domain *domain, const char *queue_name, int type, int flags);
