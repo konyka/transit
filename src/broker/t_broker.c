@@ -1,5 +1,6 @@
 #include "t_broker.h"
 #include "t_domain.h"
+#include "t_dispatch.h"
 #include "t_queue.h"
 #include "t_map.h"
 #include <stdlib.h>
@@ -204,6 +205,7 @@ int t_broker_delete_queue(t_broker *broker, const char *domain_name,
     t_domain *d = t_broker_get_domain(broker, domain_name);
     if (!d) return -1;
     int r = t_domain_delete_queue(d, queue_name);
+    t_dispatch_reap_deferred();
     broker_reap_domains(broker);
     broker_try_complete_destroy(broker);
     return r;
@@ -215,6 +217,7 @@ int t_broker_publish(t_broker *broker, const char *queue_name,
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_publish(d, queue_name, data, len, priority);
+    t_dispatch_reap_deferred();
     broker_reap_domains(broker);
     broker_try_complete_destroy(broker);
     return r;
@@ -226,6 +229,7 @@ int t_broker_subscribe(t_broker *broker, const char *queue_name,
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_subscribe(d, queue_name, cb, ud);
+    t_dispatch_reap_deferred();
     broker_reap_domains(broker);
     broker_try_complete_destroy(broker);
     return r;
@@ -237,6 +241,7 @@ int t_broker_unsubscribe(t_broker *broker, const char *queue_name,
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_unsubscribe(d, queue_name, cb, ud);
+    t_dispatch_reap_deferred();
     broker_reap_domains(broker);
     broker_try_complete_destroy(broker);
     return r;

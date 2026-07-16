@@ -27,4 +27,8 @@ size_t      t_dispatch_session_count(const t_dispatch *disp);
 size_t      t_dispatch_total_published(const t_dispatch *disp);
 size_t      t_dispatch_total_delivered(const t_dispatch *disp);
 
+/* Complete destroy deferred while a queue fanout still held cbud snaps.
+ * Safe to call anytime; broker/domain invoke after publish paths. */
+void        t_dispatch_reap_deferred(void);
+
 #endif /* T_DISPATCH_H */

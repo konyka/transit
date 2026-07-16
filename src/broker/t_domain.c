@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Avoid circular header include: dispatch reaps orphans after fanout. */
+void t_dispatch_reap_deferred(void);
+
 typedef struct t_domain {
     char *name;
     t_map queues;
@@ -247,6 +250,7 @@ int t_domain_publish(t_domain *domain, const char *queue_name,
     }
     domain_reap_queue_if_pending(domain, queue_name, q);
     domain_purge_deferred(domain);
+    t_dispatch_reap_deferred();
     domain_try_complete_destroy(domain);
     return r;
 }
@@ -291,6 +295,7 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
     }
     domain_reap_queue_if_pending(domain, queue_name, q);
     domain_purge_deferred(domain);
+    t_dispatch_reap_deferred();
     domain_try_complete_destroy(domain);
     return 0;
 }
@@ -311,6 +316,7 @@ int t_domain_unsubscribe(t_domain *domain, const char *queue_name,
         domain->sub_wrappers.len--;
         domain_retire_ctx(domain, q, ctx);
         if (!t_queue_is_delivering(q)) domain_purge_deferred(domain);
+        t_dispatch_reap_deferred();
         domain_try_complete_destroy(domain);
         return 0;
     }

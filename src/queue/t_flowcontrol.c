@@ -3,6 +3,16 @@
 #include "t_time.h"
 #include <pthread.h>
 #include <stdlib.h>
+#include <limits.h>
+
+/* Stats counters are int atomics; clamp so large releases cannot wrap negative. */
+static void fc_add_stat(t_atomic_int *counter, size_t count) {
+    while (count > 0) {
+        int chunk = (count > (size_t)INT_MAX) ? INT_MAX : (int)count;
+        t_atomic_fetch_add_int(counter, chunk);
+        count -= (size_t)chunk;
+    }
+}
 
 struct t_flowcontrol {
     size_t    max_credits;
@@ -66,19 +76,19 @@ int t_fc_acquire(t_flowcontrol *fc, size_t count) {
     /* Impossible request: reject without latching blocked forever. */
     if (count > fc->max_credits) {
         pthread_mutex_unlock(&fc->mu);
-        t_atomic_fetch_add_int(&fc->total_rejected, (int)count);
+        fc_add_stat(&fc->total_rejected, count);
         return -1;
     }
     if (fc->credits >= count) {
         fc->credits -= count;
         fc->blocked = 0;
         pthread_mutex_unlock(&fc->mu);
-        t_atomic_fetch_add_int(&fc->total_acquired, (int)count);
+        fc_add_stat(&fc->total_acquired, count);
         return 0;
     }
     fc->blocked = 1;
     pthread_mutex_unlock(&fc->mu);
-    t_atomic_fetch_add_int(&fc->total_rejected, (int)count);
+    fc_add_stat(&fc->total_rejected, count);
     return -1;
 }
 
@@ -94,7 +104,7 @@ void t_fc_release(t_flowcontrol *fc, size_t count) {
     }
     if (fc->credits > 0) fc->blocked = 0;
     pthread_mutex_unlock(&fc->mu);
-    t_atomic_fetch_add_int(&fc->total_released, (int)count);
+    fc_add_stat(&fc->total_released, count);
 }
 
 void t_fc_refill(t_flowcontrol *fc) {

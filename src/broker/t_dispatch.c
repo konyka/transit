@@ -34,7 +34,33 @@ struct t_dispatch {
     size_t     total_published;
     size_t     total_delivered;
     int        free_pending; /* destroy deferred while cbud snaps live */
+    int        on_reap_list;
+    t_dispatch *reap_next;
 };
+
+/* Dispatches waiting for fanout to end so deferred cbuds can be freed. */
+static t_dispatch *g_reap_head;
+
+static void dispatch_reap_enqueue(t_dispatch *disp) {
+    if (!disp || disp->on_reap_list) return;
+    disp->reap_next = g_reap_head;
+    g_reap_head = disp;
+    disp->on_reap_list = 1;
+}
+
+static void dispatch_reap_dequeue(t_dispatch *disp) {
+    if (!disp || !disp->on_reap_list) return;
+    t_dispatch **pp = &g_reap_head;
+    while (*pp) {
+        if (*pp == disp) {
+            *pp = disp->reap_next;
+            break;
+        }
+        pp = &(*pp)->reap_next;
+    }
+    disp->reap_next = NULL;
+    disp->on_reap_list = 0;
+}
 
 static void dispatch_free_cbud(dispatch_sub_cb_ud *cbud) {
     if (!cbud) return;
@@ -133,9 +159,11 @@ void t_dispatch_destroy(t_dispatch *disp) {
     dispatch_purge_deferred(disp);
     if (disp->deferred_cbud.len > 0) {
         disp->free_pending = 1;
+        dispatch_reap_enqueue(disp);
         return;
     }
 
+    dispatch_reap_dequeue(disp);
     disp->free_pending = 0;
     t_vec_destroy(&disp->deferred_cbud);
     /* Release session refs so callers can destroy after dispatch. */
@@ -157,6 +185,17 @@ void t_dispatch_destroy(t_dispatch *disp) {
 
 static void dispatch_try_complete_destroy(t_dispatch *disp) {
     if (disp && disp->free_pending) t_dispatch_destroy(disp);
+}
+
+void t_dispatch_reap_deferred(void) {
+    t_dispatch *d = g_reap_head;
+    while (d) {
+        t_dispatch *next = d->reap_next;
+        dispatch_purge_deferred(d);
+        if (d->free_pending && d->deferred_cbud.len == 0)
+            t_dispatch_destroy(d);
+        d = next;
+    }
 }
 
 int t_dispatch_register(t_dispatch *disp, uint64_t session_id, t_session *sess) {

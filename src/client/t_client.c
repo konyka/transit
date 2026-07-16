@@ -232,7 +232,7 @@ int t_client_unsubscribe(t_client *client, const char *queue_name) {
     if (!client || !queue_name) return -1;
     int removed = 0;
     for (size_t i = 0; i < client->subs_count; ) {
-        if (strcmp(client->subs[i].queue, queue_name) == 0) {
+        if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0) {
             free(client->subs[i].queue);
             for (size_t j = i; j + 1 < client->subs_count; ++j) {
                 client->subs[j] = client->subs[j+1];

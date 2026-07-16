@@ -601,6 +601,8 @@
             <li>tcp server accept and admin stats/io defer destroy under live callbacks</li>
             <li>tpool in-task destroy joins peers and defers pool free (no self-join deadlock)</li>
             <li>dispatch defers cbud free while queue fanout holds snap ud</li>
+            <li>dispatch orphan reap after fanout (session ref leak on mid-deliver destroy)</li>
+            <li>fc stats clamp size_t into int atomics; client unsub null-safe</li>
         </ul>
     </div>
 
