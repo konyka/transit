@@ -599,6 +599,8 @@
             <li>domain/broker map owners reap free_pending before free (stale map UAF)</li>
             <li>ttl/cgroup/raft/storage defer destroy while expire/dispatch/apply/foreach cb runs</li>
             <li>tcp server accept and admin stats/io defer destroy under live callbacks</li>
+            <li>tpool in-task destroy joins peers and defers pool free (no self-join deadlock)</li>
+            <li>dispatch defers cbud free while queue fanout holds snap ud</li>
         </ul>
     </div>
 

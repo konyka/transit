@@ -20,20 +20,41 @@ struct t_tpool {
     size_t          total_stolen;
     size_t          rr;
     int             stopping;
+    int             destroying;   /* one-shot destroy gate */
+    int             free_pending; /* shell freed by run_task after in-task destroy */
     pthread_mutex_t wait_mutex;
     pthread_cond_t  wait_cond;
 };
 
-static void run_task(t_task *task, t_tpool *pool) {
-    if (!task || !task->fn) { free(task); return; }
+/* Run task body without touching pool (safe while tearing down). */
+static void run_task_raw(t_task *task) {
+    if (!task) return;
+    if (task->fn) {
+        t_task_fn fn = task->fn;
+        void *ctx = task->context;
+        free(task);
+        fn(ctx);
+    } else {
+        free(task);
+    }
+}
+
+/* Returns 1 if pool was freed inside (caller must not touch pool). */
+static int run_task(t_task *task, t_tpool *pool) {
+    if (!task || !task->fn) { free(task); return 0; }
     t_task_fn fn = task->fn;
     void *ctx = task->context;
     free(task);
     fn(ctx);
+    if (pool->free_pending) {
+        free(pool);
+        return 1;
+    }
     pthread_mutex_lock(&pool->wait_mutex);
     pool->total_completed++;
     pthread_cond_broadcast(&pool->wait_cond);
     pthread_mutex_unlock(&pool->wait_mutex);
+    return 0;
 }
 
 static int try_pop_task(t_mpmc *q, t_task **out) {
@@ -56,7 +77,7 @@ static void *worker_main(void *arg) {
         t_task *task = NULL;
         if (try_pop_task(&w->queue, &task)) {
             spins = 0;
-            run_task(task, pool);
+            if (run_task(task, pool)) return NULL;
             continue;
         }
 
@@ -68,7 +89,7 @@ static void *worker_main(void *arg) {
                 pthread_mutex_lock(&pool->wait_mutex);
                 pool->total_stolen++;
                 pthread_mutex_unlock(&pool->wait_mutex);
-                run_task(task, pool);
+                if (run_task(task, pool)) return NULL;
                 stolen = 1;
             }
         }
@@ -138,7 +159,7 @@ t_tpool *t_tpool_create(size_t num_threads) {
 }
 
 int t_tpool_submit(t_tpool *pool, t_task_fn fn, void *context) {
-    if (!pool || !fn) return -1;
+    if (!pool || !fn || !pool->workers) return -1;
     t_task *task = (t_task *)malloc(sizeof(t_task));
     if (!task) return -1;
     task->fn = fn;
@@ -164,7 +185,7 @@ int t_tpool_submit(t_tpool *pool, t_task_fn fn, void *context) {
 }
 
 int t_tpool_submit_to(t_tpool *pool, size_t worker_id, t_task_fn fn, void *context) {
-    if (!pool || !fn || worker_id >= pool->num_workers) return -1;
+    if (!pool || !fn || !pool->workers || worker_id >= pool->num_workers) return -1;
     t_task *task = (t_task *)malloc(sizeof(t_task));
     if (!task) return -1;
     task->fn = fn;
@@ -192,7 +213,7 @@ size_t t_tpool_worker_count(const t_tpool *pool) {
 }
 
 void t_tpool_wait(t_tpool *pool) {
-    if (!pool) return;
+    if (!pool || !pool->workers) return;
     pthread_mutex_lock(&pool->wait_mutex);
     while (pool->total_completed < pool->total_submitted) {
         pthread_cond_wait(&pool->wait_cond, &pool->wait_mutex);
@@ -209,22 +230,64 @@ size_t t_tpool_tasks_stolen(const t_tpool *pool) {
 }
 
 void t_tpool_destroy(t_tpool *pool) {
-    if (!pool) return;
+    if (!pool || !pool->workers) return;
+
+    pthread_t self = pthread_self();
+    int self_idx = -1;
+    for (size_t i = 0; i < pool->num_workers; ++i) {
+        if (pthread_equal(pool->workers[i].thread, self)) {
+            self_idx = (int)i;
+            break;
+        }
+    }
+
     pthread_mutex_lock(&pool->wait_mutex);
+    if (pool->destroying) {
+        pthread_mutex_unlock(&pool->wait_mutex);
+        return;
+    }
+    pool->destroying = 1;
     pool->stopping = 1;
     pthread_cond_broadcast(&pool->wait_cond);
     pthread_mutex_unlock(&pool->wait_mutex);
 
+    if (self_idx >= 0) {
+        /* In-task destroy: cannot pthread_join self — join peers, tear down,
+         * and let run_task free the pool shell after the callback returns. */
+        for (size_t i = 0; i < pool->num_workers; ++i) {
+            if ((int)i == self_idx) continue;
+            pthread_join(pool->workers[i].thread, NULL);
+        }
+        for (size_t i = 0; i < pool->num_workers; ++i) {
+            void *raw = NULL;
+            while (t_mpmc_pop(&pool->workers[i].queue, &raw)) {
+                run_task_raw((t_task *)raw);
+            }
+            t_mpmc_destroy(&pool->workers[i].queue);
+        }
+        free(pool->workers);
+        pool->workers = NULL;
+        pool->num_workers = 0;
+        pthread_mutex_destroy(&pool->wait_mutex);
+        pthread_cond_destroy(&pool->wait_cond);
+        (void)pthread_detach(self);
+        pool->free_pending = 1;
+        return;
+    }
+
     for (size_t i = 0; i < pool->num_workers; ++i) {
         pthread_join(pool->workers[i].thread, NULL);
+    }
+    for (size_t i = 0; i < pool->num_workers; ++i) {
         void *raw = NULL;
         while (t_mpmc_pop(&pool->workers[i].queue, &raw)) {
             /* Drain leftover work instead of silently dropping it. */
-            run_task((t_task *)raw, pool);
+            run_task_raw((t_task *)raw);
         }
         t_mpmc_destroy(&pool->workers[i].queue);
     }
     free(pool->workers);
+    pool->workers = NULL;
     pthread_mutex_destroy(&pool->wait_mutex);
     pthread_cond_destroy(&pool->wait_cond);
     free(pool);

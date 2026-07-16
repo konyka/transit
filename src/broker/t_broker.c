@@ -1,5 +1,6 @@
 #include "t_broker.h"
 #include "t_domain.h"
+#include "t_queue.h"
 #include "t_map.h"
 #include <stdlib.h>
 #include <string.h>
@@ -247,6 +248,14 @@ int t_broker_has_subscription(t_broker *broker, const char *queue_name,
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return 0;
     return t_domain_has_subscription(d, queue_name, cb, ud);
+}
+
+int t_broker_is_queue_delivering(const t_broker *broker, const char *queue_name) {
+    if (!broker || !queue_name) return 0;
+    t_domain *d = broker_find_queue_domain((t_broker *)broker, queue_name);
+    if (!d) return 0;
+    t_queue *q = (t_queue *)t_domain_get_queue(d, queue_name);
+    return t_queue_is_delivering(q);
 }
 
 size_t t_broker_total_queues(const t_broker *broker) {

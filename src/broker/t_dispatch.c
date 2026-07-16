@@ -19,8 +19,10 @@ typedef struct t_dispatch_sub {
 
 /* Dispatch wrapper for broker delivery callback */
 typedef struct dispatch_sub_cb_ud {
-    uint64_t session_id;
+    uint64_t    session_id;
     t_dispatch *disp;
+    char       *queue_name; /* for deferred free while fanout holds ud */
+    int         zombie;
 } dispatch_sub_cb_ud;
 
 /* Dispatch object */
@@ -28,16 +30,57 @@ struct t_dispatch {
     t_broker *broker;
     t_map      sessions;      /* session_id (string) -> t_session* */
     t_vec      subscriptions; /* array of t_dispatch_sub * (dynamically allocated) */
+    t_vec      deferred_cbud; /* zombies waiting until fanout ends */
     size_t     total_published;
     size_t     total_delivered;
+    int        free_pending; /* destroy deferred while cbud snaps live */
 };
+
+static void dispatch_free_cbud(dispatch_sub_cb_ud *cbud) {
+    if (!cbud) return;
+    free(cbud->queue_name);
+    free(cbud);
+}
+
+static void dispatch_purge_deferred(t_dispatch *disp) {
+    if (!disp) return;
+    for (size_t i = 0; i < disp->deferred_cbud.len; ) {
+        dispatch_sub_cb_ud *cbud = (dispatch_sub_cb_ud *)disp->deferred_cbud.items[i];
+        if (cbud && cbud->queue_name &&
+            t_broker_is_queue_delivering(disp->broker, cbud->queue_name)) {
+            ++i;
+            continue;
+        }
+        for (size_t j = i; j + 1 < disp->deferred_cbud.len; ++j) {
+            disp->deferred_cbud.items[j] = disp->deferred_cbud.items[j + 1];
+        }
+        disp->deferred_cbud.len--;
+        dispatch_free_cbud(cbud);
+    }
+}
+
+/* Free now, or defer if a push fanout still holds this ud in a snap. */
+static void dispatch_retire_cbud(t_dispatch *disp, const char *queue_name,
+                                 dispatch_sub_cb_ud *cbud) {
+    if (!cbud) return;
+    cbud->zombie = 1;
+    cbud->disp = NULL;
+    if (disp && queue_name && t_broker_is_queue_delivering(disp->broker, queue_name)) {
+        if (t_vec_push(&disp->deferred_cbud, cbud) != 0) {
+            /* OOM during fanout: leak rather than free under live snap ud. */
+            return;
+        }
+        return;
+    }
+    dispatch_free_cbud(cbud);
+}
 
 /* Helpers */
 static void dispatch_deliver_cb(const char *queue_name, const uint8_t *data,
                               size_t len, void *ud) {
     (void)queue_name; /* not used directly here, per session routing we derive by ud */
     dispatch_sub_cb_ud *wrapper = (dispatch_sub_cb_ud *)ud;
-    if (!wrapper || !wrapper->disp) return;
+    if (!wrapper || wrapper->zombie || !wrapper->disp) return;
     t_dispatch *disp = wrapper->disp;
     /* Build string key from session_id */
     char key[32];
@@ -61,6 +104,7 @@ t_dispatch *t_dispatch_create(t_broker *broker) {
     d->broker = broker;
     t_map_init(&d->sessions);
     t_vec_init(&d->subscriptions);
+    t_vec_init(&d->deferred_cbud);
     d->total_published = 0;
     d->total_delivered = 0;
     return d;
@@ -77,12 +121,23 @@ void t_dispatch_destroy(t_dispatch *disp) {
                 t_broker_unsubscribe(disp->broker, sub->queue_name,
                                      dispatch_deliver_cb, sub->cbud);
             }
+            dispatch_retire_cbud(disp, sub->queue_name, (dispatch_sub_cb_ud *)sub->cbud);
             free(sub->queue_name);
-            free(sub->cbud);
             free(sub);
         }
     }
+    disp->subscriptions.len = 0;
     t_vec_destroy(&disp->subscriptions);
+    t_vec_init(&disp->subscriptions);
+
+    dispatch_purge_deferred(disp);
+    if (disp->deferred_cbud.len > 0) {
+        disp->free_pending = 1;
+        return;
+    }
+
+    disp->free_pending = 0;
+    t_vec_destroy(&disp->deferred_cbud);
     /* Release session refs so callers can destroy after dispatch. */
     {
         t_map_iter it = t_map_iter_begin(&disp->sessions);
@@ -98,6 +153,10 @@ void t_dispatch_destroy(t_dispatch *disp) {
     }
     t_map_destroy(&disp->sessions);
     free(disp);
+}
+
+static void dispatch_try_complete_destroy(t_dispatch *disp) {
+    if (disp && disp->free_pending) t_dispatch_destroy(disp);
 }
 
 int t_dispatch_register(t_dispatch *disp, uint64_t session_id, t_session *sess) {
@@ -127,8 +186,8 @@ int t_dispatch_unregister(t_dispatch *disp, uint64_t session_id) {
                 t_broker_unsubscribe(disp->broker, sub->queue_name,
                                      dispatch_deliver_cb, sub->cbud);
             }
+            dispatch_retire_cbud(disp, sub->queue_name, (dispatch_sub_cb_ud *)sub->cbud);
             free(sub->queue_name);
-            free(sub->cbud);
             free(sub);
             for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
                 disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
@@ -138,6 +197,8 @@ int t_dispatch_unregister(t_dispatch *disp, uint64_t session_id) {
         }
         ++i;
     }
+    dispatch_purge_deferred(disp);
+    dispatch_try_complete_destroy(disp);
     return 0;
 }
 
@@ -169,8 +230,8 @@ int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
             i++;
             continue;
         }
+        dispatch_retire_cbud(disp, sub->queue_name, (dispatch_sub_cb_ud *)sub->cbud);
         free(sub->queue_name);
-        free(sub->cbud);
         free(sub);
         for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
             disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
@@ -178,10 +239,16 @@ int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
         disp->subscriptions.len--;
         heal_failed = 1;
     }
-    if (heal_failed) return -1;
+    if (heal_failed) {
+        dispatch_purge_deferred(disp);
+        dispatch_try_complete_destroy(disp);
+        return -1;
+    }
 
     int r = t_broker_publish(disp->broker, queue_name, data, len, priority);
     if (r == 0) disp->total_published++;
+    dispatch_purge_deferred(disp);
+    dispatch_try_complete_destroy(disp);
     return r;
 }
 
@@ -203,8 +270,8 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
                 return -1;
             }
             /* Stale bookkeeping (queue recreated): drop and resubscribe below. */
+            dispatch_retire_cbud(disp, existing->queue_name, (dispatch_sub_cb_ud *)existing->cbud);
             free(existing->queue_name);
-            free(existing->cbud);
             free(existing);
             for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
                 disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
@@ -232,12 +299,19 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
     }
     cbud->disp = disp;
     cbud->session_id = session_id;
+    cbud->queue_name = strdup(queue_name);
+    if (!cbud->queue_name) {
+        free(sub->queue_name);
+        free(sub);
+        free(cbud);
+        return -1;
+    }
     sub->cbud = cbud;
 
     if (t_broker_subscribe(disp->broker, queue_name, dispatch_deliver_cb, cbud) != 0) {
         free(sub->queue_name);
         free(sub);
-        free(cbud);
+        dispatch_free_cbud(cbud);
         return -1;
     }
     /* record subscription for bookkeeping */
@@ -245,9 +319,11 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
         t_broker_unsubscribe(disp->broker, queue_name, dispatch_deliver_cb, cbud);
         free(sub->queue_name);
         free(sub);
-        free(cbud);
+        dispatch_free_cbud(cbud);
         return -1;
     }
+    dispatch_purge_deferred(disp);
+    dispatch_try_complete_destroy(disp);
     return 0;
 }
 
@@ -262,13 +338,15 @@ int t_dispatch_unsubscribe(t_dispatch *disp, uint64_t session_id, const char *qu
              * the queue was deleted; the consumer is already gone in that case. */
             (void)t_broker_unsubscribe(disp->broker, queue_name,
                                        dispatch_deliver_cb, sub->cbud);
+            dispatch_retire_cbud(disp, queue_name, (dispatch_sub_cb_ud *)sub->cbud);
             free(sub->queue_name);
-            free(sub->cbud);
             free(sub);
             for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
                 disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
             }
             disp->subscriptions.len--;
+            dispatch_purge_deferred(disp);
+            dispatch_try_complete_destroy(disp);
             return 0;
         }
     }
