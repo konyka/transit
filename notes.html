@@ -605,6 +605,9 @@
             <li>fc stats clamp size_t into int atomics; client unsub null-safe</li>
             <li>socket accept sets O_NONBLOCK and retries EINTR</li>
             <li>broker retain/release so destroy waits for live dispatch</li>
+            <li>evloop wake pipe is non-blocking so stop cannot hang</li>
+            <li>domain subscribe rejects free_pending queues (no false success)</li>
+            <li>storage load/flush retry EINTR and short read/write</li>
         </ul>
     </div>
 

@@ -261,6 +261,8 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
     domain_purge_deferred(domain);
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
+    /* Dying queues are reaped after subscribe; do not report a false success. */
+    if (t_queue_is_free_pending(q)) return -1;
     for (size_t i = 0; i < domain->sub_wrappers.len; ++i) {
         t_domain_sub_ctx *existing = (t_domain_sub_ctx *)domain->sub_wrappers.items[i];
         if (existing && !existing->zombie && existing->cb.cb == cb && existing->cb.ud == ud &&

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <limits.h>
 
@@ -145,6 +146,16 @@ t_evloop *t_evloop_create(void) {
     if (pipe(loop->wakeup_fds) != 0) {
         free(loop);
         return NULL;
+    }
+    /* Non-blocking: stop() must not hang if the wake pipe fills. */
+    for (int i = 0; i < 2; ++i) {
+        int fl = fcntl(loop->wakeup_fds[i], F_GETFL, 0);
+        if (fl < 0 || fcntl(loop->wakeup_fds[i], F_SETFL, fl | O_NONBLOCK) < 0) {
+            close(loop->wakeup_fds[0]);
+            close(loop->wakeup_fds[1]);
+            free(loop);
+            return NULL;
+        }
     }
     loop->wakeup_io.fd = loop->wakeup_fds[0];
     loop->wakeup_io.loop = loop;
@@ -293,6 +304,7 @@ void t_evloop_stop(t_evloop *loop) {
         do {
             w = write(loop->wakeup_fds[1], &b, 1);
         } while (w < 0 && errno == EINTR);
+        /* EAGAIN: a wake byte is already queued; running=0 is enough. */
     }
 }
 

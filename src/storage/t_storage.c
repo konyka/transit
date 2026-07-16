@@ -56,9 +56,17 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
     if (total > T_STORAGE_MAX_FILE) { close(fd); return -1; }
     uint8_t *buf = (uint8_t*)malloc(total);
     if (!buf) { close(fd); return -1; }
-    ssize_t r = read(fd, buf, total);
+    size_t off = 0;
+    while (off < total) {
+        ssize_t r = read(fd, buf + off, total - off);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            close(fd); free(buf); return -1;
+        }
+        if (r == 0) { close(fd); free(buf); return -1; }
+        off += (size_t)r;
+    }
     close(fd);
-    if ((size_t)r != total) { free(buf); return -1; }
     size_t pos = 0;
     char keybuf[32];
     while (pos + 16 <= total) {
@@ -296,11 +304,27 @@ int t_storage_flush(t_storage *storage) {
         uint8_t header[16];
         memcpy(header, &key, 8);
         memcpy(header + 8, &len64, 8);
-        ssize_t w = write(fd, header, 16);
-        if (w != 16) { close(fd); unlink(tmp); free(tmp); return -1; }
+        size_t hoff = 0;
+        while (hoff < 16) {
+            ssize_t w = write(fd, header + hoff, 16 - hoff);
+            if (w < 0) {
+                if (errno == EINTR) continue;
+                close(fd); unlink(tmp); free(tmp); return -1;
+            }
+            if (w == 0) { close(fd); unlink(tmp); free(tmp); return -1; }
+            hoff += (size_t)w;
+        }
         if (e->data_len > 0) {
-            w = write(fd, e->data, e->data_len);
-            if ((size_t)w != e->data_len) { close(fd); unlink(tmp); free(tmp); return -1; }
+            size_t doff = 0;
+            while (doff < e->data_len) {
+                ssize_t w = write(fd, e->data + doff, e->data_len - doff);
+                if (w < 0) {
+                    if (errno == EINTR) continue;
+                    close(fd); unlink(tmp); free(tmp); return -1;
+                }
+                if (w == 0) { close(fd); unlink(tmp); free(tmp); return -1; }
+                doff += (size_t)w;
+            }
         }
         wrote += (16 + (off_t)e->data_len);
     }
