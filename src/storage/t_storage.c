@@ -271,7 +271,7 @@ int t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
     storage->iterating = 0;
     if (storage->free_pending) {
         t_storage_destroy(storage);
-        return 0;
+        return -1; /* storage freed; caller must not touch it */
     }
     return 0;
 }

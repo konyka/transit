@@ -54,7 +54,7 @@ void t_cgroup_destroy(t_cgroup *cg) {
 }
 
 int t_cgroup_add_consumer(t_cgroup *cg, const char *consumer_id, t_cgroup_deliver_cb cb, void *ud) {
-    if (!cg || !consumer_id || !cb) return -1;
+    if (!cg || cg->free_pending || !consumer_id || !cb) return -1;
     for (size_t i = 0; i < cg->consumer_count; i++) {
         if (strcmp(cg->consumers[i].id, consumer_id) == 0) return -1;
     }
@@ -77,7 +77,7 @@ int t_cgroup_add_consumer(t_cgroup *cg, const char *consumer_id, t_cgroup_delive
 }
 
 int t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id) {
-    if (!cg || !consumer_id) return -1;
+    if (!cg || cg->free_pending || !consumer_id) return -1;
     for (size_t i = 0; i < cg->consumer_count; i++) {
         if (strcmp(cg->consumers[i].id, consumer_id) == 0) {
             size_t last = cg->consumer_count - 1;
@@ -101,7 +101,7 @@ int t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id) {
 }
 
 int t_cgroup_dispatch(t_cgroup *cg, const char *topic, const uint8_t *payload, size_t len) {
-    if (!cg || cg->consumer_count == 0) return -1;
+    if (!cg || cg->free_pending || cg->consumer_count == 0) return -1;
     size_t idx = cg->next_idx % cg->consumer_count;
     t_cgroup_deliver_cb cb = cg->consumers[idx].cb;
     void *ud = cg->consumers[idx].ud;

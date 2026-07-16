@@ -204,7 +204,7 @@ int t_client_post(t_client *client, const char *queue_name,
     free(snaps);
     if (client->posting == 0 && client->free_pending) {
         t_client_destroy(client);
-        return 0;
+        return -1; /* client freed; caller must not touch it */
     }
     return 0;
 }

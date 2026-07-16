@@ -236,14 +236,17 @@ static void admin_remove_client(t_admin *admin, t_admin_client *c) {
         close(c->fd);
         c->fd = -1;
     }
+    int found = 0;
     for (size_t i = 0; i < admin->client_count; i++) {
         if (admin->clients[i] == c) {
             admin->clients[i] = admin->clients[admin->client_count - 1];
             admin->clients[admin->client_count - 1] = NULL;
+            admin->client_count--;
+            found = 1;
             break;
         }
     }
-    if (admin->client_count > 0) admin->client_count--;
+    if (!found) return; /* already removed: avoid count skew / double free */
     if (c->in_io_cb) {
         c->free_pending = 1;
         return;
