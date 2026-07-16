@@ -597,6 +597,8 @@
             <li>evloop defer_free after poll batch; del nulls callback (same-batch t_evio UAF)</li>
             <li>queue destroy not completed inside deliver (post/drain still touch q)</li>
             <li>domain/broker map owners reap free_pending before free (stale map UAF)</li>
+            <li>ttl/cgroup/raft/storage defer destroy while expire/dispatch/apply/foreach cb runs</li>
+            <li>tcp server accept and admin stats/io defer destroy under live callbacks</li>
         </ul>
     </div>
 

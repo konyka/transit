@@ -39,6 +39,8 @@ struct t_admin {
     void           *stats_ud;
     t_admin_client *clients[T_ADMIN_MAX_CLIENTS];
     size_t          client_count;
+    int             in_cb;        /* accept / client callback nesting */
+    int             free_pending; /* destroy deferred until in_cb == 0 */
 };
 
 static void admin_accept(t_evio *io, int events, void *ud);
@@ -80,6 +82,11 @@ t_admin *t_admin_create(t_evloop *loop, const char *host, int port) {
 
 void t_admin_destroy(t_admin *admin) {
     if (!admin) return;
+    if (admin->in_cb > 0) {
+        admin->free_pending = 1;
+        return;
+    }
+    admin->free_pending = 0;
     t_admin_stop(admin);
     free(admin->host);
     free(admin);
@@ -165,22 +172,35 @@ int t_admin_is_running(const t_admin *admin) {
 static void admin_accept(t_evio *io, int events, void *ud) {
     (void)events;
     t_admin *admin = (t_admin *)ud;
+    if (!admin) return;
+    admin->in_cb++;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
     int fd;
     do {
         fd = accept(io->fd, (struct sockaddr *)&addr, &addrlen);
     } while (fd < 0 && errno == EINTR);
-    if (fd < 0) return;
+    if (fd < 0) {
+        admin->in_cb--;
+        if (admin->free_pending) t_admin_destroy(admin);
+        return;
+    }
     set_nonblock(fd);
 
     if (admin->client_count >= T_ADMIN_MAX_CLIENTS) {
         close(fd);
+        admin->in_cb--;
+        if (admin->free_pending) t_admin_destroy(admin);
         return;
     }
 
     t_admin_client *c = (t_admin_client *)calloc(1, sizeof(*c));
-    if (!c) { close(fd); return; }
+    if (!c) {
+        close(fd);
+        admin->in_cb--;
+        if (admin->free_pending) t_admin_destroy(admin);
+        return;
+    }
     c->fd = fd;
     c->admin = admin;
     c->io.fd = fd;
@@ -195,12 +215,16 @@ static void admin_accept(t_evio *io, int events, void *ud) {
     if (t_evloop_add(admin->loop, &c->io, T_EV_READ) != 0) {
         close(fd);
         free(c);
+        admin->in_cb--;
+        if (admin->free_pending) t_admin_destroy(admin);
         return;
     }
 
     size_t slot = admin->client_count;
     admin->clients[slot] = c;
     admin->client_count++;
+    admin->in_cb--;
+    if (admin->free_pending) t_admin_destroy(admin);
 }
 
 static void admin_remove_client(t_admin *admin, t_admin_client *c) {
@@ -372,6 +396,8 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
     (void)io;
     t_admin_client *c = (t_admin_client *)ud;
     t_admin *admin = c->admin;
+    if (!admin) return;
+    admin->in_cb++;
     c->in_io_cb = 1;
     if ((events & T_EV_ERROR) && !c->free_pending) {
         admin_remove_client(admin, c);
@@ -433,4 +459,6 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
 out:
     c->in_io_cb = 0;
     if (c->free_pending) t_evloop_defer_free(admin->loop, c);
+    admin->in_cb--;
+    if (admin->free_pending) t_admin_destroy(admin);
 }

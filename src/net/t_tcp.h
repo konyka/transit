@@ -37,6 +37,8 @@ struct t_tcp_server {
     t_evloop        *loop;
     t_tcp_accept_cb  on_accept;
     void            *user_data;
+    int              in_accept;
+    int              free_pending;
 };
 
 t_tcp_server *t_tcp_server_create(t_evloop *loop);

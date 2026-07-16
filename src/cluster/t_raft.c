@@ -18,6 +18,8 @@ struct t_raft {
     size_t log_count;
     t_raft_apply_cb apply_cb;
     void *apply_ud;
+    int applying;
+    int free_pending;
 };
 
 static int ensure_log_cap(t_raft *r, size_t needed) {
@@ -56,6 +58,11 @@ t_raft *t_raft_create(const t_raft_config *cfg) {
 
 void t_raft_destroy(t_raft *raft) {
     if (!raft) return;
+    if (raft->applying) {
+        raft->free_pending = 1;
+        return;
+    }
+    raft->free_pending = 0;
     for (size_t i = 0; i < raft->log_count; i++) {
         free(raft->log[i].data);
     }
@@ -151,12 +158,23 @@ int t_raft_advance_commit(t_raft *raft, uint64_t commit_idx) {
 
 int t_raft_apply_entries(t_raft *raft) {
     if (!raft) return -1;
-    while (raft->last_applied < raft->commit_index) {
+    raft->applying = 1;
+    while (!raft->free_pending && raft->last_applied < raft->commit_index) {
         uint64_t next = raft->last_applied + 1;
         const t_raft_entry *e = t_raft_get_entry(raft, next);
-        if (!e) return -1;
+        if (!e) {
+            raft->applying = 0;
+            if (raft->free_pending) t_raft_destroy(raft);
+            return -1;
+        }
         if (raft->apply_cb) raft->apply_cb(e, raft->apply_ud);
+        if (raft->free_pending) break;
         raft->last_applied = next;
+    }
+    raft->applying = 0;
+    if (raft->free_pending) {
+        t_raft_destroy(raft);
+        return 0;
     }
     return 0;
 }

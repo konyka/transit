@@ -23,6 +23,8 @@ struct t_storage {
     t_map        map;      /* key (as string) -> t_storage_entry* */
     int          dirty;    /* for file-backed storage */
     char        *path;     /* file path for persistence (optional) */
+    int          iterating;   /* foreach callback nest guard */
+    int          free_pending; /* destroy deferred until foreach returns */
 };
 
 /* Helpers: convert 64-bit key to string for map */
@@ -142,6 +144,11 @@ t_storage *t_storage_create(t_storage_type type, const char *path) {
 
 void t_storage_destroy(t_storage *storage) {
     if (!storage) return;
+    if (storage->iterating) {
+        storage->free_pending = 1;
+        return;
+    }
+    storage->free_pending = 0;
     /* Persist dirty file-backed state before tearing down the map. */
     if (storage->type == T_STORAGE_FILE && storage->dirty) {
         (void)t_storage_flush(storage);
@@ -245,13 +252,19 @@ int t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
     while (count < n && t_map_iter_next(&it, &k, &v)) {
         keys[count++] = str_to_key(k);
     }
-    for (size_t i = 0; i < count; ++i) {
+    storage->iterating = 1;
+    for (size_t i = 0; i < count && !storage->free_pending; ++i) {
         char keybuf[32];
         key_to_str(keys[i], keybuf, sizeof(keybuf));
         t_storage_entry *e = (t_storage_entry *)t_map_get(&storage->map, keybuf);
         if (e) fn(keys[i], e->data, e->data_len, ud);
     }
     free(keys);
+    storage->iterating = 0;
+    if (storage->free_pending) {
+        t_storage_destroy(storage);
+        return 0;
+    }
     return 0;
 }
 

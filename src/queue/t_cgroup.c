@@ -16,6 +16,8 @@ struct t_cgroup {
     size_t       consumer_cap;
     size_t       next_idx;
     uint64_t     total_dispatched;
+    int          dispatching;
+    int          free_pending;
 };
 
 t_cgroup *t_cgroup_create(const char *group_id) {
@@ -38,6 +40,11 @@ t_cgroup *t_cgroup_create(const char *group_id) {
 
 void t_cgroup_destroy(t_cgroup *cg) {
     if (!cg) return;
+    if (cg->dispatching) {
+        cg->free_pending = 1;
+        return;
+    }
+    cg->free_pending = 0;
     for (size_t i = 0; i < cg->consumer_count; i++) {
         free(cg->consumers[i].id);
     }
@@ -100,7 +107,13 @@ int t_cgroup_dispatch(t_cgroup *cg, const char *topic, const uint8_t *payload, s
     void *ud = cg->consumers[idx].ud;
     /* Advance before callback: remove_consumer in cb may zero the count. */
     cg->next_idx = (idx + 1) % cg->consumer_count;
+    cg->dispatching = 1;
     if (cb) cb(topic, payload, len, ud);
+    cg->dispatching = 0;
+    if (cg->free_pending) {
+        t_cgroup_destroy(cg);
+        return 0;
+    }
     if (cg->consumer_count == 0) cg->next_idx = 0;
     else if (cg->next_idx >= cg->consumer_count) cg->next_idx = 0;
     cg->total_dispatched++;

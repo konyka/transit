@@ -20,6 +20,8 @@ struct t_ttl {
     t_pqueue        heap;
     t_ttl_expire_cb cb;
     void           *ud;
+    int             expiring;    /* nest guard for expire callbacks */
+    int             free_pending; /* destroy deferred until expire returns */
 };
 
 static void ttl_key(char *buf, size_t buflen, uint64_t msg_id) {
@@ -49,6 +51,11 @@ t_ttl *t_ttl_create(t_ttl_expire_cb cb, void *ud) {
 
 void t_ttl_destroy(t_ttl *ttl) {
     if (!ttl) return;
+    if (ttl->expiring) {
+        ttl->free_pending = 1;
+        return;
+    }
+    ttl->free_pending = 0;
     t_map_iter it = t_map_iter_begin(&ttl->entries);
     const char *key;
     void *val;
@@ -122,7 +129,8 @@ size_t t_ttl_expire(t_ttl *ttl, uint64_t now) {
     size_t expired = 0;
     t_pq_entry top;
 
-    while (t_pqueue_peek(&ttl->heap, &top) == 0) {
+    ttl->expiring = 1;
+    while (!ttl->free_pending && t_pqueue_peek(&ttl->heap, &top) == 0) {
         if ((uint64_t)top.priority > now) break;
         t_pqueue_pop(&ttl->heap, &top);
 
@@ -135,35 +143,44 @@ size_t t_ttl_expire(t_ttl *ttl, uint64_t now) {
 
         /* Remove before callback so reentrant t_ttl_remove cannot double-free. */
         t_map_remove(&ttl->entries, key);
-        if (ttl->cb) ttl->cb(e, ttl->ud);
+        t_ttl_expire_cb cb = ttl->cb;
+        void *ud = ttl->ud;
+        if (cb) cb(e, ud);
         ttl_entry_free(e);
         expired++;
     }
 
     /* Compact: rebuild heap when stale nodes dominate (heap > 4x live). */
-    size_t live = t_map_len(&ttl->entries);
-    size_t hlen = t_pqueue_len(&ttl->heap);
-    if (hlen > 64 && live > 0 && hlen > live * 4) {
-        t_pqueue fresh;
-        if (t_pqueue_init(&fresh, live) == 0) {
-            int ok = 1;
-            t_map_iter it = t_map_iter_begin(&ttl->entries);
-            const char *k;
-            void *val;
-            while (t_map_iter_next(&it, &k, &val)) {
-                t_ttl_entry *e = (t_ttl_entry *)val;
-                if (t_pqueue_push(&fresh, (int64_t)e->expire_at, (void *)(uintptr_t)e->msg_id) != 0) {
-                    ok = 0;
-                    break;
+    if (!ttl->free_pending) {
+        size_t live = t_map_len(&ttl->entries);
+        size_t hlen = t_pqueue_len(&ttl->heap);
+        if (hlen > 64 && live > 0 && hlen > live * 4) {
+            t_pqueue fresh;
+            if (t_pqueue_init(&fresh, live) == 0) {
+                int ok = 1;
+                t_map_iter it = t_map_iter_begin(&ttl->entries);
+                const char *k;
+                void *val;
+                while (t_map_iter_next(&it, &k, &val)) {
+                    t_ttl_entry *e = (t_ttl_entry *)val;
+                    if (t_pqueue_push(&fresh, (int64_t)e->expire_at, (void *)(uintptr_t)e->msg_id) != 0) {
+                        ok = 0;
+                        break;
+                    }
+                }
+                if (ok) {
+                    t_pqueue_destroy(&ttl->heap);
+                    ttl->heap = fresh;
+                } else {
+                    t_pqueue_destroy(&fresh);
                 }
             }
-            if (ok) {
-                t_pqueue_destroy(&ttl->heap);
-                ttl->heap = fresh;
-            } else {
-                t_pqueue_destroy(&fresh);
-            }
         }
+    }
+    ttl->expiring = 0;
+    if (ttl->free_pending) {
+        t_ttl_destroy(ttl);
+        return expired;
     }
     return expired;
 }

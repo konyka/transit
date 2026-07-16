@@ -27,6 +27,17 @@ t_tcp_server *t_tcp_server_create(t_evloop *loop) {
 
 void t_tcp_server_destroy(t_tcp_server *srv) {
     if (!srv) return;
+    if (srv->in_accept) {
+        srv->free_pending = 1;
+        if (srv->fd >= 0) {
+            if (srv->loop) t_evloop_del(srv->loop, &srv->accept_io);
+            t_socket_close(srv->fd);
+            srv->fd = -1;
+        }
+        srv->on_accept = NULL;
+        return;
+    }
+    srv->free_pending = 0;
     if (srv->fd >= 0) {
         /* Del before close so a recycled fd cannot steal this epoll slot. */
         if (srv->loop) t_evloop_del(srv->loop, &srv->accept_io);
@@ -64,7 +75,8 @@ static void t_tcp_server_accept_cb(t_evio *io, int flags, void *ud) {
     (void)ud;
     t_tcp_server *srv = (t_tcp_server *)io->user_data;
     if (!srv || srv->fd < 0) return;
-    while (1) {
+    srv->in_accept = 1;
+    while (!srv->free_pending && srv->fd >= 0) {
         t_sockaddr peer;
         int client = t_socket_accept(srv->fd, &peer);
         if (client < 0) {
@@ -80,6 +92,8 @@ static void t_tcp_server_accept_cb(t_evio *io, int flags, void *ud) {
             t_socket_close(client);
         }
     }
+    srv->in_accept = 0;
+    if (srv->free_pending) t_tcp_server_destroy(srv);
 }
 
 int t_tcp_server_listen(t_tcp_server *srv, const char *ip, uint16_t port,
