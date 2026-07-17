@@ -215,6 +215,11 @@ void t_queue_destroy(t_queue *q) {
         q->free_pending = 1;
         return;
     }
+    /* Map owners (domain) must clear owner_held before free completes. */
+    if (q->owner_held) {
+        q->free_pending = 1;
+        return;
+    }
     q->free_pending = 0;
     /* Free pending messages */
     for (size_t i = 0; i < q->pending.len; ++i) {
@@ -512,6 +517,7 @@ int t_queue_nack(t_queue *q, uint64_t msg_id) {
                 failed = 1;
             } else {
                 free(inf);
+                if (q->total_consumed > 0) q->total_consumed--;
                 moved++;
             }
         }
