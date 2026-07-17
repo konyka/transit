@@ -75,20 +75,20 @@ int t_fc_acquire(t_flowcontrol *fc, size_t count) {
     }
     /* Impossible request: reject without latching blocked forever. */
     if (count > fc->max_credits) {
-        pthread_mutex_unlock(&fc->mu);
         fc_add_stat(&fc->total_rejected, count);
+        pthread_mutex_unlock(&fc->mu);
         return -1;
     }
     if (fc->credits >= count) {
         fc->credits -= count;
         fc->blocked = 0;
-        pthread_mutex_unlock(&fc->mu);
         fc_add_stat(&fc->total_acquired, count);
+        pthread_mutex_unlock(&fc->mu);
         return 0;
     }
     fc->blocked = 1;
-    pthread_mutex_unlock(&fc->mu);
     fc_add_stat(&fc->total_rejected, count);
+    pthread_mutex_unlock(&fc->mu);
     return -1;
 }
 
@@ -103,8 +103,8 @@ void t_fc_release(t_flowcontrol *fc, size_t count) {
         fc->credits += count;
     }
     if (fc->credits > 0) fc->blocked = 0;
-    pthread_mutex_unlock(&fc->mu);
     fc_add_stat(&fc->total_released, count);
+    pthread_mutex_unlock(&fc->mu);
 }
 
 void t_fc_refill(t_flowcontrol *fc) {

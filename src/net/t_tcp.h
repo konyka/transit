@@ -21,6 +21,7 @@ struct t_tcp_conn {
     void     *user_data;
     t_evloop *loop;
     int       closed;
+    int       reading;      /* read_io currently registered with the loop */
     int       in_io_cb;
     int       free_pending;
 };

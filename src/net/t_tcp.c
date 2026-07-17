@@ -163,6 +163,7 @@ void t_tcp_conn_destroy(t_tcp_conn *conn) {
     if (!conn->closed) {
         conn->closed = 1;
         if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+        conn->reading = 0;
         conn->read_io.callback = NULL;
         conn->read_io.user_data = NULL;
         if (conn->fd >= 0) {
@@ -190,6 +191,7 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
         if (!conn->closed) {
             conn->closed = 1;
             if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+            conn->reading = 0;
             conn->read_io.callback = NULL;
             conn->read_io.user_data = NULL;
             if (conn->fd >= 0) {
@@ -223,6 +225,7 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
         if (!conn->closed) {
             conn->closed = 1;
             if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+            conn->reading = 0;
             conn->read_io.callback = NULL;
             conn->read_io.user_data = NULL;
             if (conn->fd >= 0) {
@@ -237,7 +240,7 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
 }
 
 int t_tcp_conn_start_read(t_tcp_conn *conn, t_tcp_read_cb cb, void *ud) {
-    if (!conn) return -1;
+    if (!conn || conn->closed || conn->fd < 0) return -1;
     conn->on_read = cb;
     conn->user_data = ud;
     conn->read_io.fd = conn->fd;
@@ -245,12 +248,19 @@ int t_tcp_conn_start_read(t_tcp_conn *conn, t_tcp_read_cb cb, void *ud) {
     conn->read_io.callback = t_tcp_conn_read_cb;
     conn->read_io.user_data = conn;
     conn->read_io.loop = conn->loop;
-    return t_evloop_add(conn->loop, &conn->read_io, T_EV_READ);
+    if (conn->reading) {
+        return t_evloop_mod(conn->loop, &conn->read_io, T_EV_READ);
+    }
+    if (t_evloop_add(conn->loop, &conn->read_io, T_EV_READ) != 0) return -1;
+    conn->reading = 1;
+    return 0;
 }
 
 int t_tcp_conn_stop_read(t_tcp_conn *conn) {
     if (!conn) return -1;
-    return t_evloop_del(conn->loop, &conn->read_io);
+    int r = t_evloop_del(conn->loop, &conn->read_io);
+    conn->reading = 0;
+    return r;
 }
 
 ssize_t t_tcp_conn_write(t_tcp_conn *conn, const void *buf, size_t len) {

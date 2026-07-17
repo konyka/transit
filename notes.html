@@ -628,6 +628,9 @@
             <li>coro keeps main stub / nested caller across yields</li>
             <li>mmap close returns -1 on msync failure (no silent data loss)</li>
             <li>config parse_file retries EINTR and short reads</li>
+            <li>client mutators reject free_pending (no UAF after deferred destroy)</li>
+            <li>flowcontrol updates stats under mutex (no destroy race)</li>
+            <li>tcp start_read reuses/mod registered io instead of EEXIST fail</li>
         </ul>
     </div>
 
