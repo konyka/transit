@@ -150,16 +150,17 @@ t_storage *t_storage_create(t_storage_type type, const char *path) {
     return s;
 }
 
-void t_storage_destroy(t_storage *storage) {
-    if (!storage) return;
+/* force=1: best-effort flush then always free (deferred destroy must not leak). */
+static int storage_destroy_impl(t_storage *storage, int force) {
+    if (!storage) return 0;
     if (storage->iterating) {
         storage->free_pending = 1;
-        return;
+        return 0;
     }
     storage->free_pending = 0;
     /* Persist dirty file-backed state before tearing down the map. */
     if (storage->type == T_STORAGE_FILE && storage->dirty) {
-        (void)t_storage_flush(storage);
+        if (t_storage_flush(storage) != 0 && !force) return -1;
     }
     /* Free stored entries */
     t_map_iter it = t_map_iter_begin(&storage->map);
@@ -175,6 +176,11 @@ void t_storage_destroy(t_storage *storage) {
     t_map_destroy(&storage->map);
     if (storage->path) free(storage->path);
     free(storage);
+    return 0;
+}
+
+int t_storage_destroy(t_storage *storage) {
+    return storage_destroy_impl(storage, 0);
 }
 
 int t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len) {
@@ -271,7 +277,7 @@ int t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
     free(keys);
     storage->iterating = 0;
     if (storage->free_pending) {
-        t_storage_destroy(storage);
+        (void)storage_destroy_impl(storage, 1);
         return -1; /* storage freed; caller must not touch it */
     }
     return 0;

@@ -20,6 +20,9 @@ t_session *t_session_create(uint64_t session_id);
 int        t_session_destroy(t_session *sess);
 void       t_session_retain(t_session *sess);
 void       t_session_release(t_session *sess);
+/* Dispatch (and similar) pin so release cannot make destroy succeed while mapped. */
+void       t_session_pin(t_session *sess);
+void       t_session_unpin(t_session *sess);
 uint64_t   t_session_id(const t_session *sess);
 t_sstate   t_session_get_state(const t_session *sess);
 int        t_session_is_active(const t_session *sess);

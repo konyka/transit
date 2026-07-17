@@ -21,7 +21,8 @@ typedef struct t_storage t_storage;
 typedef void (*t_storage_iter_fn)(uint64_t key, const uint8_t *data, size_t len, void *ud);
 
 t_storage *t_storage_create(t_storage_type type, const char *path);
-void       t_storage_destroy(t_storage *storage);
+/* Returns 0 on success, -1 if file flush failed (object kept for retry). */
+int        t_storage_destroy(t_storage *storage);
 int        t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len);
 /* Borrowed read-only pointer: valid until next put/delete of the same key (or destroy). */
 int        t_storage_get(t_storage *storage, uint64_t key, const void **data, size_t *len);

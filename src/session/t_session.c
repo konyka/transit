@@ -12,7 +12,8 @@ struct t_session {
     uint64_t last_activity_ns;
     size_t msgs_sent;
     size_t msgs_received;
-    size_t refs; /* destroy-guard: dispatch register holds a ref */
+    size_t refs; /* optional retain/release */
+    size_t pins; /* destroy-guard: dispatch register holds a pin */
     void *user_data;
     t_session_event_cb event_cb;
     void *event_ud;
@@ -34,6 +35,7 @@ t_session *t_session_create(uint64_t session_id) {
     sess->msgs_sent = 0;
     sess->msgs_received = 0;
     sess->refs = 0;
+    sess->pins = 0;
     sess->user_data = NULL;
     sess->event_cb = NULL;
     sess->event_ud = NULL;
@@ -42,8 +44,8 @@ t_session *t_session_create(uint64_t session_id) {
 
 int t_session_destroy(t_session *sess) {
     if (!sess) return 0;
-    /* Refuse free while still registered with a dispatch. */
-    if (sess->refs > 0) return -1;
+    /* Refuse free while retained or still pinned by dispatch. */
+    if (sess->refs > 0 || sess->pins > 0) return -1;
     free(sess);
     return 0;
 }
@@ -54,6 +56,14 @@ void t_session_retain(t_session *sess) {
 
 void t_session_release(t_session *sess) {
     if (sess && sess->refs > 0) sess->refs--;
+}
+
+void t_session_pin(t_session *sess) {
+    if (sess) sess->pins++;
+}
+
+void t_session_unpin(t_session *sess) {
+    if (sess && sess->pins > 0) sess->pins--;
 }
 
 uint64_t t_session_id(const t_session *sess) {

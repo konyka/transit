@@ -183,6 +183,10 @@ void t_pool_free(t_pool *pool, void *ptr, size_t size) {
         return;
     }
     t_pool_class *cls = &pool->classes[idx];
+    /* Reject double-free: already on the freelist (would self-alias). */
+    for (void *p = cls->free_head; p; p = *((void **)p)) {
+        if (p == ptr) return;
+    }
     *((void **)ptr) = cls->free_head;
     cls->free_head = ptr;
     if (cls->used_bytes >= cls->block_size) {

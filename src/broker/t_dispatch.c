@@ -177,7 +177,7 @@ static int dispatch_destroy_now(t_dispatch *disp) {
             t_session *sess = (t_session *)val;
             if (sess) {
                 (void)t_session_disconnect(sess);
-                t_session_release(sess);
+                t_session_unpin(sess);
             }
         }
     }
@@ -216,7 +216,7 @@ int t_dispatch_register(t_dispatch *disp, uint64_t session_id, t_session *sess) 
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     if (t_map_contains(&disp->sessions, key)) return -1;
     if (t_map_insert(&disp->sessions, key, sess) != 0) return -1;
-    t_session_retain(sess);
+    t_session_pin(sess);
     (void)t_session_connect(sess);
     return 0;
 }
@@ -228,7 +228,7 @@ int t_dispatch_unregister(t_dispatch *disp, uint64_t session_id) {
     void *v = t_map_remove(&disp->sessions, key);
     if (!v) return -1;
     (void)t_session_disconnect((t_session *)v);
-    t_session_release((t_session *)v);
+    t_session_unpin((t_session *)v);
     /* Drop broker subscriptions for this session to avoid ghost deliveries. */
     for (size_t i = 0; i < disp->subscriptions.len; ) {
         t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
