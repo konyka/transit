@@ -164,7 +164,10 @@ int t_raft_apply_entries(t_raft *raft) {
         const t_raft_entry *e = t_raft_get_entry(raft, next);
         if (!e) {
             raft->applying = 0;
-            if (raft->free_pending) t_raft_destroy(raft);
+            if (raft->free_pending) {
+                t_raft_destroy(raft);
+                return -2;
+            }
             return -1;
         }
         if (raft->apply_cb) raft->apply_cb(e, raft->apply_ud);
@@ -174,7 +177,7 @@ int t_raft_apply_entries(t_raft *raft) {
     raft->applying = 0;
     if (raft->free_pending) {
         t_raft_destroy(raft);
-        return 0;
+        return -2; /* raft freed; caller must not touch it */
     }
     return 0;
 }

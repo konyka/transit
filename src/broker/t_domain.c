@@ -119,10 +119,13 @@ void t_domain_set_broker_owned(t_domain *domain, int owned) {
     if (domain) domain->broker_owned = owned ? 1 : 0;
 }
 
-static void domain_try_complete_destroy(t_domain *domain) {
+/* Returns 1 if domain was freed (caller must not touch it). */
+static int domain_try_complete_destroy(t_domain *domain) {
     /* Broker-owned domains must be removed from the broker map first. */
-    if (domain && domain->free_pending && !domain->broker_owned)
-        t_domain_destroy(domain);
+    if (!domain || !domain->free_pending || domain->broker_owned) return 0;
+    if (domain_any_delivering(domain)) return 0;
+    t_domain_destroy(domain);
+    return 1;
 }
 
 /* Drop a queue that was destroyed during fanout while still map-owned. */
@@ -185,7 +188,7 @@ int t_domain_is_accepting(const t_domain *domain) {
 }
 
 int t_domain_create_queue(t_domain *domain, const char *queue_name, int type, int flags) {
-    if (!domain || !queue_name) return -1;
+    if (!domain || domain->free_pending || !queue_name) return -1;
     if (t_map_get(&domain->queues, queue_name)) return -1;
     t_queue *q = t_queue_create(queue_name, (t_qtype)type, flags);
     if (!q) return -1;
@@ -199,7 +202,7 @@ int t_domain_create_queue(t_domain *domain, const char *queue_name, int type, in
 }
 
 int t_domain_delete_queue(t_domain *domain, const char *queue_name) {
-    if (!domain || !queue_name) return -1;
+    if (!domain || domain->free_pending || !queue_name) return -1;
     domain_purge_deferred(domain);
     void *ptr = t_map_get(&domain->queues, queue_name);
     if (!ptr) return -1;
@@ -224,7 +227,7 @@ int t_domain_delete_queue(t_domain *domain, const char *queue_name) {
     t_queue_destroy(q);
     t_map_remove(&domain->queues, queue_name);
     domain_purge_deferred(domain);
-    domain_try_complete_destroy(domain);
+    if (domain_try_complete_destroy(domain)) return -1;
     return 0;
 }
 
@@ -239,7 +242,7 @@ void *t_domain_get_queue(t_domain *domain, const char *queue_name) {
 
 int t_domain_publish(t_domain *domain, const char *queue_name,
                      const uint8_t *data, size_t len, int priority) {
-    if (!domain || !domain->accepting || !queue_name) return -1;
+    if (!domain || domain->free_pending || !domain->accepting || !queue_name) return -1;
     if (len > 0 && !data) return -1;
     domain_purge_deferred(domain);
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
@@ -252,13 +255,13 @@ int t_domain_publish(t_domain *domain, const char *queue_name,
     domain_reap_queue_if_pending(domain, queue_name, q);
     domain_purge_deferred(domain);
     t_dispatch_reap_deferred();
-    domain_try_complete_destroy(domain);
+    if (domain_try_complete_destroy(domain)) return -1;
     return r;
 }
 
 int t_domain_subscribe(t_domain *domain, const char *queue_name,
                        void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud) {
-    if (!domain || !domain->accepting || !queue_name || !cb) return -1;
+    if (!domain || domain->free_pending || !domain->accepting || !queue_name || !cb) return -1;
     domain_purge_deferred(domain);
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
@@ -299,13 +302,13 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
     domain_reap_queue_if_pending(domain, queue_name, q);
     domain_purge_deferred(domain);
     t_dispatch_reap_deferred();
-    domain_try_complete_destroy(domain);
+    if (domain_try_complete_destroy(domain)) return -1;
     return 0;
 }
 
 int t_domain_unsubscribe(t_domain *domain, const char *queue_name,
                          void (*cb)(const char *, const uint8_t *, size_t, void *), void *ud) {
-    if (!domain || !queue_name || !cb) return -1;
+    if (!domain || domain->free_pending || !queue_name || !cb) return -1;
     t_queue *q = (t_queue *)t_map_get(&domain->queues, queue_name);
     if (!q) return -1;
     for (size_t i = 0; i < domain->sub_wrappers.len; ++i) {
@@ -320,7 +323,7 @@ int t_domain_unsubscribe(t_domain *domain, const char *queue_name,
         domain_retire_ctx(domain, q, ctx);
         if (!t_queue_is_delivering(q)) domain_purge_deferred(domain);
         t_dispatch_reap_deferred();
-        domain_try_complete_destroy(domain);
+        if (domain_try_complete_destroy(domain)) return -1;
         return 0;
     }
     return -1;

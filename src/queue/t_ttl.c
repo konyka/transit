@@ -180,7 +180,7 @@ size_t t_ttl_expire(t_ttl *ttl, uint64_t now) {
     ttl->expiring = 0;
     if (ttl->free_pending) {
         t_ttl_destroy(ttl);
-        return expired;
+        return (size_t)-1; /* ttl freed; caller must not touch it */
     }
     return expired;
 }

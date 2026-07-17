@@ -22,6 +22,7 @@ void   t_ttl_destroy(t_ttl *ttl);
 int  t_ttl_add(t_ttl *ttl, uint64_t msg_id, const char *topic, const uint8_t *payload, size_t len, uint64_t expire_at);
 int  t_ttl_remove(t_ttl *ttl, uint64_t msg_id);
 
+/* Returns expired count, or (size_t)-1 if a callback destroyed ttl. */
 size_t t_ttl_expire(t_ttl *ttl, uint64_t now);
 
 size_t t_ttl_count(const t_ttl *ttl);

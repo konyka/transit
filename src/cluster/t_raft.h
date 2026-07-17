@@ -38,6 +38,7 @@ int                t_raft_append_entry(t_raft *raft, uint8_t type,
 size_t             t_raft_log_count(const t_raft *raft);
 const t_raft_entry *t_raft_get_entry(const t_raft *raft, uint64_t index);
 int                t_raft_advance_commit(t_raft *raft, uint64_t commit_idx);
+/* Returns 0 on success, -1 on error, -2 if a callback destroyed raft. */
 int                t_raft_apply_entries(t_raft *raft);
 size_t             t_raft_applied_count(const t_raft *raft);
 int                t_raft_request_vote(t_raft *raft, uint64_t candidate_id,
