@@ -34,8 +34,8 @@ static void coro_inc_fn(void *arg) {
 }
 
 static void tpool_inc_fn(void *arg) {
-    volatile int *p = (volatile int *)arg;
-    (*p)++;
+    int *p = (int *)arg;
+    __sync_add_and_fetch(p, 1);
 }
 
 T_TEST(integration_broker_broadcast) {
@@ -169,12 +169,12 @@ T_TEST(integration_coroutine_threadpool) {
     t_tpool *tp = t_tpool_create(2);
     T_ASSERT_NOT_NULL(tp);
 
-    volatile int task_count = 0;
+    int task_count = 0;
     for (int i = 0; i < 4; i++) {
         t_tpool_submit(tp, tpool_inc_fn, (void *)&task_count);
     }
     t_tpool_wait(tp);
-    T_ASSERT_EQ(task_count, 4);
+    T_ASSERT_EQ(__sync_add_and_fetch(&task_count, 0), 4);
 
     t_tpool_destroy(tp);
     t_coro_destroy(c);

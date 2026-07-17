@@ -72,6 +72,14 @@ static int topic_match_pattern(const char *pattern, const char *topic) {
 
 int t_router_bind(t_router *router, const char *pattern, void *target) {
     if (!router || !pattern) return -1;
+    /* Idempotent: replace target for an existing pattern. */
+    for (size_t i = 0; i < router->bindings.len; ++i) {
+        t_binding *existing = (t_binding *)router->bindings.items[i];
+        if (existing && existing->pattern && strcmp(existing->pattern, pattern) == 0) {
+            existing->target = target;
+            return 0;
+        }
+    }
     t_binding *b = (t_binding *)malloc(sizeof(t_binding));
     if (!b) return -1;
     b->pattern = strdup(pattern);
@@ -90,20 +98,22 @@ int t_router_bind(t_router *router, const char *pattern, void *target) {
 
 int t_router_unbind(t_router *router, const char *pattern) {
     if (!router || !pattern) return -1;
-    for (size_t i = 0; i < router->bindings.len; ++i) {
+    int removed = 0;
+    for (size_t i = 0; i < router->bindings.len; ) {
         t_binding *b = (t_binding *)router->bindings.items[i];
         if (b && b->pattern && strcmp(b->pattern, pattern) == 0) {
             free(b->pattern);
             free(b);
-            /* remove from vec by shifting */
             for (size_t j = i; j + 1 < router->bindings.len; ++j) {
-                router->bindings.items[j] = router->bindings.items[j+1];
+                router->bindings.items[j] = router->bindings.items[j + 1];
             }
             router->bindings.len--;
-            return 0;
+            removed++;
+            continue;
         }
+        ++i;
     }
-    return -1;
+    return removed ? 0 : -1;
 }
 
 size_t t_router_route(t_router *router, const char *topic, void **targets, size_t max_targets) {

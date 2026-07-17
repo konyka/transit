@@ -89,12 +89,18 @@ void *t_slab_alloc(t_slab *slab) {
         slab->pages = page;
     }
     if (page->free_head == -1) {
-        /* page is full, create a new one */
-        t_slab_page *np = t_slab_new_page(slab);
-        if (!np) return NULL;
-        np->next = slab->pages;
-        slab->pages = np;
-        page = np;
+        /* Reuse free slots on older pages before growing RSS. */
+        t_slab_page *p = page->next;
+        while (p && p->free_head == -1) p = p->next;
+        if (p) {
+            page = p;
+        } else {
+            t_slab_page *np = t_slab_new_page(slab);
+            if (!np) return NULL;
+            np->next = slab->pages;
+            slab->pages = np;
+            page = np;
+        }
     }
     int idx = page->free_head;
     void *obj = (char *)page->mem + idx * page->object_size;

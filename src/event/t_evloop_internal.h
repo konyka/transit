@@ -28,6 +28,11 @@ struct t_evloop {
     void      **deferred_free;
     size_t      deferred_free_len;
     size_t      deferred_free_cap;
+    /* Overflow chain when deferred_free realloc fails under a poll batch. */
+    struct t_defer_ovf {
+        void *ptr;
+        struct t_defer_ovf *next;
+    } *deferred_free_overflow;
 };
 
 #endif

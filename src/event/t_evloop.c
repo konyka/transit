@@ -16,12 +16,20 @@ static void timer_heap_swap(t_timer_entry *a, t_timer_entry *b) {
 static int evloop_process_timers(t_evloop *loop); /* uses t_evloop_destroy */
 
 static void evloop_flush_deferred_free(t_evloop *loop) {
-    if (!loop || !loop->deferred_free) return;
-    for (size_t i = 0; i < loop->deferred_free_len; ++i) {
-        free(loop->deferred_free[i]);
-        loop->deferred_free[i] = NULL;
+    if (!loop) return;
+    if (loop->deferred_free) {
+        for (size_t i = 0; i < loop->deferred_free_len; ++i) {
+            free(loop->deferred_free[i]);
+            loop->deferred_free[i] = NULL;
+        }
+        loop->deferred_free_len = 0;
     }
-    loop->deferred_free_len = 0;
+    while (loop->deferred_free_overflow) {
+        struct t_defer_ovf *n = loop->deferred_free_overflow;
+        loop->deferred_free_overflow = n->next;
+        free(n->ptr);
+        free(n);
+    }
 }
 
 void t_evloop_defer_free(t_evloop *loop, void *ptr) {
@@ -32,18 +40,24 @@ void t_evloop_defer_free(t_evloop *loop, void *ptr) {
     }
     if (loop->deferred_free_len >= loop->deferred_free_cap) {
         size_t ncap = loop->deferred_free_cap ? loop->deferred_free_cap * 2 : 8;
-        if (ncap > SIZE_MAX / sizeof(void *)) {
-            /* Leak: freeing under a live poll batch can UAF later events. */
-            return;
+        if (ncap <= SIZE_MAX / sizeof(void *)) {
+            void **n = (void **)realloc(loop->deferred_free, ncap * sizeof(void *));
+            if (n) {
+                loop->deferred_free = n;
+                loop->deferred_free_cap = ncap;
+            }
         }
-        void **n = (void **)realloc(loop->deferred_free, ncap * sizeof(void *));
-        if (!n) {
-            return;
-        }
-        loop->deferred_free = n;
-        loop->deferred_free_cap = ncap;
     }
-    loop->deferred_free[loop->deferred_free_len++] = ptr;
+    if (loop->deferred_free_len < loop->deferred_free_cap) {
+        loop->deferred_free[loop->deferred_free_len++] = ptr;
+        return;
+    }
+    /* Array full and grow failed: chain a node so we never drop the pointer. */
+    struct t_defer_ovf *node = (struct t_defer_ovf *)malloc(sizeof(*node));
+    if (!node) return; /* true OOM: cannot defer without UAF risk */
+    node->ptr = ptr;
+    node->next = loop->deferred_free_overflow;
+    loop->deferred_free_overflow = node;
 }
 
 static void timer_heap_sift_up(t_timer_entry *arr, size_t idx) {
@@ -188,7 +202,7 @@ t_evloop *t_evloop_create(void) {
     }
 
     /* Pre-size defer list so poll-batch frees rarely hit realloc OOM. */
-    loop->deferred_free_cap = 64;
+    loop->deferred_free_cap = 256;
     loop->deferred_free = (void **)calloc(loop->deferred_free_cap, sizeof(void *));
     if (!loop->deferred_free) {
         loop->backend->destroy(loop);

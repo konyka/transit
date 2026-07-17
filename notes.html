@@ -634,6 +634,9 @@
             <li>rcbuf ref/unref use atomics (no concurrent double-free)</li>
             <li>list_remove ignores already-detached nodes (no head/count skew)</li>
             <li>admin set_nonblock failure closes fd (no blocking evloop)</li>
+            <li>slab alloc reuses free slots on older pages before growing</li>
+            <li>router bind is idempotent; unbind removes all matching patterns</li>
+            <li>evloop defer_free overflow chain avoids silent poll-batch leaks</li>
         </ul>
     </div>
 
