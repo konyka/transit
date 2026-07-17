@@ -187,6 +187,16 @@ t_evloop *t_evloop_create(void) {
         return NULL;
     }
 
+    /* Pre-size defer list so poll-batch frees rarely hit realloc OOM. */
+    loop->deferred_free_cap = 64;
+    loop->deferred_free = (void **)calloc(loop->deferred_free_cap, sizeof(void *));
+    if (!loop->deferred_free) {
+        loop->backend->destroy(loop);
+        close(loop->wakeup_fds[0]);
+        close(loop->wakeup_fds[1]);
+        free(loop);
+        return NULL;
+    }
     loop->next_timer_id = 1;
     loop->running = 0;
     return loop;

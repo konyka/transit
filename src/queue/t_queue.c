@@ -131,9 +131,11 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
     return 0;
 }
 
-static void queue_try_complete_destroy(t_queue *q) {
-    if (q && q->free_pending && q->delivering == 0 && !q->owner_held)
-        t_queue_destroy(q);
+/* Returns 1 if q was freed (caller must not touch it). */
+static int queue_try_complete_destroy(t_queue *q) {
+    if (!q || !q->free_pending || q->delivering != 0 || q->owner_held) return 0;
+    t_queue_destroy(q);
+    return 1;
 }
 
 /* Deliver any stranded backlog after a partial subscribe flush.
@@ -289,12 +291,12 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
         }
         if (t_queue_deliver_to_consumers(q, m) != 0) {
             t_msg_free(m);
-            queue_try_complete_destroy(q);
+            (void)queue_try_complete_destroy(q);
             return -1;
         }
         q->total_published++;
         t_msg_free(m);
-        queue_try_complete_destroy(q);
+        if (queue_try_complete_destroy(q)) return -1;
         return 0;
     }
 
@@ -307,10 +309,11 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
         }
         q->total_published++;
         /* Drain is best-effort: message is already accepted. Returning -1
-         * here would make callers retry and risk duplicate delivery. */
+         * here would make callers retry and risk duplicate delivery — unless
+         * the queue itself was freed in a consumer callback. */
         if (q->consumers.len > 0)
             (void)t_queue_drain_backlog(q);
-        queue_try_complete_destroy(q);
+        if (queue_try_complete_destroy(q)) return -1;
         return 0;
     }
 
@@ -320,22 +323,22 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     if (q->consumers.len > 0) {
         if (t_queue_drain_backlog(q) != 0) {
             t_msg_free(m);
-            queue_try_complete_destroy(q);
+            (void)queue_try_complete_destroy(q);
             return -1;
         }
         if (q->free_pending) {
             t_msg_free(m);
-            queue_try_complete_destroy(q);
+            (void)queue_try_complete_destroy(q);
             return -1;
         }
         if (t_queue_deliver_to_consumers(q, m) != 0) {
             t_msg_free(m);
-            queue_try_complete_destroy(q);
+            (void)queue_try_complete_destroy(q);
             return -1;
         }
         q->total_published++;
         t_msg_free(m);
-        queue_try_complete_destroy(q);
+        if (queue_try_complete_destroy(q)) return -1;
         return 0;
     }
 
@@ -348,7 +351,7 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
 }
 
 int t_queue_consume(t_queue *q, t_msg *out_msg) {
-    if (!q || !out_msg) return -1;
+    if (!q || q->free_pending || !out_msg) return -1;
     /* Closed queues still allow draining pending/priority backlog. */
     if (q->closed && t_queue_pending_count(q) == 0) return -1;
     if (q->type == T_QUEUE_BROADCAST) return -1;
@@ -394,7 +397,7 @@ size_t t_queue_pending_count(const t_queue *q) {
 }
 
 uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
-    if (!q || !cb || q->closed) return 0;
+    if (!q || q->free_pending || !cb || q->closed) return 0;
     if (q->next_consumer_id == UINT64_MAX) return 0;
     t_cons_cb *wrapper = (t_cons_cb *)malloc(sizeof(t_cons_cb));
     if (!wrapper) return 0;
@@ -411,16 +414,16 @@ uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
      * If flush cannot finish, roll back this consumer so post stays pull-mode. */
     if (t_queue_drain_backlog(q) != 0) {
         (void)t_queue_remove_consumer(q, wrapper->id);
-        queue_try_complete_destroy(q);
+        (void)queue_try_complete_destroy(q);
         return 0;
     }
     uint64_t id = wrapper->id;
-    queue_try_complete_destroy(q);
+    if (queue_try_complete_destroy(q)) return 0;
     return id;
 }
 
 int t_queue_remove_consumer(t_queue *q, uint64_t consumer_id) {
-    if (!q || consumer_id == 0) return -1;
+    if (!q || q->free_pending || consumer_id == 0) return -1;
     for (size_t i = 0; i < q->consumers.len; ++i) {
         t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
         if (!cb || cb->id != consumer_id) continue;
@@ -435,7 +438,7 @@ int t_queue_remove_consumer(t_queue *q, uint64_t consumer_id) {
 }
 
 int t_queue_remove_consumer_ud(t_queue *q, void *ud) {
-    if (!q) return -1;
+    if (!q || q->free_pending) return -1;
     int removed = 0;
     for (size_t i = 0; i < q->consumers.len; ) {
         t_cons_cb *cb = (t_cons_cb *)q->consumers.items[i];
@@ -467,7 +470,7 @@ size_t t_queue_consumer_count(const t_queue *q) {
 }
 
 int t_queue_ack(t_queue *q, uint64_t msg_id) {
-    if (!q) return -1;
+    if (!q || q->free_pending) return -1;
     /* Find inflight entries with matching id, free them */
     t_list_node *cur = q->inflight.head;
     int freed = 0;
@@ -486,7 +489,7 @@ int t_queue_ack(t_queue *q, uint64_t msg_id) {
 }
 
 int t_queue_nack(t_queue *q, uint64_t msg_id) {
-    if (!q) return -1;
+    if (!q || q->free_pending) return -1;
     if (q->type == T_QUEUE_BROADCAST) return -1;
     t_list_node *cur = q->inflight.head;
     int moved = 0;

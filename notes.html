@@ -619,6 +619,9 @@
             <li>raft apply_entries returns -2 after deferred destroy</li>
             <li>dispatch/broker mutators return -1 after deferred destroy</li>
             <li>storage put/delete/flush reject during foreach (no data UAF)</li>
+            <li>standalone queue post returns -1 after deferred destroy</li>
+            <li>queue consume/ack/nack/consumer APIs reject free_pending</li>
+            <li>evloop preallocates deferred_free to avoid poll-batch OOM gaps</li>
         </ul>
     </div>
 
