@@ -55,10 +55,18 @@ t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
     return coro;
 }
 
+static int coro_caller_is_stub(const t_coro *c) {
+    return c && c->fn == NULL && c->stack == NULL;
+}
+
 int t_coro_destroy(t_coro *coro) {
     if (!coro) return -1;
     /* Refuse live coroutines — freeing the stack would UAF on resume/yield. */
     if (coro->state == T_CORO_RUNNING || coro->state == T_CORO_SUSPENDED) return -1;
+    if (coro_caller_is_stub(coro->caller)) {
+        free(coro->caller);
+        coro->caller = NULL;
+    }
     if (coro->stack) free(coro->stack);
     free(coro);
     return 0;
@@ -69,20 +77,22 @@ int t_coro_resume(t_coro *coro) {
     t_coro *prev = g_current_coro;
     if (prev) {
         coro->caller = prev;
-    } else {
+    } else if (!coro->caller) {
+        /* Stable main stub: keep across yields so nested callers survive. */
         coro->caller = (t_coro *)calloc(1, sizeof(t_coro));
         if (!coro->caller) return -1;
-    }
-    int needs_caller_cleanup = (prev == NULL);
-    if (needs_caller_cleanup) {
         coro->caller->state = T_CORO_RUNNING;
     }
+    /* else: keep existing caller (parent coro or main stub) */
     g_current_coro = coro;
     coro->state = T_CORO_RUNNING;
     t_coro_switch(&coro->caller->saved_sp, &coro->saved_sp);
     g_current_coro = prev;
     if (coro->state == T_CORO_RUNNING) coro->state = T_CORO_SUSPENDED;
-    if (needs_caller_cleanup) free(coro->caller);
+    if (coro->state == T_CORO_DEAD && coro_caller_is_stub(coro->caller)) {
+        free(coro->caller);
+        coro->caller = NULL;
+    }
     return 0;
 }
 

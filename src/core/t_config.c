@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include <limits.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 /* Internal simple data structures: sections containing key/value pairs */
 typedef struct {
@@ -173,26 +176,31 @@ static void cfg_clear(t_config *cfg) {
 /* Parse file by reading it into memory and delegating to string parser */
 int t_config_parse_file(t_config *cfg, const char *path) {
     if (!cfg || !path) return -1;
-    FILE *f = fopen(path, "r");
-    if (!f) return -1;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 0) { fclose(f); return -1; }
-    if ((unsigned long)sz > SIZE_MAX - 1) { fclose(f); return -1; }
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    struct stat st;
+    if (fstat(fd, &st) != 0 || st.st_size < 0) { close(fd); return -1; }
+    size_t total = (size_t)st.st_size;
+    if (total > SIZE_MAX - 1) { close(fd); return -1; }
     /* Cap config files to keep parse memory bounded. */
-    if ((unsigned long)sz > 16 * 1024 * 1024) { fclose(f); return -1; }
-    char *data = (char*)malloc((size_t)sz + 1);
-    if (!data) { fclose(f); return -1; }
-    size_t rd = fread(data, 1, (size_t)sz, f);
-    if (ferror(f) || rd != (size_t)sz) {
-        free(data);
-        fclose(f);
-        return -1;
+    if (total > 16 * 1024 * 1024) { close(fd); return -1; }
+    char *data = (char *)malloc(total + 1);
+    if (!data) { close(fd); return -1; }
+    size_t off = 0;
+    while (off < total) {
+        ssize_t r = read(fd, data + off, total - off);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            free(data);
+            close(fd);
+            return -1;
+        }
+        if (r == 0) { free(data); close(fd); return -1; }
+        off += (size_t)r;
     }
-    data[rd] = '\0';
-    fclose(f);
-    int res = t_config_parse_string(cfg, data, rd);
+    close(fd);
+    data[off] = '\0';
+    int res = t_config_parse_string(cfg, data, off);
     free(data);
     return res;
 }

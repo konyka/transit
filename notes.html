@@ -625,6 +625,9 @@
             <li>storage destroy aborts on flush failure (no silent data loss)</li>
             <li>pool free rejects double-free freelist aliasing</li>
             <li>session pin/unpin so dispatch map outlives spurious release</li>
+            <li>coro keeps main stub / nested caller across yields</li>
+            <li>mmap close returns -1 on msync failure (no silent data loss)</li>
+            <li>config parse_file retries EINTR and short reads</li>
         </ul>
     </div>
 

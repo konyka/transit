@@ -70,11 +70,10 @@ int t_mmap_open(t_mmap *mm, const char *path) {
     return 0;
 }
 
-void t_mmap_close(t_mmap *mm) {
-    if (!mm) return;
+int t_mmap_close(t_mmap *mm) {
+    if (!mm) return 0;
     if (mm->addr && mm->size) {
-        /* Best-effort flush so dirty pages are not silently dropped. */
-        (void)msync(mm->addr, mm->size, MS_SYNC);
+        if (msync(mm->addr, mm->size, MS_SYNC) != 0) return -1;
         munmap(mm->addr, mm->size);
         mm->addr = NULL;
         mm->size = 0;
@@ -83,6 +82,7 @@ void t_mmap_close(t_mmap *mm) {
         close(mm->fd);
         mm->fd = -1;
     }
+    return 0;
 }
 
 int t_mmap_sync(t_mmap *mm) {
