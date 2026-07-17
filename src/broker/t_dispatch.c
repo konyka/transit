@@ -137,8 +137,9 @@ t_dispatch *t_dispatch_create(t_broker *broker) {
     return d;
 }
 
-void t_dispatch_destroy(t_dispatch *disp) {
-    if (!disp) return;
+/* Returns 1 if freed, 0 if deferred/no-op. */
+static int dispatch_destroy_now(t_dispatch *disp) {
+    if (!disp) return 0;
     /* Unsubscribe from broker before freeing cbud (avoids UAF on late delivery). */
     if (disp->subscriptions.items) {
         for (size_t i = 0; i < disp->subscriptions.len; ++i) {
@@ -161,7 +162,7 @@ void t_dispatch_destroy(t_dispatch *disp) {
     if (disp->deferred_cbud.len > 0) {
         disp->free_pending = 1;
         dispatch_reap_enqueue(disp);
-        return;
+        return 0;
     }
 
     dispatch_reap_dequeue(disp);
@@ -185,10 +186,17 @@ void t_dispatch_destroy(t_dispatch *disp) {
     disp->broker = NULL;
     free(disp);
     t_broker_release(broker);
+    return 1;
 }
 
-static void dispatch_try_complete_destroy(t_dispatch *disp) {
-    if (disp && disp->free_pending) t_dispatch_destroy(disp);
+void t_dispatch_destroy(t_dispatch *disp) {
+    (void)dispatch_destroy_now(disp);
+}
+
+/* Returns 1 if disp was freed. */
+static int dispatch_try_complete_destroy(t_dispatch *disp) {
+    if (!disp || !disp->free_pending) return 0;
+    return dispatch_destroy_now(disp);
 }
 
 void t_dispatch_reap_deferred(void) {
@@ -197,13 +205,13 @@ void t_dispatch_reap_deferred(void) {
         t_dispatch *next = d->reap_next;
         dispatch_purge_deferred(d);
         if (d->free_pending && d->deferred_cbud.len == 0)
-            t_dispatch_destroy(d);
+            (void)dispatch_destroy_now(d);
         d = next;
     }
 }
 
 int t_dispatch_register(t_dispatch *disp, uint64_t session_id, t_session *sess) {
-    if (!disp || !sess) return -1;
+    if (!disp || disp->free_pending || !sess) return -1;
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     if (t_map_contains(&disp->sessions, key)) return -1;
@@ -214,7 +222,7 @@ int t_dispatch_register(t_dispatch *disp, uint64_t session_id, t_session *sess) 
 }
 
 int t_dispatch_unregister(t_dispatch *disp, uint64_t session_id) {
-    if (!disp) return -1;
+    if (!disp || disp->free_pending) return -1;
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     void *v = t_map_remove(&disp->sessions, key);
@@ -241,13 +249,13 @@ int t_dispatch_unregister(t_dispatch *disp, uint64_t session_id) {
         ++i;
     }
     dispatch_purge_deferred(disp);
-    dispatch_try_complete_destroy(disp);
+    if (dispatch_try_complete_destroy(disp)) return -1;
     return 0;
 }
 
 int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
                        const char *queue_name, const uint8_t *data, size_t len, int priority) {
-    if (!disp || !queue_name || (len > 0 && !data)) return -1;
+    if (!disp || disp->free_pending || !queue_name || (len > 0 && !data)) return -1;
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     void *sess = t_map_get(&disp->sessions, key);
@@ -284,19 +292,19 @@ int t_dispatch_publish(t_dispatch *disp, uint64_t session_id,
     }
     if (heal_failed) {
         dispatch_purge_deferred(disp);
-        dispatch_try_complete_destroy(disp);
+        if (dispatch_try_complete_destroy(disp)) return -1;
         return -1;
     }
 
     int r = t_broker_publish(disp->broker, queue_name, data, len, priority);
     if (r == 0) disp->total_published++;
     dispatch_purge_deferred(disp);
-    dispatch_try_complete_destroy(disp);
+    if (dispatch_try_complete_destroy(disp)) return -1;
     return r;
 }
 
 int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queue_name) {
-    if (!disp || !queue_name) return -1;
+    if (!disp || disp->free_pending || !queue_name) return -1;
     /* verify session exists and is active */
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
@@ -366,12 +374,12 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
         return -1;
     }
     dispatch_purge_deferred(disp);
-    dispatch_try_complete_destroy(disp);
+    if (dispatch_try_complete_destroy(disp)) return -1;
     return 0;
 }
 
 int t_dispatch_unsubscribe(t_dispatch *disp, uint64_t session_id, const char *queue_name) {
-    if (!disp || !queue_name) return -1;
+    if (!disp || disp->free_pending || !queue_name) return -1;
     for (size_t i = 0; i < disp->subscriptions.len; ++i) {
         t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
         if (!sub) continue;
@@ -389,7 +397,7 @@ int t_dispatch_unsubscribe(t_dispatch *disp, uint64_t session_id, const char *qu
             }
             disp->subscriptions.len--;
             dispatch_purge_deferred(disp);
-            dispatch_try_complete_destroy(disp);
+            if (dispatch_try_complete_destroy(disp)) return -1;
             return 0;
         }
     }

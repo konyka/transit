@@ -166,14 +166,14 @@ static void on_fanout_destroy(const char *q, const uint8_t *d, size_t n, void *u
 }
 
 T_TEST(broker_fanout_destroy_deferred) {
-    /* Destroy during fanout must not UAF; completes after publish returns. */
+    /* Destroy during fanout must not UAF; publish returns -1 once broker is freed. */
     destroy_ctx ctx = {0};
     t_broker *b = t_broker_create("broker-fanout-destroy");
     ctx.b = b;
     t_broker_start(b);
     T_ASSERT_EQ(t_broker_create_queue(b, "default", "kill.q", 2, 0), 0);
     T_ASSERT_EQ(t_broker_subscribe(b, "kill.q", on_fanout_destroy, &ctx), 0);
-    T_ASSERT_EQ(t_broker_publish(b, "kill.q", (const uint8_t *)"x", 1, 0), 0);
+    T_ASSERT_EQ(t_broker_publish(b, "kill.q", (const uint8_t *)"x", 1, 0), -1);
     T_ASSERT_EQ(ctx.hits, 1);
     T_ASSERT(ctx.b == NULL);
 }

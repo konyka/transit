@@ -178,7 +178,8 @@ void t_storage_destroy(t_storage *storage) {
 }
 
 int t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len) {
-    if (!storage || (len > 0 && !data)) return -1;
+    if (!storage || storage->iterating || storage->free_pending || (len > 0 && !data))
+        return -1;
     if (len > T_STORAGE_MAX_VALUE) return -1;
     char keybuf[32]; key_to_str(key, keybuf, sizeof(keybuf));
     t_storage_entry *entry = (t_storage_entry*)malloc(sizeof(t_storage_entry));
@@ -215,7 +216,7 @@ int t_storage_put(t_storage *storage, uint64_t key, const void *data, size_t len
 }
 
 int t_storage_get(t_storage *storage, uint64_t key, const void **data, size_t *len) {
-    if (!storage || !data || !len) return -1;
+    if (!storage || storage->free_pending || !data || !len) return -1;
     char keybuf[32]; key_to_str(key, keybuf, sizeof(keybuf));
     t_storage_entry *entry = (t_storage_entry*)t_map_get(&storage->map, keybuf);
     if (!entry) return -1;
@@ -225,7 +226,7 @@ int t_storage_get(t_storage *storage, uint64_t key, const void **data, size_t *l
 }
 
 int t_storage_delete(t_storage *storage, uint64_t key) {
-    if (!storage) return -1;
+    if (!storage || storage->iterating || storage->free_pending) return -1;
     char keybuf[32]; key_to_str(key, keybuf, sizeof(keybuf));
     t_storage_entry *entry = (t_storage_entry*)t_map_remove(&storage->map, keybuf);
     if (!entry) return -1;
@@ -277,7 +278,7 @@ int t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
 }
 
 int t_storage_flush(t_storage *storage) {
-    if (!storage) return -1;
+    if (!storage || storage->iterating || storage->free_pending) return -1;
     if (storage->type != T_STORAGE_FILE) return 0;
     if (!storage->path) return 0;
     /* Write to a temp file then rename for crash-safe replace. */

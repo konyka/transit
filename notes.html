@@ -617,6 +617,8 @@
             <li>standalone domain mutators return -1 after deferred destroy</li>
             <li>ttl expire returns (size_t)-1 after deferred destroy</li>
             <li>raft apply_entries returns -2 after deferred destroy</li>
+            <li>dispatch/broker mutators return -1 after deferred destroy</li>
+            <li>storage put/delete/flush reject during foreach (no data UAF)</li>
         </ul>
     </div>
 

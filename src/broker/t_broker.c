@@ -25,8 +25,12 @@ static int broker_any_delivering(const t_broker *broker) {
     return 0;
 }
 
-static void broker_try_complete_destroy(t_broker *broker) {
-    if (broker && broker->free_pending) t_broker_destroy(broker);
+/* Returns 1 if broker was freed. */
+static int broker_try_complete_destroy(t_broker *broker) {
+    if (!broker || !broker->free_pending) return 0;
+    if (broker_any_delivering(broker) || broker->ext_refs > 0) return 0;
+    t_broker_destroy(broker);
+    return 1;
 }
 
 /* Remove domains destroyed during fanout while still in the broker map. */
@@ -212,49 +216,51 @@ int t_broker_create_queue(t_broker *broker, const char *domain_name,
 
 int t_broker_delete_queue(t_broker *broker, const char *domain_name,
                           const char *queue_name) {
-    if (!broker || !domain_name || !queue_name) return -1;
+    if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
     t_domain *d = t_broker_get_domain(broker, domain_name);
     if (!d) return -1;
     int r = t_domain_delete_queue(d, queue_name);
     t_dispatch_reap_deferred();
     broker_reap_domains(broker);
-    broker_try_complete_destroy(broker);
+    if (broker_try_complete_destroy(broker)) return -1;
     return r;
 }
 
 int t_broker_publish(t_broker *broker, const char *queue_name,
                      const uint8_t *data, size_t len, int priority) {
-    if (!broker || !broker->running || !queue_name || (len > 0 && !data)) return -1;
+    if (!broker || broker->free_pending || !broker->running || !queue_name ||
+        (len > 0 && !data)) return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_publish(d, queue_name, data, len, priority);
     t_dispatch_reap_deferred();
     broker_reap_domains(broker);
-    broker_try_complete_destroy(broker);
+    if (broker_try_complete_destroy(broker)) return -1;
     return r;
 }
 
 int t_broker_subscribe(t_broker *broker, const char *queue_name,
                         t_broker_msg_cb cb, void *ud) {
-    if (!broker || !broker->running || !queue_name || !cb) return -1;
+    if (!broker || broker->free_pending || !broker->running || !queue_name || !cb)
+        return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_subscribe(d, queue_name, cb, ud);
     t_dispatch_reap_deferred();
     broker_reap_domains(broker);
-    broker_try_complete_destroy(broker);
+    if (broker_try_complete_destroy(broker)) return -1;
     return r;
 }
 
 int t_broker_unsubscribe(t_broker *broker, const char *queue_name,
                          t_broker_msg_cb cb, void *ud) {
-    if (!broker || !queue_name || !cb) return -1;
+    if (!broker || broker->free_pending || !queue_name || !cb) return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_unsubscribe(d, queue_name, cb, ud);
     t_dispatch_reap_deferred();
     broker_reap_domains(broker);
-    broker_try_complete_destroy(broker);
+    if (broker_try_complete_destroy(broker)) return -1;
     return r;
 }
 
