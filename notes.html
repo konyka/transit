@@ -631,6 +631,9 @@
             <li>client mutators reject free_pending (no UAF after deferred destroy)</li>
             <li>flowcontrol updates stats under mutex (no destroy race)</li>
             <li>tcp start_read reuses/mod registered io instead of EEXIST fail</li>
+            <li>rcbuf ref/unref use atomics (no concurrent double-free)</li>
+            <li>list_remove ignores already-detached nodes (no head/count skew)</li>
+            <li>admin set_nonblock failure closes fd (no blocking evloop)</li>
         </ul>
     </div>
 

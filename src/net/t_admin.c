@@ -47,10 +47,11 @@ static void admin_accept(t_evio *io, int events, void *ud);
 static void admin_client_cb(t_evio *io, int events, void *ud);
 static void admin_remove_client(t_admin *admin, t_admin_client *c);
 
-static void set_nonblock(int fd) {
+static int set_nonblock(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
-    if (flags == -1) flags = 0;
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    if (flags == -1) return -1;
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) return -1;
+    return 0;
 }
 
 static int find_actual_port(int fd) {
@@ -98,7 +99,10 @@ int t_admin_start(t_admin *admin) {
     if (fd < 0) return -1;
     int opt = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    set_nonblock(fd);
+    if (set_nonblock(fd) != 0) {
+        close(fd);
+        return -1;
+    }
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -185,7 +189,12 @@ static void admin_accept(t_evio *io, int events, void *ud) {
         if (admin->free_pending) t_admin_destroy(admin);
         return;
     }
-    set_nonblock(fd);
+    if (set_nonblock(fd) != 0) {
+        close(fd);
+        admin->in_cb--;
+        if (admin->free_pending) t_admin_destroy(admin);
+        return;
+    }
 
     if (admin->client_count >= T_ADMIN_MAX_CLIENTS) {
         close(fd);

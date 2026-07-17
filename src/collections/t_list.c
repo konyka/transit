@@ -58,6 +58,8 @@ t_list_node *t_list_pop_back(t_list *l) {
 
 void t_list_remove(t_list *l, t_list_node *node) {
     if (!l || !node) return;
+    /* Detached node (not sole element): ignore to avoid clearing head/count. */
+    if (!node->prev && !node->next && l->head != node) return;
     if (node->prev) node->prev->next = node->next; else l->head = node->next;
     if (node->next) node->next->prev = node->prev; else l->tail = node->prev;
     node->next = NULL;

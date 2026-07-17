@@ -16,8 +16,7 @@ t_rcbuf *t_rcbuf_create(size_t capacity) {
     rcb->buf.data = rcb->base;
     rcb->buf.len  = 0;
     rcb->buf.cap  = capacity;
-    // Simple non-atomic initialization for test purposes
-    rcb->refcount = 1;
+    t_atomic_store_int(&rcb->refcount, 1);
     rcb->owns_base = 0; /* memory is part of this allocation, freed with rcbuf */
     return rcb;
 }
@@ -32,35 +31,37 @@ t_rcbuf *t_rcbuf_wrap(void *data, size_t len, size_t cap) {
     rcb->buf.data = rcb->base;
     rcb->buf.len  = len;
     rcb->buf.cap  = rcb->cap;
-    rcb->refcount = 1;
+    t_atomic_store_int(&rcb->refcount, 1);
     rcb->owns_base = 1; /* we own the provided base memory in wrap */
     return rcb;
 }
 
 /* Increment refcount, return the same pointer */
 t_rcbuf *t_rcbuf_ref(t_rcbuf *rcb) {
-    if (rcb) {
-        if (rcb->refcount < INT_MAX) rcb->refcount++;
+    if (!rcb) return NULL;
+    for (;;) {
+        int n = t_atomic_load_int(&rcb->refcount);
+        if (n <= 0 || n == INT_MAX) return rcb;
+        if (t_atomic_cas_int(&rcb->refcount, n, n + 1)) return rcb;
     }
-    return rcb;
 }
 
 /* Decrement refcount, free if reaches 0 */
 void t_rcbuf_unref(t_rcbuf *rcb) {
     if (!rcb) return;
-    if (rcb->refcount <= 0) return; /* already freed / over-unref */
-    rcb->refcount--;
-    if (rcb->refcount == 0) {
-        // Free owned base buffer if present
+    int n = t_atomic_sub_fetch_int(&rcb->refcount, 1);
+    if (n == 0) {
         if (rcb->base && rcb->owns_base) free(rcb->base);
         free(rcb);
+    } else if (n < 0) {
+        t_atomic_store_int(&rcb->refcount, 0); /* clamp over-unref */
     }
 }
 
 /* Get refcount */
 int t_rcbuf_refcount(const t_rcbuf *rcb) {
     if (!rcb) return 0;
-    return rcb->refcount;
+    return t_atomic_load_int((t_atomic_int *)&rcb->refcount);
 }
 
 /* Simple buffer operations */
