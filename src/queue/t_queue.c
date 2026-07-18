@@ -362,6 +362,8 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
     if (q->type == T_QUEUE_BROADCAST) return -1;
     /* Priority-based path */
     if (q->type == T_QUEUE_PRIORITY) {
+        /* Push consumers own the heap via drain; pull must not steal. */
+        if (q->consumers.len > 0) return -1;
         if (t_pqueue_len(&q->pri) == 0) return -1;
         t_inflight *inf = (t_inflight *)malloc(sizeof(t_inflight));
         if (!inf) return -1;

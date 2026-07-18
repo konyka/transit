@@ -650,6 +650,10 @@
             <li>arena alloc reuses overflow blocks after reset (no orphaned chain)</li>
             <li>raft append rejects apply-callback reentrancy (no log realloc UAF)</li>
             <li>ratelimit allow/available/reset guarded by mutex</li>
+            <li>priority consume rejects when push consumers own the heap</li>
+            <li>ringbuf init rejects capacity beyond 32-bit head/tail space</li>
+            <li>domain purge frees deferred ctx per-queue (not all-or-nothing)</li>
+            <li>dispatch drops ghost subs when session is inactive</li>
         </ul>
     </div>
 

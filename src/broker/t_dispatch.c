@@ -112,7 +112,32 @@ static void dispatch_deliver_cb(const char *queue_name, const uint8_t *data,
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)wrapper->session_id);
     t_session *sess = (t_session *)t_map_get(&disp->sessions, key);
-    if (!sess || !t_session_is_active(sess)) return;
+    if (!sess || !t_session_is_active(sess)) {
+        /* Disconnect without unregister leaves a ghost broker consumer. */
+        if (wrapper->zombie) return;
+        uint64_t sid = wrapper->session_id;
+        const char *qname = wrapper->queue_name;
+        if (qname) {
+            (void)t_broker_unsubscribe(disp->broker, qname,
+                                       dispatch_deliver_cb, wrapper);
+        }
+        for (size_t i = 0; i < disp->subscriptions.len; ) {
+            t_dispatch_sub *sub = (t_dispatch_sub *)disp->subscriptions.items[i];
+            if (sub && sub->session_id == sid && sub->cbud == wrapper) {
+                dispatch_retire_cbud(disp, sub->queue_name,
+                                     (dispatch_sub_cb_ud *)sub->cbud);
+                free(sub->queue_name);
+                free(sub);
+                for (size_t j = i; j + 1 < disp->subscriptions.len; ++j) {
+                    disp->subscriptions.items[j] = disp->subscriptions.items[j + 1];
+                }
+                disp->subscriptions.len--;
+                continue;
+            }
+            ++i;
+        }
+        return;
+    }
     /* Update session activity as a delivered message */
     t_session_update_activity(sess);
     t_session_record_recv(sess);

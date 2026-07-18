@@ -52,12 +52,22 @@ static int domain_any_delivering(const t_domain *domain) {
 
 static void domain_purge_deferred(t_domain *domain) {
     if (!domain) return;
-    /* Snapshots from any in-flight fanout may still point at deferred ctx. */
-    if (domain_any_delivering(domain)) return;
-    for (size_t i = 0; i < domain->deferred_free.len; ++i) {
-        domain_free_ctx((t_domain_sub_ctx *)domain->deferred_free.items[i]);
+    /* Free zombies whose queue is no longer delivering; keep others. */
+    for (size_t i = 0; i < domain->deferred_free.len; ) {
+        t_domain_sub_ctx *ctx = (t_domain_sub_ctx *)domain->deferred_free.items[i];
+        t_queue *q = NULL;
+        if (ctx && ctx->queue_name)
+            q = (t_queue *)t_map_get(&domain->queues, ctx->queue_name);
+        if (q && t_queue_is_delivering(q)) {
+            ++i;
+            continue;
+        }
+        for (size_t j = i; j + 1 < domain->deferred_free.len; ++j) {
+            domain->deferred_free.items[j] = domain->deferred_free.items[j + 1];
+        }
+        domain->deferred_free.len--;
+        domain_free_ctx(ctx);
     }
-    domain->deferred_free.len = 0;
 }
 
 /* Free now, or defer if a push fanout still holds snap ud pointers. */
