@@ -255,6 +255,7 @@ size_t t_storage_count(const t_storage *storage) {
 
 int t_storage_foreach(t_storage *storage, t_storage_iter_fn fn, void *ud) {
     if (!storage || !fn) return -1;
+    if (storage->iterating || storage->free_pending) return -1;
     size_t n = t_map_len(&storage->map);
     if (n == 0) return 0;
     if (n > SIZE_MAX / sizeof(uint64_t)) return -1;

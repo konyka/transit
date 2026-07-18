@@ -54,7 +54,11 @@ void t_evloop_defer_free(t_evloop *loop, void *ptr) {
     }
     /* Array full and grow failed: chain a node so we never drop the pointer. */
     struct t_defer_ovf *node = (struct t_defer_ovf *)malloc(sizeof(*node));
-    if (!node) return; /* true OOM: cannot defer without UAF risk */
+    if (!node) {
+        /* True OOM: cannot defer without UAF; stop so we do not keep running. */
+        t_evloop_stop(loop);
+        return;
+    }
     node->ptr = ptr;
     node->next = loop->deferred_free_overflow;
     loop->deferred_free_overflow = node;

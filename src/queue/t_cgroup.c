@@ -102,6 +102,7 @@ int t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id) {
 
 int t_cgroup_dispatch(t_cgroup *cg, const char *topic, const uint8_t *payload, size_t len) {
     if (!cg || cg->free_pending || cg->consumer_count == 0) return -1;
+    if (len > 0 && !payload) return -1;
     size_t idx = cg->next_idx % cg->consumer_count;
     t_cgroup_deliver_cb cb = cg->consumers[idx].cb;
     void *ud = cg->consumers[idx].ud;

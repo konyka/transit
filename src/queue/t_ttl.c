@@ -73,6 +73,7 @@ int t_ttl_add(t_ttl *ttl, uint64_t msg_id, const char *topic,
     /* Heap stores expire_at as int64_t priority; reject values that wrap. */
     if (expire_at > (uint64_t)INT64_MAX) return -1;
     if (len > T_QUEUE_MAX_PAYLOAD) return -1;
+    if (len > 0 && !payload) return -1;
 
     char key[32];
     ttl_key(key, sizeof(key), msg_id);

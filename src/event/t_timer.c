@@ -133,6 +133,7 @@ void t_timer_cancel(t_timer *t, int64_t id) {
 
 int64_t t_timer_process(t_timer *t) {
     if (!t) return -1;
+    if (t->processing) return -1; /* reject reentrancy (nested destroy would UAF) */
     t->processing = 1;
     int64_t now = t_time_now_ms();
     while (t->count > 0 && !t->destroy_pending) {

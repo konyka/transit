@@ -643,6 +643,10 @@
             <li>mpmc init OOM leaves destroy-safe empty state</li>
             <li>signal uninstall preserves pending shutdown flag</li>
             <li>proto encode rejects invalid magic/version/type</li>
+            <li>timer_process rejects nested reentrancy (no UAF on destroy)</li>
+            <li>storage foreach rejects nested/free_pending iteration</li>
+            <li>ttl_add and cgroup_dispatch reject null payload with len&gt;0</li>
+            <li>evloop defer_free OOM stops the loop instead of silent leak-only</li>
         </ul>
     </div>
 
