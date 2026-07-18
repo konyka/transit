@@ -13,16 +13,23 @@ int t_mpmc_init(t_mpmc *q, size_t capacity) {
         cap <<= 1;
     }
     if (!is_power_of_two(cap)) cap = 1u << 1; /* fallback */
-    q->cells = (t_mpmc_cell*)calloc(cap, sizeof(t_mpmc_cell));
-    if (!q->cells) return -1;
+    t_mpmc_cell *cells = (t_mpmc_cell*)calloc(cap, sizeof(t_mpmc_cell));
+    if (!cells) {
+        /* Destroy-safe empty state (stack may have been uninitialized). */
+        q->cells = NULL;
+        q->cap = 0;
+        q->mask = 0;
+        return -1;
+    }
+    for (size_t i = 0; i < cap; ++i) {
+        t_atomic_store_int(&cells[i].sequence, (int)i);
+        t_atomic_store_ptr(&cells[i].data, NULL);
+    }
+    q->cells = cells;
     q->cap = cap;
     q->mask = cap - 1;
     t_atomic_store_int(&q->enqueue_pos, 0);
     t_atomic_store_int(&q->dequeue_pos, 0);
-    for (size_t i = 0; i < cap; ++i) {
-        t_atomic_store_int(&q->cells[i].sequence, (int)i);
-        t_atomic_store_ptr(&q->cells[i].data, NULL);
-    }
     return 0;
 }
 

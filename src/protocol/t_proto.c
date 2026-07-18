@@ -61,6 +61,9 @@ int t_proto_msg_validate(const t_proto_msg *msg) {
 
 int t_proto_encode_msg(const t_proto_msg *msg, uint8_t *buf, size_t buf_len) {
     if (!msg || !buf) return -1;
+    if (msg->header.magic != T_PROTO_MAGIC) return -1;
+    if (msg->header.version != T_PROTO_VERSION) return -1;
+    if (msg->header.type >= T_MSG_MAX) return -1;
     if (msg->payload_len > T_PROTO_MAX_PAYLOAD) return -1;
     if (msg->payload_len > 0 && !msg->payload) return -1;
     if (msg->payload_len > SIZE_MAX - T_PROTO_HEADER_SIZE) return -1;

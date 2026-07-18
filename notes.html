@@ -639,6 +639,10 @@
             <li>evloop defer_free overflow chain avoids silent poll-batch leaks</li>
             <li>queue destroy defers while owner_held (no domain map UAF)</li>
             <li>queue nack/requeue decrements total_consumed</li>
+            <li>tcp stop_read/destroy skip evloop_del when never started (no fd 0)</li>
+            <li>mpmc init OOM leaves destroy-safe empty state</li>
+            <li>signal uninstall preserves pending shutdown flag</li>
+            <li>proto encode rejects invalid magic/version/type</li>
         </ul>
     </div>
 

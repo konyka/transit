@@ -38,7 +38,7 @@ void t_signal_uninstall(void) {
     sigaction(SIGTERM, &t_old_sigterm, NULL);
     (void)signal(SIGPIPE, t_old_sigpipe ? t_old_sigpipe : SIG_DFL);
     t_signal_installed = 0;
-    t_shutdown_flag = 0;
+    /* Keep t_shutdown_flag so a pending SIGINT/SIGTERM is not lost. */
 }
 
 int t_signal_is_shutdown(void) {

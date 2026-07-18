@@ -162,7 +162,7 @@ void t_tcp_conn_destroy(t_tcp_conn *conn) {
     if (!conn) return;
     if (!conn->closed) {
         conn->closed = 1;
-        if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+        if (conn->reading && conn->loop) t_evloop_del(conn->loop, &conn->read_io);
         conn->reading = 0;
         conn->read_io.callback = NULL;
         conn->read_io.user_data = NULL;
@@ -258,6 +258,7 @@ int t_tcp_conn_start_read(t_tcp_conn *conn, t_tcp_read_cb cb, void *ud) {
 
 int t_tcp_conn_stop_read(t_tcp_conn *conn) {
     if (!conn) return -1;
+    if (!conn->reading) return 0;
     int r = t_evloop_del(conn->loop, &conn->read_io);
     conn->reading = 0;
     return r;
