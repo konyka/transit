@@ -647,6 +647,9 @@
             <li>storage foreach rejects nested/free_pending iteration</li>
             <li>ttl_add and cgroup_dispatch reject null payload with len&gt;0</li>
             <li>evloop defer_free OOM stops the loop instead of silent leak-only</li>
+            <li>arena alloc reuses overflow blocks after reset (no orphaned chain)</li>
+            <li>raft append rejects apply-callback reentrancy (no log realloc UAF)</li>
+            <li>ratelimit allow/available/reset guarded by mutex</li>
         </ul>
     </div>
 

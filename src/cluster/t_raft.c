@@ -118,6 +118,7 @@ int t_raft_become_follower(t_raft *raft, uint64_t term) {
 int t_raft_append_entry(t_raft *raft, uint8_t type,
                         const uint8_t *data, size_t len) {
     if (!raft) return -1;
+    if (raft->applying || raft->free_pending) return -1;
     if (len > 0 && !data) return -1;
     if (raft->log_count >= SIZE_MAX) return -1;
     if (ensure_log_cap(raft, raft->log_count + 1) != 0) return -1;

@@ -59,13 +59,21 @@ void t_arena_destroy(t_arena *arena) {
 void *t_arena_alloc(t_arena *arena, size_t size) {
     if (!arena || size == 0) return NULL;
     t_arena_block *cur = arena->current;
-    size_t avail = cur->size - cur->used;
-    if (size <= avail && cur->used + size >= cur->used) {
-        void *ptr = (void *)((unsigned char *)cur->data + cur->used);
-        cur->used += size;
-        return ptr;
+    for (;;) {
+        size_t avail = cur->size - cur->used;
+        if (size <= avail && cur->used + size >= cur->used) {
+            void *ptr = (void *)((unsigned char *)cur->data + cur->used);
+            cur->used += size;
+            arena->current = cur;
+            return ptr;
+        }
+        /* After reset, reuse existing overflow blocks instead of orphaning them. */
+        if (cur->next) {
+            cur = cur->next;
+            continue;
+        }
+        break;
     }
-    /* Not enough space, allocate a new block */
     size_t new_size = arena->block_size;
     if (size > new_size) new_size = size;
     t_arena_block *nb = arena_block_create(new_size);
@@ -81,17 +89,24 @@ void *t_arena_alloc_aligned(t_arena *arena, size_t size, size_t alignment) {
     if (alignment <= 1) return t_arena_alloc(arena, size);
     if (size > SIZE_MAX - alignment) return NULL;
     t_arena_block *cur = arena->current;
-    size_t base_addr = (size_t)cur->data + cur->used;
-    size_t mis = base_addr % alignment;
-    size_t pad = mis ? (alignment - mis) : 0;
-    size_t need = pad + size;
-    size_t avail = cur->size - cur->used;
-    if (need <= avail && cur->used + need >= cur->used) {
-        unsigned char *start = (unsigned char *)cur->data + cur->used + pad;
-        cur->used += need;
-        return (void *)start;
+    for (;;) {
+        size_t base_addr = (size_t)cur->data + cur->used;
+        size_t mis = base_addr % alignment;
+        size_t pad = mis ? (alignment - mis) : 0;
+        size_t need = pad + size;
+        size_t avail = cur->size - cur->used;
+        if (need <= avail && cur->used + need >= cur->used) {
+            unsigned char *start = (unsigned char *)cur->data + cur->used + pad;
+            cur->used += need;
+            arena->current = cur;
+            return (void *)start;
+        }
+        if (cur->next) {
+            cur = cur->next;
+            continue;
+        }
+        break;
     }
-    /* allocate new block and align there */
     size_t new_size = arena->block_size;
     if (size + alignment > new_size) new_size = size + alignment;
     t_arena_block *nb = arena_block_create(new_size);
