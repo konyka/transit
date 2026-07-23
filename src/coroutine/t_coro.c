@@ -26,7 +26,8 @@ void t_coro_wrapper(t_coro *coro) {
 }
 
 t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
-    if (!fn || stack_size == 0) return NULL;
+    /* Need room for trampoline + 6 saved regs after 16-byte align. */
+    if (!fn || stack_size < 256) return NULL;
     t_coro *coro = (t_coro *)calloc(1, sizeof(t_coro));
     if (!coro) return NULL;
     coro->fn = fn;
@@ -36,8 +37,14 @@ t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
     if (!coro->stack) { free(coro); return NULL; }
     coro->state = T_CORO_READY;
 
-    char *sp = (char *)coro->stack + stack_size;
+    char *base = (char *)coro->stack;
+    char *sp = base + stack_size;
     sp = (char *)((uintptr_t)sp & ~(uintptr_t)15);
+    if (sp < base + 8 + 6 * 8) {
+        free(coro->stack);
+        free(coro);
+        return NULL;
+    }
 
     sp -= 8;
     *(void **)sp = (void *)t_coro_trampoline;

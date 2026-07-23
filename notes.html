@@ -690,6 +690,10 @@
             <li>conn disarm WRITE under send_mu (no stalled send buffer)</li>
             <li>client subscribe rejects NULL callback</li>
             <li>mmap create uses temp+rename so failure keeps prior file</li>
+            <li>config parser skips whitespace-only lines (no *s OOB)</li>
+            <li>coro create rejects undersized stacks (no heap underflow)</li>
+            <li>time sleep ignores non-positive; now/diff_ns clamp overflow</li>
+            <li>flowcontrol stats CAS-clamp at INT_MAX (no wrap)</li>
         </ul>
     </div>
 

@@ -225,7 +225,8 @@ static int t_config_parse_string_into(t_config *cfg, const char *data, size_t le
         const char *s = line_start;
         while (s < line_end && (*s == ' ' || *s == '\t')) s++;
         int is_comment = (s < line_end && (*s == '#' || *s == ';'));
-        if (line_len > 0 && !is_comment) {
+        /* Whitespace-only lines leave s == line_end; do not deref *s. */
+        if (line_len > 0 && !is_comment && s < line_end) {
             if (*s == '[') {
                 const char *rbr = memchr(s + 1, ']', (size_t)(line_end - (s + 1)));
                 if (!rbr) return -1; /* unclosed [section must not fall into global "" */

@@ -35,7 +35,10 @@ T_ALWAYS_INLINE t_timespec t_time_now(void) {
 
 T_ALWAYS_INLINE int64_t t_time_now_ns(void) {
     t_timespec ts = t_time_now();
-    return ts.sec * 1000000000LL + ts.nsec;
+    if (ts.sec > INT64_MAX / 1000000000LL) return INT64_MAX;
+    int64_t ns = ts.sec * 1000000000LL;
+    if (ts.nsec > 0 && ns > INT64_MAX - ts.nsec) return INT64_MAX;
+    return ns + ts.nsec;
 }
 
 T_ALWAYS_INLINE int64_t t_time_now_us(void) {
@@ -52,10 +55,18 @@ T_ALWAYS_INLINE double t_time_now_sec(void) {
 }
 
 T_ALWAYS_INLINE int64_t t_time_diff_ns(t_timespec start, t_timespec end) {
-    return (end.sec - start.sec) * 1000000000LL + (end.nsec - start.nsec);
+    int64_t dsec = end.sec - start.sec;
+    if (dsec > INT64_MAX / 1000000000LL) return INT64_MAX;
+    if (dsec < INT64_MIN / 1000000000LL) return INT64_MIN;
+    int64_t ns = dsec * 1000000000LL;
+    int64_t dnsec = end.nsec - start.nsec;
+    if (dnsec > 0 && ns > INT64_MAX - dnsec) return INT64_MAX;
+    if (dnsec < 0 && ns < INT64_MIN - dnsec) return INT64_MIN;
+    return ns + dnsec;
 }
 
 T_ALWAYS_INLINE void t_time_sleep_ms(int64_t ms) {
+    if (ms <= 0) return;
 #if T_PLATFORM_WINDOWS
     Sleep((DWORD)ms);
 #else
@@ -67,6 +78,7 @@ T_ALWAYS_INLINE void t_time_sleep_ms(int64_t ms) {
 }
 
 T_ALWAYS_INLINE void t_time_sleep_us(int64_t us) {
+    if (us <= 0) return;
 #if T_PLATFORM_WINDOWS
     Sleep((DWORD)(us / 1000));
 #else

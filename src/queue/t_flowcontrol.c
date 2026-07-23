@@ -5,12 +5,16 @@
 #include <stdlib.h>
 #include <limits.h>
 
-/* Stats counters are int atomics; clamp so large releases cannot wrap negative. */
+/* Stats counters are int atomics; clamp at INT_MAX so adds cannot wrap negative. */
 static void fc_add_stat(t_atomic_int *counter, size_t count) {
     while (count > 0) {
-        int chunk = (count > (size_t)INT_MAX) ? INT_MAX : (int)count;
-        t_atomic_fetch_add_int(counter, chunk);
-        count -= (size_t)chunk;
+        int cur = t_atomic_load_int(counter);
+        if (cur < 0 || cur >= INT_MAX) return;
+        int room = INT_MAX - cur;
+        int chunk = (count > (size_t)room) ? room : (int)count;
+        if (chunk <= 0) return;
+        if (t_atomic_cas_int(counter, cur, cur + chunk))
+            count -= (size_t)chunk;
     }
 }
 
