@@ -18,7 +18,7 @@ struct t_raft {
     size_t log_count;
     t_raft_apply_cb apply_cb;
     void *apply_ud;
-    int applying;
+    int applying; /* nest count while apply_cb runs */
     int free_pending;
 };
 
@@ -58,7 +58,7 @@ t_raft *t_raft_create(const t_raft_config *cfg) {
 
 void t_raft_destroy(t_raft *raft) {
     if (!raft) return;
-    if (raft->applying) {
+    if (raft->applying > 0) {
         raft->free_pending = 1;
         return;
     }
@@ -88,11 +88,9 @@ uint64_t t_raft_last_applied(const t_raft *raft) {
 
 int t_raft_become_candidate(t_raft *raft) {
     if (!raft) return -1;
-    /* Only start a new election term when entering candidacy. */
-    if (raft->state != T_NODE_CANDIDATE) {
-        if (raft->current_term == UINT64_MAX) return -1;
-        raft->current_term += 1;
-    }
+    /* Each election (including retries while already candidate) needs a new term. */
+    if (raft->current_term == UINT64_MAX) return -1;
+    raft->current_term += 1;
     raft->state = T_NODE_CANDIDATE;
     raft->voted_for = raft->self_id; /* vote for self */
     return 0;
@@ -118,7 +116,7 @@ int t_raft_become_follower(t_raft *raft, uint64_t term) {
 int t_raft_append_entry(t_raft *raft, uint8_t type,
                         const uint8_t *data, size_t len) {
     if (!raft) return -1;
-    if (raft->applying || raft->free_pending) return -1;
+    if (raft->applying > 0 || raft->free_pending) return -1;
     if (len > 0 && !data) return -1;
     if (raft->log_count >= SIZE_MAX) return -1;
     if (ensure_log_cap(raft, raft->log_count + 1) != 0) return -1;
@@ -159,13 +157,12 @@ int t_raft_advance_commit(t_raft *raft, uint64_t commit_idx) {
 
 int t_raft_apply_entries(t_raft *raft) {
     if (!raft) return -1;
-    raft->applying = 1;
+    raft->applying++;
     while (!raft->free_pending && raft->last_applied < raft->commit_index) {
         uint64_t next = raft->last_applied + 1;
         const t_raft_entry *e = t_raft_get_entry(raft, next);
         if (!e) {
-            raft->applying = 0;
-            if (raft->free_pending) {
+            if (--raft->applying == 0 && raft->free_pending) {
                 t_raft_destroy(raft);
                 return -2;
             }
@@ -175,8 +172,7 @@ int t_raft_apply_entries(t_raft *raft) {
         if (raft->free_pending) break;
         raft->last_applied = next;
     }
-    raft->applying = 0;
-    if (raft->free_pending) {
+    if (--raft->applying == 0 && raft->free_pending) {
         t_raft_destroy(raft);
         return -2; /* raft freed; caller must not touch it */
     }

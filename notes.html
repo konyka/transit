@@ -661,6 +661,9 @@
             <li>tpool in-task destroy leaves shell for waiter free (no UAF)</li>
             <li>evloop defer_free OOM keeps emergency slot</li>
             <li>cluster remove leader demotes leftover LEADER roles</li>
+            <li>admin skips request parse while response still flushing</li>
+            <li>session timeout check only applies to active sessions</li>
+            <li>raft apply uses nest count; become_candidate always bumps term</li>
         </ul>
     </div>
 

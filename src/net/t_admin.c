@@ -417,6 +417,8 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
     }
     if (events & T_EV_READ) {
         if (c->fd < 0 || c->free_pending) goto out;
+        /* Do not parse a new request while a response is still flushing. */
+        if (c->resp_len > 0 && c->resp_sent < c->resp_len) goto out;
         ssize_t r = read(c->fd, c->buf + c->len, T_ADMIN_BUF_SIZE - c->len - 1);
         if (r < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) goto out;

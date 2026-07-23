@@ -111,6 +111,7 @@ void t_session_update_activity(t_session *sess) {
 int t_session_check_timeout(t_session *sess, int64_t timeout_ns) {
     if (!sess) return -1;
     if (timeout_ns <= 0) return 0;
+    if (!t_session_is_active(sess)) return 0;
     uint64_t now = _now_ns();
     uint64_t last = sess->last_activity_ns;
     if (last == 0) return 0;
