@@ -672,6 +672,9 @@
             <li>domain delete_queue refuses while pull inflight</li>
             <li>storage destroy returns -1 when deferred during foreach</li>
             <li>conn closed flag is atomic across send/io threads</li>
+            <li>FIFO/priority consume rejects pull while open push consumers exist</li>
+            <li>client disconnect clears opened queues; subscribe requires open</li>
+            <li>cluster set_leader rejects non-alive nodes</li>
         </ul>
     </div>
 

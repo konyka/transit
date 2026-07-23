@@ -90,7 +90,7 @@ t_node *t_cluster_get_leader(t_cluster *cluster) {
 int t_cluster_set_leader(t_cluster *cluster, uint64_t node_id) {
     if (!cluster) return -1;
     t_node *n = t_cluster_get_node(cluster, node_id);
-    if (!n) return -1;
+    if (!n || !t_node_is_alive(n)) return -1;
     if (cluster->leader && cluster->leader != n) {
         t_node_set_role(cluster->leader, T_NODE_FOLLOWER);
     }

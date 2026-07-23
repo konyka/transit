@@ -125,6 +125,14 @@ int t_client_disconnect(t_client *client) {
     client->subs = NULL;
     client->subs_count = 0;
     client->subs_cap = 0;
+    /* Drop opened queues; reconnect must open_queue again. */
+    for (size_t i = 0; i < client->queues_size; ++i) {
+        free(client->queues[i].name);
+    }
+    free(client->queues);
+    client->queues = NULL;
+    client->queues_size = 0;
+    client->queues_cap = 0;
     return 0;
 }
 
@@ -212,6 +220,14 @@ int t_client_post(t_client *client, const char *queue_name,
 int t_client_subscribe(t_client *client, const char *queue_name,
                        t_client_msg_cb cb, void *ud) {
     if (!client || client->free_pending || !queue_name || !client->connected) return -1;
+    int open = 0;
+    for (size_t i = 0; i < client->queues_size; ++i) {
+        if (client->queues[i].name && strcmp(client->queues[i].name, queue_name) == 0) {
+            open = 1;
+            break;
+        }
+    }
+    if (!open) return -1;
     for (size_t i = 0; i < client->subs_count; ++i) {
         if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0 &&
             client->subs[i].cb == cb && client->subs[i].ud == ud) {
