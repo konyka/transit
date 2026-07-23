@@ -686,6 +686,10 @@
             <li>queue nack/requeue drains backlog for push consumers</li>
             <li>mutex trylock returns 1 on success (matches spinlock)</li>
             <li>crc32c table init is once-safe across threads</li>
+            <li>conn/tcp drain readable data before HUP/ERR close</li>
+            <li>conn disarm WRITE under send_mu (no stalled send buffer)</li>
+            <li>client subscribe rejects NULL callback</li>
+            <li>mmap create uses temp+rename so failure keeps prior file</li>
         </ul>
     </div>
 

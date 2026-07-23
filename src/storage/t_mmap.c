@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdio.h>
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -22,17 +23,39 @@ int t_mmap_create(t_mmap *mm, const char *path, size_t size) {
     mm->addr = NULL;
     mm->size = 0;
     mm->fd = -1;
-    int fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) return -1;
+    /* Build via *.tmp + rename so mmap/ftruncate failure keeps the old file. */
+    size_t plen = strlen(path);
+    if (plen > SIZE_MAX - 5) return -1;
+    char *tmp = (char *)malloc(plen + 5);
+    if (!tmp) return -1;
+    memcpy(tmp, path, plen);
+    memcpy(tmp + plen, ".tmp", 5);
+    int fd = open(tmp, O_RDWR | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        free(tmp);
+        return -1;
+    }
     if (ftruncate(fd, (off_t)size) != 0) {
         close(fd);
+        unlink(tmp);
+        free(tmp);
         return -1;
     }
     void *addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (addr == MAP_FAILED) {
         close(fd);
+        unlink(tmp);
+        free(tmp);
         return -1;
     }
+    if (rename(tmp, path) != 0) {
+        munmap(addr, size);
+        close(fd);
+        unlink(tmp);
+        free(tmp);
+        return -1;
+    }
+    free(tmp);
     mm->addr = addr;
     mm->size = size;
     mm->fd = fd;

@@ -425,16 +425,20 @@ static void t_conn_handle_write(t_conn *conn)
         }
     }
     drained = (!do_close && conn->send_len == 0);
+    /* Disarm WRITE while still holding send_mu so a concurrent send cannot
+     * arm EPOLLOUT and then have us strip it after unlock. */
+    if (drained && conn->loop) {
+        if (t_evloop_mod(conn->loop, &conn->io, T_EV_READ) != 0) {
+            pthread_mutex_unlock(&conn->send_mu);
+            /* Leaving EPOLLOUT armed causes a writable busy-loop. */
+            t_conn_close_now(conn);
+            return;
+        }
+    }
     pthread_mutex_unlock(&conn->send_mu);
     if (do_close) {
         t_conn_close_now(conn);
         return;
-    }
-    if (drained && conn->loop) {
-        if (t_evloop_mod(conn->loop, &conn->io, T_EV_READ) != 0) {
-            /* Leaving EPOLLOUT armed causes a writable busy-loop. */
-            t_conn_close_now(conn);
-        }
     }
 }
 
@@ -445,10 +449,10 @@ static void t_conn_io_cb(t_evio *io, int events, void *user_data)
     t_conn *conn = (t_conn *)io->user_data;
     if (!conn) return;
     conn->in_io_cb = 1;
-    /* EPOLLHUP/ERR may arrive without EPOLLIN; close so send buffers do not stall. */
-    if ((events & T_EV_ERROR) && !t_atomic_load_int(&conn->closed)) t_conn_close_now(conn);
+    /* Drain readable data before HUP/ERR close so peer FIN does not drop tails. */
     if ((events & T_EV_READ) && !t_atomic_load_int(&conn->closed)) t_conn_handle_read(conn);
     if ((events & T_EV_WRITE) && !t_atomic_load_int(&conn->closed)) t_conn_handle_write(conn);
+    if ((events & T_EV_ERROR) && !t_atomic_load_int(&conn->closed)) t_conn_close_now(conn);
     conn->in_io_cb = 0;
     if (conn->free_pending) t_conn_free(conn);
 }

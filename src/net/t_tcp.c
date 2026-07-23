@@ -186,53 +186,38 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
     t_tcp_conn *conn = (t_tcp_conn *)io->user_data;
     if (!conn || conn->closed) return;
     conn->in_io_cb = 1;
-    if (flags & T_EV_ERROR) {
-        /* Hangup/error without readable data: close instead of stalling. */
-        if (!conn->closed) {
-            conn->closed = 1;
-            if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
-            conn->reading = 0;
-            conn->read_io.callback = NULL;
-            conn->read_io.user_data = NULL;
-            if (conn->fd >= 0) {
-                t_socket_close(conn->fd);
-                conn->fd = -1;
-            }
-            if (conn->on_close) conn->on_close(conn, conn->user_data);
-        }
-        conn->in_io_cb = 0;
-        if (conn->free_pending) t_tcp_conn_destroy(conn);
-        return;
-    }
-    unsigned char stack_buf[4096];
-    ssize_t r = t_socket_read(conn->fd, stack_buf, sizeof(stack_buf));
-    if (r > 0) {
-        if (conn->on_read) {
-            /* Heap copy so callbacks may retain the pointer until return. */
-            unsigned char *buf = (unsigned char *)malloc((size_t)r);
-            if (!buf) {
-                /* OOM: still deliver via stack (valid only until callback returns). */
-                conn->on_read(conn, stack_buf, (size_t)r, conn->user_data);
-            } else {
-                memcpy(buf, stack_buf, (size_t)r);
-                conn->on_read(conn, buf, (size_t)r, conn->user_data);
-                free(buf);
+    ssize_t r = 1; /* non-EOF when no read attempted */
+    /* HUP/ERR often arrives with readable residue; drain before close. */
+    if ((flags & (T_EV_READ | T_EV_ERROR)) && !conn->closed) {
+        unsigned char stack_buf[4096];
+        r = t_socket_read(conn->fd, stack_buf, sizeof(stack_buf));
+        if (r > 0) {
+            if (conn->on_read) {
+                /* Heap copy so callbacks may retain the pointer until return. */
+                unsigned char *buf = (unsigned char *)malloc((size_t)r);
+                if (!buf) {
+                    /* OOM: still deliver via stack (valid only until callback returns). */
+                    conn->on_read(conn, stack_buf, (size_t)r, conn->user_data);
+                } else {
+                    memcpy(buf, stack_buf, (size_t)r);
+                    conn->on_read(conn, buf, (size_t)r, conn->user_data);
+                    free(buf);
+                }
             }
         }
     }
-    if (r <= 0 && !(r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))) {
-        if (!conn->closed) {
-            conn->closed = 1;
-            if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
-            conn->reading = 0;
-            conn->read_io.callback = NULL;
-            conn->read_io.user_data = NULL;
-            if (conn->fd >= 0) {
-                t_socket_close(conn->fd);
-                conn->fd = -1;
-            }
-            if (conn->on_close) conn->on_close(conn, conn->user_data);
+    int eof_or_err = (r <= 0 && !(r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)));
+    if (!conn->closed && ((flags & T_EV_ERROR) || eof_or_err)) {
+        conn->closed = 1;
+        if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
+        conn->reading = 0;
+        conn->read_io.callback = NULL;
+        conn->read_io.user_data = NULL;
+        if (conn->fd >= 0) {
+            t_socket_close(conn->fd);
+            conn->fd = -1;
         }
+        if (conn->on_close) conn->on_close(conn, conn->user_data);
     }
     conn->in_io_cb = 0;
     if (conn->free_pending) t_tcp_conn_destroy(conn);
