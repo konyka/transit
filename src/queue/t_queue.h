@@ -59,6 +59,8 @@ void          t_queue_close(t_queue *q);
 /* After close, post/subscribe are rejected; consume may still drain pending. */
 int           t_queue_is_closed(const t_queue *q);
 int           t_queue_is_delivering(const t_queue *q);
+/* 1 if pull consume has unacked/nacked messages (payloads still borrowed). */
+int           t_queue_has_inflight(const t_queue *q);
 /* 1 if destroy was requested while delivering (owner must reap). */
 int           t_queue_is_free_pending(const t_queue *q);
 /* When set, deferred destroy is left for the map owner (e.g. domain). */

@@ -668,6 +668,10 @@
             <li>pqueue pop requires out (no silent data drop)</li>
             <li>tcp read OOM still delivers via stack buffer</li>
             <li>FIFO push post keeps msg in pending when deliver/drain fails</li>
+            <li>domain destroy defers while broker_owned (no map UAF)</li>
+            <li>domain delete_queue refuses while pull inflight</li>
+            <li>storage destroy returns -1 when deferred during foreach</li>
+            <li>conn closed flag is atomic across send/io threads</li>
         </ul>
     </div>
 

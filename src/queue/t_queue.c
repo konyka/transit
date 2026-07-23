@@ -556,6 +556,10 @@ int t_queue_is_delivering(const t_queue *q) {
     return q ? q->delivering > 0 : 0;
 }
 
+int t_queue_has_inflight(const t_queue *q) {
+    return q ? t_list_count(&q->inflight) > 0 : 0;
+}
+
 int t_queue_is_free_pending(const t_queue *q) {
     return q ? q->free_pending != 0 : 0;
 }

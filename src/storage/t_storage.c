@@ -155,7 +155,7 @@ static int storage_destroy_impl(t_storage *storage, int force) {
     if (!storage) return 0;
     if (storage->iterating) {
         storage->free_pending = 1;
-        return 0;
+        return -1; /* deferred; caller must not assume freed */
     }
     storage->free_pending = 0;
     /* Persist dirty file-backed state before tearing down the map. */

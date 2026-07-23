@@ -1,5 +1,6 @@
 #include "t_conn.h"
 #include "t_crc32c.h"
+#include "t_atomic.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -37,7 +38,7 @@ struct t_conn {
     size_t msgs_sent;
     size_t msgs_recv;
 
-    int closed;
+    t_atomic_int closed;
     int in_io_cb;
     int in_sync_send; /* set while no-loop flush runs (on_close may destroy) */
     int free_pending;
@@ -69,11 +70,11 @@ static int t_conn_ensure_recv(t_conn *conn, size_t needed) {
 
 static void t_conn_close_now(t_conn *conn) {
     pthread_mutex_lock(&conn->send_mu);
-    if (conn->closed) {
+    if (t_atomic_load_int(&conn->closed)) {
         pthread_mutex_unlock(&conn->send_mu);
         return;
     }
-    conn->closed = 1;
+    t_atomic_store_int(&conn->closed, 1);
     pthread_mutex_unlock(&conn->send_mu);
     if (conn->loop) t_evloop_del(conn->loop, &conn->io);
     conn->io.callback = NULL;
@@ -151,7 +152,7 @@ t_conn *t_conn_create(int fd, t_evloop *loop)
 void t_conn_destroy(t_conn *conn)
 {
     if (!conn) return;
-    if (!conn->closed) t_conn_close_now(conn);
+    if (!t_atomic_load_int(&conn->closed)) t_conn_close_now(conn);
     if (conn->in_io_cb || conn->in_sync_send) {
         conn->free_pending = 1;
         return;
@@ -167,7 +168,7 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
     size_t frame_len = T_PROTO_HEADER_SIZE + msg->payload_len;
 
     pthread_mutex_lock(&conn->send_mu);
-    if (conn->closed) {
+    if (t_atomic_load_int(&conn->closed)) {
         pthread_mutex_unlock(&conn->send_mu);
         return -1;
     }
@@ -236,8 +237,9 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
         t_conn_handle_write(conn);
         if (flags >= 0 && conn->fd >= 0) (void)fcntl(conn->fd, F_SETFL, flags);
         pthread_mutex_lock(&conn->send_mu);
-        int fail = (conn->closed || conn->send_len > 0);
-        if (fail && !conn->closed) {
+        int closed = t_atomic_load_int(&conn->closed);
+        int fail = (closed || conn->send_len > 0);
+        if (fail && !closed) {
             /* Incomplete flush: close instead of truncating a half-frame. */
             conn->msgs_sent -= 1;
             pthread_mutex_unlock(&conn->send_mu);
@@ -279,7 +281,7 @@ int t_conn_fd(const t_conn *conn)
 
 int t_conn_is_closed(const t_conn *conn)
 {
-    return conn ? !!conn->closed : 1;
+    return conn ? t_atomic_load_int((t_atomic_int *)&conn->closed) != 0 : 1;
 }
 
 size_t t_conn_bytes_sent(const t_conn *conn)
@@ -304,7 +306,7 @@ size_t t_conn_msgs_recv(const t_conn *conn)
 
 static void t_conn_handle_read(t_conn *conn)
 {
-    if (!conn || conn->closed) return;
+    if (!conn || t_atomic_load_int(&conn->closed)) return;
     for (;;) {
         if (conn->recv_len == conn->recv_cap) {
             if (t_conn_ensure_recv(conn, conn->recv_cap + T_CONN_INIT_CAP) != 0) {
@@ -378,7 +380,7 @@ static void t_conn_handle_read(t_conn *conn)
                 msg.payload_len = hdr.payload_len;
                 if (conn->on_msg) conn->on_msg(conn, &msg, conn->on_msg_ud);
                 free(payload);
-                if (conn->closed) return;
+                if (t_atomic_load_int(&conn->closed)) return;
             }
         } else if (n == 0) {
             t_conn_close_now(conn);
@@ -397,7 +399,7 @@ static void t_conn_handle_write(t_conn *conn)
     int do_close = 0;
     int drained = 0;
     pthread_mutex_lock(&conn->send_mu);
-    if (conn->closed) {
+    if (t_atomic_load_int(&conn->closed)) {
         pthread_mutex_unlock(&conn->send_mu);
         return;
     }
@@ -444,9 +446,9 @@ static void t_conn_io_cb(t_evio *io, int events, void *user_data)
     if (!conn) return;
     conn->in_io_cb = 1;
     /* EPOLLHUP/ERR may arrive without EPOLLIN; close so send buffers do not stall. */
-    if ((events & T_EV_ERROR) && !conn->closed) t_conn_close_now(conn);
-    if ((events & T_EV_READ) && !conn->closed) t_conn_handle_read(conn);
-    if ((events & T_EV_WRITE) && !conn->closed) t_conn_handle_write(conn);
+    if ((events & T_EV_ERROR) && !t_atomic_load_int(&conn->closed)) t_conn_close_now(conn);
+    if ((events & T_EV_READ) && !t_atomic_load_int(&conn->closed)) t_conn_handle_read(conn);
+    if ((events & T_EV_WRITE) && !t_atomic_load_int(&conn->closed)) t_conn_handle_write(conn);
     conn->in_io_cb = 0;
     if (conn->free_pending) t_conn_free(conn);
 }
