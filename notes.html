@@ -698,6 +698,9 @@
             <li>evloop timer_add treats repeat as bool (period=timeout)</li>
             <li>mpmc init rejects capacity beyond 32-bit index space</li>
             <li>pool alloc fails closed instead of unaligned malloc</li>
+            <li>ttl add rejects msg_id wider than void*; expire rejects reentrancy</li>
+            <li>admin start rejects port outside 0..65535</li>
+            <li>socket/conn write uses MSG_NOSIGNAL when available</li>
         </ul>
     </div>
 

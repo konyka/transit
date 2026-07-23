@@ -72,6 +72,8 @@ int t_ttl_add(t_ttl *ttl, uint64_t msg_id, const char *topic,
     if (!ttl) return -1;
     /* Heap stores expire_at as int64_t priority; reject values that wrap. */
     if (expire_at > (uint64_t)INT64_MAX) return -1;
+    /* Heap payload is void*; reject ids that cannot round-trip on this ABI. */
+    if (msg_id > (uint64_t)UINTPTR_MAX) return -1;
     if (len > T_QUEUE_MAX_PAYLOAD) return -1;
     if (len > 0 && !payload) return -1;
 
@@ -127,6 +129,7 @@ int t_ttl_remove(t_ttl *ttl, uint64_t msg_id) {
 
 size_t t_ttl_expire(t_ttl *ttl, uint64_t now) {
     if (!ttl) return 0;
+    if (ttl->expiring) return 0; /* reject reentrancy (nested destroy would UAF) */
     size_t expired = 0;
     t_pq_entry top;
 

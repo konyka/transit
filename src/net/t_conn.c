@@ -404,7 +404,11 @@ static void t_conn_handle_write(t_conn *conn)
         return;
     }
     while (conn->send_len > 0) {
+#if defined(MSG_NOSIGNAL)
+        ssize_t n = send(conn->fd, conn->send_buf, conn->send_len, MSG_NOSIGNAL);
+#else
         ssize_t n = write(conn->fd, conn->send_buf, conn->send_len);
+#endif
         if (n > 0) {
             conn->bytes_sent += (size_t)n;
             conn->send_len -= (size_t)n;

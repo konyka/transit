@@ -104,6 +104,10 @@ int t_admin_start(t_admin *admin) {
         return -1;
     }
 
+    if (admin->port < 0 || admin->port > 65535) {
+        close(fd);
+        return -1;
+    }
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;

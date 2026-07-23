@@ -113,7 +113,11 @@ ssize_t t_socket_read(int fd, void *buf, size_t len) {
 }
 
 ssize_t t_socket_write(int fd, const void *buf, size_t len) {
+#if defined(MSG_NOSIGNAL)
+    return send(fd, buf, len, MSG_NOSIGNAL);
+#else
     return write(fd, buf, len);
+#endif
 }
 
 int t_sockaddr_init_ipv4(t_sockaddr *addr, const char *ip, uint16_t port) {
