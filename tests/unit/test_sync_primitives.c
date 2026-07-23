@@ -106,6 +106,17 @@ T_TEST(spinlock_trylock) {
     t_spinlock_unlock(&s);
 }
 
+T_TEST(mutex_trylock) {
+    t_mutex m;
+    t_mutex_init(&m);
+    T_ASSERT(t_mutex_trylock(&m));
+    T_ASSERT(!t_mutex_trylock(&m));
+    t_mutex_unlock(&m);
+    T_ASSERT(t_mutex_trylock(&m));
+    t_mutex_unlock(&m);
+    t_mutex_destroy(&m);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

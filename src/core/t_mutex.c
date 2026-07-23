@@ -42,8 +42,9 @@ void t_mutex_unlock(t_mutex *m) {
 
 int t_mutex_trylock(t_mutex *m) {
 #if T_PLATFORM_WINDOWS
-    return (int)TryAcquireSRWLockExclusive(m);
+    return TryAcquireSRWLockExclusive(m) ? 1 : 0;
 #else
-    return pthread_mutex_trylock(m);
+    /* Match t_spinlock_trylock: 1 = acquired, 0 = busy/error. */
+    return pthread_mutex_trylock(m) == 0 ? 1 : 0;
 #endif
 }

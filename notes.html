@@ -683,6 +683,9 @@
             <li>admin stats fails closed on oversized JSON (no truncated 200)</li>
             <li>cgroup remove clears stale tail consumer slot after swap</li>
             <li>router route dedupes identical targets across matching patterns</li>
+            <li>queue nack/requeue drains backlog for push consumers</li>
+            <li>mutex trylock returns 1 on success (matches spinlock)</li>
+            <li>crc32c table init is once-safe across threads</li>
         </ul>
     </div>
 

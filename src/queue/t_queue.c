@@ -538,7 +538,12 @@ int t_queue_nack(t_queue *q, uint64_t msg_id) {
         cur = next;
     }
     if (failed) return -1;
-    return moved ? 0 : -1;
+    if (!moved) return -1;
+    /* Push consumers own delivery; requeued msgs must not sit in backlog. */
+    if (q->consumers.len > 0)
+        (void)t_queue_drain_backlog(q);
+    if (queue_try_complete_destroy(q)) return -1;
+    return 0;
 }
 
 int t_queue_requeue(t_queue *q, uint64_t msg_id) {
