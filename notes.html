@@ -715,6 +715,9 @@
             <li>rcbuf_ref returns NULL on saturated or dead refcount</li>
             <li>storage flush rejects path length overflow for .tmp</li>
             <li>crc32c_update ignores null data with len&gt;0</li>
+            <li>tcp conn destroy guards nested on_close (no double-free)</li>
+            <li>map contains treats NULL values as present; insert reuses tombstones</li>
+            <li>dispatch register binds session_id and rejects duplicate session ptr</li>
         </ul>
     </div>
 

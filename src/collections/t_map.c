@@ -125,6 +125,18 @@ int t_map_insert(t_map *m, const char *key, void *val) {
             return 0;
         }
     }
+    /* Table is all live/tombstone: reuse a tombstone before resize. */
+    if (first_tomb != (size_t)-1) {
+        t_map_entry *e = &m->entries[first_tomb];
+        char *nk = strdup(key);
+        if (!nk) return -1;
+        free(e->key);
+        e->key = nk;
+        e->val = val;
+        e->occupied = 1;
+        m->len++;
+        return 0;
+    }
     /* if we reach here, need to resize and retry */
     if (m->cap > SIZE_MAX / 2) return -1;
     if (t_map_resize(m, m->cap * 2) == 0) {
@@ -170,7 +182,16 @@ void *t_map_remove(t_map *m, const char *key) {
 }
 
 int t_map_contains(const t_map *m, const char *key) {
-    return t_map_get(m, key) != NULL;
+    if (!m || m->cap == 0 || !key) return 0;
+    uint64_t h = t_hash_str(key);
+    size_t cap = m->cap;
+    size_t idx = (size_t)(h % (uint64_t)cap);
+    for (size_t i = 0; i < cap; ++i) {
+        t_map_entry *e = &m->entries[(idx + i) % cap];
+        if (e->occupied == 0) return 0;
+        if (e->occupied == 1 && e->key && strcmp(e->key, key) == 0) return 1;
+    }
+    return 0;
 }
 
 size_t t_map_len(const t_map *m) {

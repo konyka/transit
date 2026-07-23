@@ -159,7 +159,7 @@ t_tcp_conn *t_tcp_conn_create(int fd, t_evloop *loop) {
 }
 
 void t_tcp_conn_destroy(t_tcp_conn *conn) {
-    if (!conn) return;
+    if (!conn || conn->free_pending) return;
     if (!conn->closed) {
         conn->closed = 1;
         if (conn->reading && conn->loop) t_evloop_del(conn->loop, &conn->read_io);
@@ -171,11 +171,14 @@ void t_tcp_conn_destroy(t_tcp_conn *conn) {
             conn->fd = -1;
         }
         if (conn->on_close) conn->on_close(conn, conn->user_data);
+        /* Nested destroy from on_close already scheduled/freed us. */
+        if (conn->free_pending) return;
     }
     if (conn->in_io_cb) {
         conn->free_pending = 1;
         return;
     }
+    conn->free_pending = 1;
     conn->read_io.callback = NULL;
     conn->read_io.user_data = NULL;
     t_evloop_defer_free(conn->loop, conn);

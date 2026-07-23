@@ -237,9 +237,19 @@ void t_dispatch_reap_deferred(void) {
 
 int t_dispatch_register(t_dispatch *disp, uint64_t session_id, t_session *sess) {
     if (!disp || disp->free_pending || !sess) return -1;
+    if (t_session_id(sess) != session_id) return -1;
     char key[32];
     snprintf(key, sizeof(key), "%llu", (unsigned long long)session_id);
     if (t_map_contains(&disp->sessions, key)) return -1;
+    /* One session object may only map under its own id. */
+    {
+        t_map_iter it = t_map_iter_begin(&disp->sessions);
+        const char *k;
+        void *v;
+        while (t_map_iter_next(&it, &k, &v)) {
+            if (v == sess) return -1;
+        }
+    }
     if (t_map_insert(&disp->sessions, key, sess) != 0) return -1;
     t_session_pin(sess);
     (void)t_session_connect(sess);
