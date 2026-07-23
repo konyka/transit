@@ -227,10 +227,10 @@ static int t_config_parse_string_into(t_config *cfg, const char *data, size_t le
         int is_comment = (s < line_end && (*s == '#' || *s == ';'));
         if (line_len > 0 && !is_comment) {
             if (*s == '[') {
+                const char *rbr = memchr(s + 1, ']', (size_t)(line_end - (s + 1)));
+                if (!rbr) return -1; /* unclosed [section must not fall into global "" */
                 const char *name_start = s + 1;
-                const char *name_end = line_end;
-                while (name_end > name_start && *(name_end-1) != ']') name_end--;
-                if (name_end > name_start) name_end--;
+                const char *name_end = rbr;
                 while (name_end > name_start && (*(name_end-1) == ' ' || *(name_end-1) == '\t')) name_end--;
                 char *name = trim_copy(name_start, name_end);
                 if (!name) return -1;

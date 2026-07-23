@@ -134,7 +134,7 @@ const char *t_broker_id(const t_broker *broker) {
 }
 
 int t_broker_start(t_broker *broker) {
-    if (!broker) return -1;
+    if (!broker || broker->free_pending) return -1;
     broker->running = 1;
     t_map_iter it = t_map_iter_begin(&broker->domains);
     const char *k; void *v;
@@ -145,7 +145,7 @@ int t_broker_start(t_broker *broker) {
 }
 
 int t_broker_stop(t_broker *broker) {
-    if (!broker) return -1;
+    if (!broker || broker->free_pending) return -1;
     broker->running = 0;
     t_map_iter it = t_map_iter_begin(&broker->domains);
     const char *k; void *v;
@@ -160,7 +160,7 @@ int t_broker_is_running(const t_broker *broker) {
 }
 
 t_domain *t_broker_create_domain(t_broker *broker, const char *domain_name) {
-    if (!broker || !domain_name) return NULL;
+    if (!broker || broker->free_pending || !domain_name) return NULL;
     if (t_map_contains(&broker->domains, domain_name)) {
         return (t_domain *)t_map_get(&broker->domains, domain_name);
     }
@@ -182,7 +182,7 @@ t_domain *t_broker_get_domain(t_broker *broker, const char *domain_name) {
 }
 
 int t_broker_remove_domain(t_broker *broker, const char *domain_name) {
-    if (!broker || !domain_name) return -1;
+    if (!broker || broker->free_pending || !domain_name) return -1;
     if (strcmp(domain_name, "default") == 0) return -1;
     void *v = t_map_get(&broker->domains, domain_name);
     if (!v) return -1;
@@ -200,7 +200,7 @@ size_t t_broker_domain_count(const t_broker *broker) {
 
 int t_broker_create_queue(t_broker *broker, const char *domain_name,
                           const char *queue_name, int type, int flags) {
-    if (!broker || !domain_name || !queue_name) return -1;
+    if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
     t_domain *owner = broker_find_queue_domain(broker, queue_name);
     if (owner && strcmp(t_domain_name(owner), domain_name) != 0) {
         return -1; /* queue name already owned by another domain */
