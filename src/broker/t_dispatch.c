@@ -402,10 +402,11 @@ int t_dispatch_subscribe(t_dispatch *disp, uint64_t session_id, const char *queu
     }
     /* record subscription for bookkeeping */
     if (t_vec_push(&disp->subscriptions, sub) != 0) {
-        t_broker_unsubscribe(disp->broker, queue_name, dispatch_deliver_cb, cbud);
+        (void)t_broker_unsubscribe(disp->broker, queue_name, dispatch_deliver_cb, cbud);
+        /* Unsubscribe may fail under free_pending; never free live ud. */
+        dispatch_retire_cbud(disp, queue_name, cbud);
         free(sub->queue_name);
         free(sub);
-        dispatch_free_cbud(cbud);
         return -1;
     }
     dispatch_purge_deferred(disp);

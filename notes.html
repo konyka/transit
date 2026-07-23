@@ -726,6 +726,10 @@
             <li>dlq create guards capacity overflow; push bounds topic/reason</li>
             <li>proto decode verifies CRC without full-frame malloc</li>
             <li>ratelimit create rejects NaN/Inf refill rates</li>
+            <li>dispatch subscribe OOM rollback retires cbud (no UAF)</li>
+            <li>config parse rejects null data; get_double rejects NaN/Inf</li>
+            <li>admin start fails if getsockname cannot report port</li>
+            <li>pool chunk_count reports 0 when empty (no fake 1)</li>
         </ul>
     </div>
 

@@ -236,7 +236,7 @@ size_t t_pool_chunk_count(t_pool *pool) {
             c = c->next;
         }
     }
-    return cnt ? cnt : 1; /* at least 1 when pool exists for tests expecting >= 1 */
+    return cnt;
 }
 
 int t_pool_size_class(size_t size) {

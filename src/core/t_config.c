@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <limits.h>
+#include <float.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -270,7 +271,7 @@ static int t_config_parse_string_into(t_config *cfg, const char *data, size_t le
 }
 
 int t_config_parse_string(t_config *cfg, const char *data, size_t len) {
-    if (!cfg) return -1;
+    if (!cfg || (len > 0 && !data)) return -1;
     t_config *tmp = t_config_create();
     if (!tmp) return -1;
     if (t_config_parse_string_into(tmp, data, len) != 0) {
@@ -316,6 +317,8 @@ double t_config_get_double(t_config *cfg, const char *section, const char *key, 
     errno = 0;
     double val = strtod(v, &endp);
     if (endp == v || *endp != '\0' || errno == ERANGE) return default_val;
+    /* Reject NaN/Inf so callers do not inherit non-finite rates. */
+    if (!(val >= -DBL_MAX && val <= DBL_MAX)) return default_val;
     return val;
 }
 

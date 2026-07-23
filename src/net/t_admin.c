@@ -126,8 +126,13 @@ int t_admin_start(t_admin *admin) {
         return -1;
     }
 
+    int actual = find_actual_port(fd);
+    if (actual <= 0) {
+        close(fd);
+        return -1;
+    }
     admin->listen_fd = fd;
-    admin->port = find_actual_port(fd);
+    admin->port = actual;
     admin->listen_io.fd = fd;
     admin->listen_io.callback = admin_accept;
     admin->listen_io.user_data = admin;
