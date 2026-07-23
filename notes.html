@@ -679,6 +679,10 @@
             <li>consume always rejects while push consumers exist; close drains backlog</li>
             <li>client post fails with no matching subscribers</li>
             <li>FIFO pull post completes deferred queue destroy; create_queue reaps domains</li>
+            <li>create_domain reaps free_pending and rejects still-pending names</li>
+            <li>admin stats fails closed on oversized JSON (no truncated 200)</li>
+            <li>cgroup remove clears stale tail consumer slot after swap</li>
+            <li>router route dedupes identical targets across matching patterns</li>
         </ul>
     </div>
 

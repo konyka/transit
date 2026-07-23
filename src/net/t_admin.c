@@ -382,20 +382,9 @@ static void build_response(t_admin *admin, t_admin_client *c) {
         return;
     }
     if ((size_t)hlen + (size_t)jlen >= sizeof(c->resp)) {
-        jlen = (int)(sizeof(c->resp) - (size_t)hlen - 1);
-        if (jlen < 0) jlen = 0;
-        json[jlen] = '\0';
-        hlen = snprintf(header, sizeof(header),
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: application/json\r\n"
-            "Content-Length: %d\r\n"
-            "Connection: close\r\n"
-            "\r\n",
-            jlen);
-        if (hlen < 0 || (size_t)hlen >= sizeof(header)) {
-            admin_set_error_resp(c, 500);
-            return;
-        }
+        /* Oversized body: fail closed instead of truncating JSON mid-token. */
+        admin_set_error_resp(c, 500);
+        return;
     }
     memcpy(c->resp, header, (size_t)hlen);
     memcpy(c->resp + hlen, json, (size_t)jlen);

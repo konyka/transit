@@ -83,7 +83,12 @@ int t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id) {
             size_t last = cg->consumer_count - 1;
             size_t next = cg->next_idx;
             free(cg->consumers[i].id);
-            cg->consumers[i] = cg->consumers[last];
+            cg->consumers[i].id = NULL;
+            if (i != last) {
+                cg->consumers[i] = cg->consumers[last];
+            }
+            /* Drop the stale tail alias so a later add cannot see a dangling id. */
+            memset(&cg->consumers[last], 0, sizeof(cg->consumers[last]));
             cg->consumer_count--;
             if (cg->consumer_count == 0) {
                 cg->next_idx = 0;

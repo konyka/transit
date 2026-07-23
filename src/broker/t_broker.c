@@ -161,8 +161,13 @@ int t_broker_is_running(const t_broker *broker) {
 
 t_domain *t_broker_create_domain(t_broker *broker, const char *domain_name) {
     if (!broker || broker->free_pending || !domain_name) return NULL;
-    if (t_map_contains(&broker->domains, domain_name)) {
-        return (t_domain *)t_map_get(&broker->domains, domain_name);
+    broker_reap_domains(broker);
+    if (broker_try_complete_destroy(broker)) return NULL;
+    t_domain *existing = (t_domain *)t_map_get(&broker->domains, domain_name);
+    if (existing) {
+        /* Reject resurrecting a domain still awaiting destroy. */
+        if (t_domain_is_free_pending(existing)) return NULL;
+        return existing;
     }
     t_domain *d = t_domain_create(domain_name);
     if (!d) return NULL;

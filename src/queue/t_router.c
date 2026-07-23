@@ -123,6 +123,14 @@ size_t t_router_route(t_router *router, const char *topic, void **targets, size_
         t_binding *b = (t_binding *)router->bindings.items[i];
         if (!b) continue;
         if (topic_match_pattern(b->pattern, topic)) {
+            int dup = 0;
+            for (size_t j = 0; j < count; j++) {
+                if (targets[j] == b->target) {
+                    dup = 1;
+                    break;
+                }
+            }
+            if (dup) continue;
             targets[count++] = b->target;
             if (count >= max_targets) break;
         }
