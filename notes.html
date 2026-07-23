@@ -664,6 +664,10 @@
             <li>admin skips request parse while response still flushing</li>
             <li>session timeout check only applies to active sessions</li>
             <li>raft apply uses nest count; become_candidate always bumps term</li>
+            <li>cgroup dispatch rejects nested reentrancy</li>
+            <li>pqueue pop requires out (no silent data drop)</li>
+            <li>tcp read OOM still delivers via stack buffer</li>
+            <li>FIFO push post keeps msg in pending when deliver/drain fails</li>
         </ul>
     </div>
 

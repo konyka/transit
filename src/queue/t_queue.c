@@ -327,9 +327,15 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
      * (no consumers) stores in pending for t_queue_consume. */
     if (q->consumers.len > 0) {
         if (t_queue_drain_backlog(q) != 0) {
-            t_msg_free(m);
-            (void)queue_try_complete_destroy(q);
-            return -1;
+            /* Keep the new message for later drain/consume instead of dropping. */
+            if (q->free_pending || t_vec_push(&q->pending, m) != 0) {
+                t_msg_free(m);
+                (void)queue_try_complete_destroy(q);
+                return -1;
+            }
+            q->total_published++;
+            if (queue_try_complete_destroy(q)) return -1;
+            return 0;
         }
         if (q->free_pending) {
             t_msg_free(m);
@@ -337,9 +343,14 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
             return -1;
         }
         if (t_queue_deliver_to_consumers(q, m) != 0) {
-            t_msg_free(m);
-            (void)queue_try_complete_destroy(q);
-            return -1;
+            if (q->free_pending || t_vec_push(&q->pending, m) != 0) {
+                t_msg_free(m);
+                (void)queue_try_complete_destroy(q);
+                return -1;
+            }
+            q->total_published++;
+            if (queue_try_complete_destroy(q)) return -1;
+            return 0;
         }
         q->total_published++;
         t_msg_free(m);

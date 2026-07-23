@@ -211,9 +211,8 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
             /* Heap copy so callbacks may retain the pointer until return. */
             unsigned char *buf = (unsigned char *)malloc((size_t)r);
             if (!buf) {
-                /* OOM: do not silently drop delivered bytes. */
-                r = -1;
-                errno = ENOMEM;
+                /* OOM: still deliver via stack (valid only until callback returns). */
+                conn->on_read(conn, stack_buf, (size_t)r, conn->user_data);
             } else {
                 memcpy(buf, stack_buf, (size_t)r);
                 conn->on_read(conn, buf, (size_t)r, conn->user_data);

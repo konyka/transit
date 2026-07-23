@@ -89,8 +89,8 @@ int t_pqueue_push(t_pqueue *pq, int64_t priority, void *data) {
 }
 
 int t_pqueue_pop(t_pqueue *pq, t_pq_entry *out) {
-    if (!pq || pq->len == 0) return -1;
-    if (out) *out = pq->entries[0];
+    if (!pq || !out || pq->len == 0) return -1;
+    *out = pq->entries[0];
     pq->entries[0] = pq->entries[--pq->len];
     t_pqueue_sift_down(pq, 0);
     return 0;
