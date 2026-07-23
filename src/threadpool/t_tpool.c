@@ -141,11 +141,11 @@ t_tpool *t_tpool_create(size_t num_threads) {
         if (pthread_create(&pool->workers[i].thread, NULL, worker_main,
                            &pool->workers[i]) != 0) {
             pool->stopping = 1;
-            t_mpmc_destroy(&pool->workers[i].queue);
-            for (size_t j = 0; j < i; ++j) {
+            /* Join before destroying any queue: peers may still steal from i. */
+            for (size_t j = 0; j < i; ++j)
                 pthread_join(pool->workers[j].thread, NULL);
+            for (size_t j = 0; j <= i; ++j)
                 t_mpmc_destroy(&pool->workers[j].queue);
-            }
             free(pool->workers);
             pthread_mutex_destroy(&pool->wait_mutex);
             pthread_cond_destroy(&pool->wait_cond);

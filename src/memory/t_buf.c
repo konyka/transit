@@ -23,7 +23,8 @@ t_rcbuf *t_rcbuf_create(size_t capacity) {
 
 /* Create a refcounted buffer that wraps existing data (takes ownership) */
 t_rcbuf *t_rcbuf_wrap(void *data, size_t len, size_t cap) {
-    (void)cap; // cap is informational when wrapping existing data
+    if (len > 0 && !data) return NULL;
+    if (cap && len > cap) return NULL;
     t_rcbuf *rcb = (t_rcbuf *)malloc(sizeof(t_rcbuf));
     if (!rcb) return NULL;
     rcb->base = (unsigned char *)data;

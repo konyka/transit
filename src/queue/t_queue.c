@@ -176,6 +176,8 @@ static int t_queue_drain_backlog(t_queue *q) {
 
 /* Create a new t_queue */
 t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
+    if (type != T_QUEUE_FIFO && type != T_QUEUE_PRIORITY && type != T_QUEUE_BROADCAST)
+        return NULL;
     t_queue *q = (t_queue *)malloc(sizeof(t_queue));
     if (!q) return NULL;
     q->name = strdup(name ? name : "");

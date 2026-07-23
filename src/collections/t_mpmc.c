@@ -46,7 +46,7 @@ void t_mpmc_destroy(t_mpmc *q) {
 }
 
 bool t_mpmc_push(t_mpmc *q, void *item) {
-    if (!q) return false;
+    if (!q || !q->cells) return false;
     while (true) {
         /* Unsigned wrap keeps Vyukov sequence math defined past INT_MAX. */
         uint32_t pos = (uint32_t)t_atomic_load_int(&q->enqueue_pos);
@@ -67,7 +67,7 @@ bool t_mpmc_push(t_mpmc *q, void *item) {
 }
 
 bool t_mpmc_pop(t_mpmc *q, void **item) {
-    if (!q || !item) return false;
+    if (!q || !item || !q->cells) return false;
     while (true) {
         uint32_t pos = (uint32_t)t_atomic_load_int(&q->dequeue_pos);
         t_mpmc_cell *cell = &q->cells[pos & (uint32_t)q->mask];

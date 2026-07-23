@@ -98,6 +98,7 @@ int t_raft_become_candidate(t_raft *raft) {
 
 int t_raft_become_leader(t_raft *raft) {
     if (!raft) return -1;
+    if (raft->state != T_NODE_CANDIDATE) return -1;
     raft->state = T_NODE_LEADER;
     return 0;
 }

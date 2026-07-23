@@ -706,6 +706,11 @@
             <li>slab alignment is power-of-two; no unaligned malloc fallback</li>
             <li>arena memdup rejects null src with len&gt;0</li>
             <li>timer_add rejects destroy_pending (no false success id)</li>
+            <li>queue create rejects invalid type (no silent FIFO/backlog stall)</li>
+            <li>tpool create joins peers before destroying queues on pthread fail</li>
+            <li>mpmc push/pop reject destroyed null cells</li>
+            <li>rcbuf wrap rejects null data with len&gt;0 or len&gt;cap</li>
+            <li>raft become_leader requires candidate state</li>
         </ul>
     </div>
 
