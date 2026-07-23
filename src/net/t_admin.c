@@ -436,8 +436,9 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
                 sscanf(c->buf, "GET %127s", path);
                 if (strcmp(path, "/") == 0 || strcmp(path, "/stats") == 0) {
                     build_response(admin, c);
-                    if (!c->free_pending && c->fd >= 0)
-                        t_evloop_mod(admin->loop, &c->io, T_EV_WRITE);
+                    if (!c->free_pending && c->fd >= 0 &&
+                        t_evloop_mod(admin->loop, &c->io, T_EV_WRITE) != 0)
+                        admin_remove_client(admin, c);
                     goto out;
                 }
             }
@@ -445,8 +446,9 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
             strncpy(c->resp, resp404, sizeof(c->resp) - 1);
             c->resp_len = strlen(resp404);
             c->resp_sent = 0;
-            if (!c->free_pending && c->fd >= 0)
-                t_evloop_mod(admin->loop, &c->io, T_EV_WRITE);
+            if (!c->free_pending && c->fd >= 0 &&
+                t_evloop_mod(admin->loop, &c->io, T_EV_WRITE) != 0)
+                admin_remove_client(admin, c);
             goto out;
         }
         if (c->len >= T_ADMIN_BUF_SIZE - 1) {

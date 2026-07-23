@@ -656,6 +656,11 @@
             <li>dispatch drops ghost subs when session is inactive</li>
             <li>broker start/stop/create/remove reject free_pending</li>
             <li>config parse rejects unclosed [section lines</li>
+            <li>admin closes client when evloop_mod for write fails</li>
+            <li>shutdown_init tolerates NULL ctx</li>
+            <li>tpool in-task destroy leaves shell for waiter free (no UAF)</li>
+            <li>evloop defer_free OOM keeps emergency slot</li>
+            <li>cluster remove leader demotes leftover LEADER roles</li>
         </ul>
     </div>
 

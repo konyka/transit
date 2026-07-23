@@ -33,6 +33,8 @@ struct t_evloop {
         void *ptr;
         struct t_defer_ovf *next;
     } *deferred_free_overflow;
+    /* Last-resort single slot when overflow node malloc also fails. */
+    void       *deferred_free_oom;
 };
 
 #endif

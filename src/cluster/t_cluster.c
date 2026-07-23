@@ -57,7 +57,17 @@ int t_cluster_remove_node(t_cluster *cluster, uint64_t node_id) {
     make_key(key, sizeof(key), node_id);
     void *p = t_map_remove(&cluster->nodes, key);
     if (!p) return -1;
-    if (cluster->leader == (t_node *)p) cluster->leader = NULL;
+    if (cluster->leader == (t_node *)p) {
+        cluster->leader = NULL;
+        /* Demote any leftover LEADER roles on surviving nodes. */
+        t_map_iter it = t_map_iter_begin(&cluster->nodes);
+        const char *k;
+        void *v;
+        while (t_map_iter_next(&it, &k, &v)) {
+            if (t_node_is_leader((t_node *)v))
+                t_node_set_role((t_node *)v, T_NODE_FOLLOWER);
+        }
+    }
     t_node_destroy((t_node *)p);
     return 0;
 }

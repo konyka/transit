@@ -2,10 +2,15 @@
 #include "t_signal.h"
 #include "t_log.h"
 #include <stdio.h>
+#include <string.h>
 
 static t_shutdown_ctx g_shutdown;
 
 void t_shutdown_init(t_shutdown_ctx *ctx) {
+    if (!ctx) {
+        memset(&g_shutdown, 0, sizeof(g_shutdown));
+        return;
+    }
     g_shutdown = *ctx;
 }
 

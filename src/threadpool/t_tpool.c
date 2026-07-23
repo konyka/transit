@@ -21,7 +21,7 @@ struct t_tpool {
     size_t          rr;
     int             stopping;
     int             destroying;   /* one-shot destroy gate */
-    int             free_pending; /* shell freed by run_task after in-task destroy */
+    int             free_pending; /* in-task teardown done; shell free on next destroy */
     pthread_mutex_t wait_mutex;
     pthread_cond_t  wait_cond;
 };
@@ -46,10 +46,8 @@ static int run_task(t_task *task, t_tpool *pool) {
     void *ctx = task->context;
     free(task);
     fn(ctx);
-    if (pool->free_pending) {
-        free(pool);
-        return 1;
-    }
+    /* In-task destroy leaves the shell for a later t_tpool_destroy (no UAF). */
+    if (pool->free_pending) return 1;
     pthread_mutex_lock(&pool->wait_mutex);
     pool->total_completed++;
     pthread_cond_broadcast(&pool->wait_cond);
@@ -233,7 +231,12 @@ size_t t_tpool_tasks_stolen(const t_tpool *pool) {
 }
 
 void t_tpool_destroy(t_tpool *pool) {
-    if (!pool || !pool->workers) return;
+    if (!pool) return;
+    if (!pool->workers) {
+        /* Shell left after in-task teardown — free once from the waiter. */
+        free(pool);
+        return;
+    }
 
     pthread_t self = pthread_self();
     int self_idx = -1;
@@ -256,7 +259,7 @@ void t_tpool_destroy(t_tpool *pool) {
 
     if (self_idx >= 0) {
         /* In-task destroy: cannot pthread_join self — join peers, tear down,
-         * and let run_task free the pool shell after the callback returns. */
+         * leave shell for a subsequent t_tpool_destroy from another thread. */
         for (size_t i = 0; i < pool->num_workers; ++i) {
             if ((int)i == self_idx) continue;
             pthread_join(pool->workers[i].thread, NULL);

@@ -30,6 +30,10 @@ static void evloop_flush_deferred_free(t_evloop *loop) {
         free(n->ptr);
         free(n);
     }
+    if (loop->deferred_free_oom) {
+        free(loop->deferred_free_oom);
+        loop->deferred_free_oom = NULL;
+    }
 }
 
 void t_evloop_defer_free(t_evloop *loop, void *ptr) {
@@ -55,8 +59,9 @@ void t_evloop_defer_free(t_evloop *loop, void *ptr) {
     /* Array full and grow failed: chain a node so we never drop the pointer. */
     struct t_defer_ovf *node = (struct t_defer_ovf *)malloc(sizeof(*node));
     if (!node) {
-        /* True OOM: cannot defer without UAF; stop so we do not keep running. */
+        /* True OOM: stop loop; keep one emergency slot so we do not drop ptr. */
         t_evloop_stop(loop);
+        if (!loop->deferred_free_oom) loop->deferred_free_oom = ptr;
         return;
     }
     node->ptr = ptr;
