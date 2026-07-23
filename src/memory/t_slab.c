@@ -67,6 +67,12 @@ t_slab *t_slab_create(size_t object_size, size_t alignment) {
         }
         align = a;
     }
+    /* Stride must be a multiple of align so every object stays aligned. */
+    if (object_size % align) {
+        size_t pad = align - (object_size % align);
+        if (object_size > SIZE_MAX - pad) return NULL;
+        object_size += pad;
+    }
     t_slab *slab = (t_slab *)calloc(1, sizeof(t_slab));
     if (!slab) return NULL;
     slab->object_size = object_size;

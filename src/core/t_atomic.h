@@ -96,31 +96,20 @@ typedef enum t_memory_order {
         return __sync_bool_compare_and_swap(a, expected, desired);
     }
 
-    /* Pointer operations fallback with simple atomic-like behavior suitable for tests */
     T_ALWAYS_INLINE void* t_atomic_load_ptr(t_atomic_ptr *a) {
-        return *a;
+        return __atomic_load_n(a, __ATOMIC_SEQ_CST);
     }
     T_ALWAYS_INLINE void t_atomic_store_ptr(t_atomic_ptr *a, void *val) {
-        *a = val;
+        __atomic_store_n(a, val, __ATOMIC_SEQ_CST);
     }
     T_ALWAYS_INLINE int t_atomic_cas_ptr(t_atomic_ptr *a, void *expected, void *desired) {
-        void *cur = *a;
-        if (cur == expected) {
-            *a = desired;
-            return 1;
-        }
-        return 0;
+        return __sync_bool_compare_and_swap(a, expected, desired);
     }
-    /* Compatibility helper for spinlocks in fallback: emulate compare_exchange with expected update */
     T_ALWAYS_INLINE int t_atomic_compare_exchange_int(t_atomic_int *a, int *expected, int desired) {
-        int cur = *a;
-        if (cur == *expected) {
-            *a = desired;
-            return 1;
-        } else {
-            *expected = cur;
-            return 0;
-        }
+        int cur = __sync_val_compare_and_swap(a, *expected, desired);
+        if (cur == *expected) return 1;
+        *expected = cur;
+        return 0;
     }
 #endif
 

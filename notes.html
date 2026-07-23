@@ -730,6 +730,10 @@
             <li>config parse rejects null data; get_double rejects NaN/Inf</li>
             <li>admin start fails if getsockname cannot report port</li>
             <li>pool chunk_count reports 0 when empty (no fake 1)</li>
+            <li>time sleep retries nanosleep on EINTR</li>
+            <li>slab object stride is rounded up to alignment</li>
+            <li>log guards level under mutex; timestamp fails closed</li>
+            <li>non-C11 atomic fallback uses __sync CAS for int/ptr</li>
         </ul>
     </div>
 

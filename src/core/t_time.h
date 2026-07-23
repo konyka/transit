@@ -7,6 +7,7 @@
 #if T_PLATFORM_WINDOWS
     #include <windows.h>
 #else
+    #include <errno.h>
     #include <time.h>
     #include <sys/time.h>
 #endif
@@ -70,10 +71,13 @@ T_ALWAYS_INLINE void t_time_sleep_ms(int64_t ms) {
 #if T_PLATFORM_WINDOWS
     Sleep((DWORD)ms);
 #else
-    struct timespec ts;
-    ts.tv_sec = ms / 1000;
-    ts.tv_nsec = (ms % 1000) * 1000000L;
-    nanosleep(&ts, NULL);
+    struct timespec req, rem;
+    req.tv_sec = ms / 1000;
+    req.tv_nsec = (ms % 1000) * 1000000L;
+    while (nanosleep(&req, &rem) != 0) {
+        if (errno != EINTR) break;
+        req = rem;
+    }
 #endif
 }
 
@@ -82,10 +86,13 @@ T_ALWAYS_INLINE void t_time_sleep_us(int64_t us) {
 #if T_PLATFORM_WINDOWS
     Sleep((DWORD)(us / 1000));
 #else
-    struct timespec ts;
-    ts.tv_sec = us / 1000000;
-    ts.tv_nsec = (us % 1000000) * 1000L;
-    nanosleep(&ts, NULL);
+    struct timespec req, rem;
+    req.tv_sec = us / 1000000;
+    req.tv_nsec = (us % 1000000) * 1000L;
+    while (nanosleep(&req, &rem) != 0) {
+        if (errno != EINTR) break;
+        req = rem;
+    }
 #endif
 }
 

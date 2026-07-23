@@ -58,49 +58,55 @@ static void log_output(t_log_level level, const char *file, int line,
 }
 
 void t_log_init(t_log_level min_level) {
+    pthread_mutex_lock(&g_log_mutex);
     g_min_level = min_level;
     g_initialized = 1;
+    pthread_mutex_unlock(&g_log_mutex);
 }
 
 void t_log_shutdown(void) {
+    pthread_mutex_lock(&g_log_mutex);
     g_initialized = 0;
+    pthread_mutex_unlock(&g_log_mutex);
 }
 
 void t_log_set_level(t_log_level level) {
+    pthread_mutex_lock(&g_log_mutex);
     g_min_level = level;
+    pthread_mutex_unlock(&g_log_mutex);
 }
 
 t_log_level t_log_get_level(void) {
-    return g_min_level;
+    pthread_mutex_lock(&g_log_mutex);
+    t_log_level level = g_min_level;
+    pthread_mutex_unlock(&g_log_mutex);
+    return level;
 }
 
 void t_log_write(t_log_level level, const char *file, int line,
                  const char *func, const char *fmt, ...) {
-    if (!g_initialized) {
-        // If not initialized, still attempt to print with default settings
-        // but do not crash.
-        // Fall back to a minimal trusted path.
-    }
-    if (level < g_min_level) {
-        return;
-    }
+    if (!fmt) return;
+    pthread_mutex_lock(&g_log_mutex);
+    t_log_level min_level = g_min_level;
+    pthread_mutex_unlock(&g_log_mutex);
+    if (level < min_level) return;
+
     va_list ap;
     char msg[1024];
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
 
-    // timestamp (HH:MM:SS.ms)
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    time_t seconds = ts.tv_sec;
-    struct tm tm;
-    localtime_r(&seconds, &tm);
-    int ms = ts.tv_nsec / 1000000;
     char timestamp[32];
-    snprintf(timestamp, sizeof(timestamp), "%02d:%02d:%02d.%03d",
-             tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
+    struct timespec ts;
+    struct tm tm;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0 ||
+        !localtime_r(&ts.tv_sec, &tm)) {
+        snprintf(timestamp, sizeof(timestamp), "??:??:??.???");
+    } else {
+        snprintf(timestamp, sizeof(timestamp), "%02d:%02d:%02d.%03d",
+                 tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(ts.tv_nsec / 1000000));
+    }
 
-    // Build final string via log_output
     log_output(level, file, line, func, timestamp, msg);
 }
