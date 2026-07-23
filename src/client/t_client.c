@@ -200,6 +200,10 @@ int t_client_post(t_client *client, const char *queue_name,
             }
         }
     }
+    if (snap_n == 0) {
+        free(snaps);
+        return -1; /* no subscribers — do not silently drop */
+    }
     client->posting++;
     client->published++;
     size_t delivered = 0;

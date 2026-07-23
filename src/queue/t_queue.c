@@ -363,6 +363,7 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
         return -1;
     }
     q->total_published++;
+    if (queue_try_complete_destroy(q)) return -1;
     return 0;
 }
 
@@ -371,8 +372,8 @@ int t_queue_consume(t_queue *q, t_msg *out_msg) {
     /* Closed queues still allow draining pending/priority backlog. */
     if (q->closed && t_queue_pending_count(q) == 0) return -1;
     if (q->type == T_QUEUE_BROADCAST) return -1;
-    /* Push consumers own delivery while open; pull must not steal. */
-    if (q->consumers.len > 0 && !q->closed) return -1;
+    /* Push consumers own delivery; pull must not steal (even after close). */
+    if (q->consumers.len > 0) return -1;
     /* Priority-based path */
     if (q->type == T_QUEUE_PRIORITY) {
         if (t_pqueue_len(&q->pri) == 0) return -1;
@@ -545,7 +546,11 @@ int t_queue_requeue(t_queue *q, uint64_t msg_id) {
 }
 
 void t_queue_close(t_queue *q) {
-    if (q) q->closed = 1;
+    if (!q) return;
+    q->closed = 1;
+    /* Push consumers cannot pull-drain; deliver any stranded backlog now. */
+    if (q->consumers.len > 0)
+        (void)t_queue_drain_backlog(q);
 }
 
 int t_queue_is_closed(const t_queue *q) {

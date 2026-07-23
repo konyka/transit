@@ -201,6 +201,8 @@ size_t t_broker_domain_count(const t_broker *broker) {
 int t_broker_create_queue(t_broker *broker, const char *domain_name,
                           const char *queue_name, int type, int flags) {
     if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
+    broker_reap_domains(broker);
+    if (broker_try_complete_destroy(broker)) return -1;
     t_domain *owner = broker_find_queue_domain(broker, queue_name);
     if (owner && strcmp(t_domain_name(owner), domain_name) != 0) {
         return -1; /* queue name already owned by another domain */

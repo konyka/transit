@@ -84,7 +84,13 @@ t_node *t_cluster_get_node(t_cluster *cluster, uint64_t node_id) {
 }
 
 t_node *t_cluster_get_leader(t_cluster *cluster) {
-    return cluster ? cluster->leader : NULL;
+    if (!cluster || !cluster->leader) return NULL;
+    if (!t_node_is_alive(cluster->leader)) {
+        t_node_set_role(cluster->leader, T_NODE_FOLLOWER);
+        cluster->leader = NULL;
+        return NULL;
+    }
+    return cluster->leader;
 }
 
 int t_cluster_set_leader(t_cluster *cluster, uint64_t node_id) {
@@ -104,8 +110,9 @@ uint64_t t_cluster_self_id(const t_cluster *cluster) {
 }
 
 int t_cluster_is_leader(const t_cluster *cluster) {
-    if (!cluster) return 0;
-    return cluster->leader && t_node_id(cluster->leader) == cluster->self_id;
+    if (!cluster || !cluster->leader) return 0;
+    if (!t_node_is_alive(cluster->leader)) return 0;
+    return t_node_id(cluster->leader) == cluster->self_id;
 }
 
 size_t t_cluster_alive_count(const t_cluster *cluster) {

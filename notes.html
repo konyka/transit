@@ -675,6 +675,10 @@
             <li>FIFO/priority consume rejects pull while open push consumers exist</li>
             <li>client disconnect clears opened queues; subscribe requires open</li>
             <li>cluster set_leader rejects non-alive nodes</li>
+            <li>cluster get/is_leader clears or ignores dead leaders</li>
+            <li>consume always rejects while push consumers exist; close drains backlog</li>
+            <li>client post fails with no matching subscribers</li>
+            <li>FIFO pull post completes deferred queue destroy; create_queue reaps domains</li>
         </ul>
     </div>
 
