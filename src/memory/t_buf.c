@@ -84,7 +84,8 @@ t_buf t_buf_empty(void) {
 size_t t_buf_copy(t_buf *dst, const t_buf *src) {
     if (!dst || !src) return 0;
     size_t n = dst->cap < src->len ? dst->cap : src->len;
-    if (n > 0 && dst->data && src->data) {
+    if (n > 0) {
+        if (!dst->data || !src->data) return 0;
         memcpy(dst->data, src->data, n);
     }
     dst->len = n;
@@ -95,5 +96,6 @@ int t_buf_eq(const t_buf *a, const t_buf *b) {
     if (!a || !b) return 0;
     if (a->len != b->len) return 0;
     if (a->len == 0) return 1;
+    if (!a->data || !b->data) return 0;
     return memcmp(a->data, b->data, a->len) == 0;
 }

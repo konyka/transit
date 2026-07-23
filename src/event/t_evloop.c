@@ -266,14 +266,15 @@ int t_evloop_del(t_evloop *loop, t_evio *io) {
 
 int64_t t_evloop_timer_add(t_evloop *loop, int64_t timeout_ms, int repeat,
                            t_timer_cb callback, void *user_data) {
-    if (!loop || timeout_ms < 0) return -1;
+    if (!loop || !callback || timeout_ms < 0 || repeat < 0) return -1;
     if (loop->next_timer_id == INT64_MAX) return -1;
     int64_t now = t_time_now_ms();
     if (timeout_ms > 0 && now > INT64_MAX - timeout_ms) return -1;
     t_timer_entry e;
     e.id = loop->next_timer_id;
     e.expire_ms = now + timeout_ms;
-    e.repeat_ms = repeat;
+    /* `repeat` is a boolean; period matches the initial timeout. */
+    e.repeat_ms = repeat ? timeout_ms : 0;
     e.callback = callback;
     e.user_data = user_data;
     e.active = 1;

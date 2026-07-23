@@ -7,12 +7,14 @@ static int is_power_of_two(size_t x) { return x && ((x & (x - 1)) == 0); }
 
 int t_mpmc_init(t_mpmc *q, size_t capacity) {
     if (!q) return -1;
+    /* Positions are used as uint32_t; keep capacity within that index space. */
+    if (capacity > (SIZE_MAX / 2) || capacity > (size_t)UINT32_MAX / 2) return -1;
     size_t cap = 1;
     while (cap < capacity) {
         if (cap > SIZE_MAX / 2) return -1;
         cap <<= 1;
     }
-    if (!is_power_of_two(cap)) cap = 1u << 1; /* fallback */
+    if (!is_power_of_two(cap) || cap > (size_t)UINT32_MAX) return -1;
     t_mpmc_cell *cells = (t_mpmc_cell*)calloc(cap, sizeof(t_mpmc_cell));
     if (!cells) {
         /* Destroy-safe empty state (stack may have been uninitialized). */

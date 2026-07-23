@@ -694,6 +694,10 @@
             <li>coro create rejects undersized stacks (no heap underflow)</li>
             <li>time sleep ignores non-positive; now/diff_ns clamp overflow</li>
             <li>flowcontrol stats CAS-clamp at INT_MAX (no wrap)</li>
+            <li>buf copy/eq reject null data with positive len</li>
+            <li>evloop timer_add treats repeat as bool (period=timeout)</li>
+            <li>mpmc init rejects capacity beyond 32-bit index space</li>
+            <li>pool alloc fails closed instead of unaligned malloc</li>
         </ul>
     </div>
 

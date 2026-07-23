@@ -109,13 +109,9 @@ static void t_pool_allocate_chunk_for_class(t_pool_class *cls, size_t pool_chunk
     chunk_bytes = blocks_per_chunk * block;
 
     void *mem = NULL;
-    if (posix_memalign(&mem, T_POOL_MIN_ALIGN, chunk_bytes) != 0) {
-        mem = NULL;
-    }
-    if (!mem) {
-        mem = malloc(chunk_bytes);
-    }
-    if (!mem) return;
+    /* Fail closed: malloc may break T_POOL_MIN_ALIGN (16). */
+    if (posix_memalign(&mem, T_POOL_MIN_ALIGN, chunk_bytes) != 0 || !mem)
+        return;
 
     /* Create chunk record */
     t_pool_chunk *chunk = (t_pool_chunk *)malloc(sizeof(t_pool_chunk));
@@ -143,11 +139,10 @@ void *t_pool_alloc(t_pool *pool, size_t size) {
     if (!pool) return NULL;
     int idx = t_pool_class_index_for_size(size);
     if (idx < 0) {
-        /* Large allocation fallback */
+        /* Large allocation: require pool alignment; no unaligned malloc. */
         void *ptr = NULL;
-        if (posix_memalign(&ptr, T_POOL_MIN_ALIGN, size) != 0) {
-            ptr = malloc(size);
-        }
+        if (posix_memalign(&ptr, T_POOL_MIN_ALIGN, size) != 0)
+            return NULL;
         return ptr;
     }
     t_pool_class *cls = &pool->classes[idx];
