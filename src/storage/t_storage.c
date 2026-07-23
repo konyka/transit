@@ -310,6 +310,7 @@ int t_storage_flush(t_storage *storage) {
     if (!storage->path) return 0;
     /* Write to a temp file then rename for crash-safe replace. */
     size_t plen = strlen(storage->path);
+    if (plen > SIZE_MAX - 5) return -1;
     char *tmp = (char *)malloc(plen + 5);
     if (!tmp) return -1;
     memcpy(tmp, storage->path, plen);

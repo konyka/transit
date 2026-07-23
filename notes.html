@@ -711,6 +711,10 @@
             <li>mpmc push/pop reject destroyed null cells</li>
             <li>rcbuf wrap rejects null data with len&gt;0 or len&gt;cap</li>
             <li>raft become_leader requires candidate state</li>
+            <li>pqueue/ringbuf init leave destroy-safe empty on failure</li>
+            <li>rcbuf_ref returns NULL on saturated or dead refcount</li>
+            <li>storage flush rejects path length overflow for .tmp</li>
+            <li>crc32c_update ignores null data with len&gt;0</li>
         </ul>
     </div>
 

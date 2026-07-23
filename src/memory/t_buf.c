@@ -42,7 +42,7 @@ t_rcbuf *t_rcbuf_ref(t_rcbuf *rcb) {
     if (!rcb) return NULL;
     for (;;) {
         int n = t_atomic_load_int(&rcb->refcount);
-        if (n <= 0 || n == INT_MAX) return rcb;
+        if (n <= 0 || n == INT_MAX) return NULL;
         if (t_atomic_cas_int(&rcb->refcount, n, n + 1)) return rcb;
     }
 }

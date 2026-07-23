@@ -48,6 +48,7 @@ static void crc32c_ensure_table(void) {
 #endif
 
 uint32_t t_crc32c_update(uint32_t crc, const void *data, size_t len) {
+    if (len > 0 && !data) return crc;
     crc32c_ensure_table();
     const uint8_t *p = (const uint8_t *)data;
     for (size_t i = 0; i < len; i++) {

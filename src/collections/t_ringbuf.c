@@ -20,6 +20,12 @@ static size_t next_power_of_two(size_t v) {
 
 int t_ringbuf_init(t_ringbuf *rb, size_t capacity) {
     if (!rb) return -1;
+    /* Destroy-safe empty state (stack may have been uninitialized). */
+    rb->buf = NULL;
+    rb->cap = 0;
+    rb->mask = 0;
+    t_atomic_store_int(&rb->head, 0);
+    t_atomic_store_int(&rb->tail, 0);
     /* Head/tail are 32-bit counters; keep capacity within that index space. */
     if (capacity > (SIZE_MAX / 2) || capacity > (size_t)UINT32_MAX / 2) return -1;
     size_t cap = next_power_of_two(capacity);
@@ -28,8 +34,6 @@ int t_ringbuf_init(t_ringbuf *rb, size_t capacity) {
     if (!rb->buf) return -1;
     rb->cap = cap;
     rb->mask = cap - 1;
-    rb->head = 0;
-    rb->tail = 0;
     return 0;
 }
 

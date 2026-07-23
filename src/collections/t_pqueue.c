@@ -23,11 +23,14 @@ static size_t t_pqueue_next_cap(size_t cap) {
 
 int t_pqueue_init(t_pqueue *pq, size_t capacity) {
     if (!pq) return -1;
+    /* Destroy-safe empty state (stack may have been uninitialized). */
+    pq->entries = NULL;
+    pq->len = 0;
+    pq->cap = 0;
     size_t cap = t_pqueue_next_cap(capacity);
     if (cap == 0 || cap > SIZE_MAX / sizeof(t_pq_entry)) return -1;
     pq->entries = (t_pq_entry*)malloc(cap * sizeof(t_pq_entry));
     if (!pq->entries) return -1;
-    pq->len = 0;
     pq->cap = cap;
     return 0;
 }
