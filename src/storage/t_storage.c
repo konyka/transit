@@ -40,6 +40,22 @@ static uint64_t str_to_key(const char *s) {
     return (uint64_t)v;
 }
 
+static uint64_t read_le64(const uint8_t *p) {
+    return (uint64_t)p[0]
+         | ((uint64_t)p[1] << 8)
+         | ((uint64_t)p[2] << 16)
+         | ((uint64_t)p[3] << 24)
+         | ((uint64_t)p[4] << 32)
+         | ((uint64_t)p[5] << 40)
+         | ((uint64_t)p[6] << 48)
+         | ((uint64_t)p[7] << 56);
+}
+
+static void write_le64(uint8_t *p, uint64_t v) {
+    for (int i = 0; i < 8; i++)
+        p[i] = (uint8_t)(v >> (8 * i));
+}
+
 /* Load file format: [key(8 bytes little-endian)] [len(8 bytes little-endian)] [data(len)] ...
    This is a simple binary dump to support basic persistence. */
 static int t_storage_fs_load(t_storage *st, const char *path) {
@@ -51,9 +67,15 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
     }
     struct stat stf;
     if (fstat(fd, &stf) != 0) { close(fd); return -1; }
+    /* Check before narrowing: truncated size_t can fake a tiny valid dump. */
+    if (stf.st_size < 0 ||
+        (uint64_t)stf.st_size > (uint64_t)SIZE_MAX ||
+        (uint64_t)stf.st_size > (uint64_t)T_STORAGE_MAX_FILE) {
+        close(fd);
+        return -1;
+    }
     size_t total = (size_t)stf.st_size;
     if (total == 0) { close(fd); return 0; }
-    if (total > T_STORAGE_MAX_FILE) { close(fd); return -1; }
     uint8_t *buf = (uint8_t*)malloc(total);
     if (!buf) { close(fd); return -1; }
     size_t off = 0;
@@ -70,10 +92,8 @@ static int t_storage_fs_load(t_storage *st, const char *path) {
     size_t pos = 0;
     char keybuf[32];
     while (pos + 16 <= total) {
-        uint64_t key;
-        memcpy(&key, buf + pos, 8); pos += 8;
-        uint64_t len;
-        memcpy(&len, buf + pos, 8); pos += 8;
+        uint64_t key = read_le64(buf + pos); pos += 8;
+        uint64_t len = read_le64(buf + pos); pos += 8;
         if (len > (uint64_t)(total - pos)) { free(buf); return -1; }
         if (len > T_STORAGE_MAX_VALUE) { free(buf); return -1; }
         if (len > 0) {
@@ -310,8 +330,8 @@ int t_storage_flush(t_storage *storage) {
             close(fd); unlink(tmp); free(tmp); return -1;
         }
         uint8_t header[16];
-        memcpy(header, &key, 8);
-        memcpy(header + 8, &len64, 8);
+        write_le64(header, key);
+        write_le64(header + 8, len64);
         size_t hoff = 0;
         while (hoff < 16) {
             ssize_t w = write(fd, header + hoff, 16 - hoff);

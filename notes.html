@@ -701,6 +701,11 @@
             <li>ttl add rejects msg_id wider than void*; expire rejects reentrancy</li>
             <li>admin start rejects port outside 0..65535</li>
             <li>socket/conn write uses MSG_NOSIGNAL when available</li>
+            <li>storage load rejects oversized st_size before size_t truncate</li>
+            <li>storage flush/load use explicit little-endian headers</li>
+            <li>slab alignment is power-of-two; no unaligned malloc fallback</li>
+            <li>arena memdup rejects null src with len&gt;0</li>
+            <li>timer_add rejects destroy_pending (no false success id)</li>
         </ul>
     </div>
 

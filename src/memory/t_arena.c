@@ -135,6 +135,8 @@ char *t_arena_strdup(t_arena *arena, const char *str) {
 }
 
 void *t_arena_memdup(t_arena *arena, const void *src, size_t len) {
+    if (!arena || (len > 0 && !src)) return NULL;
+    if (len == 0) return NULL;
     void *dst = t_arena_alloc(arena, len);
     if (!dst) return NULL;
     memcpy(dst, src, len);

@@ -31,11 +31,9 @@ static t_slab_page *t_slab_new_page(t_slab *slab) {
     size_t cap = (page_bytes) / obj;
     if (cap == 0) cap = 1;
     void *mem = NULL;
-    if (posix_memalign(&mem, (slab->alignment ? slab->alignment : slab->object_size), cap * obj) != 0) {
-        mem = NULL;
-    }
-    if (!mem) mem = malloc(cap * obj);
-    if (!mem) return NULL;
+    /* Fail closed: malloc may break the slab alignment contract. */
+    if (posix_memalign(&mem, slab->alignment, cap * obj) != 0 || !mem)
+        return NULL;
     t_slab_page *page = (t_slab_page *)malloc(sizeof(t_slab_page));
     if (!page) {
         free(mem);
@@ -59,10 +57,20 @@ t_slab *t_slab_create(size_t object_size, size_t alignment) {
     if (object_size == 0) return NULL;
     /* Free-list stores an int index in each free slot. */
     if (object_size < sizeof(int)) object_size = sizeof(int);
+    size_t align = alignment ? alignment : object_size;
+    /* posix_memalign requires a power-of-two alignment. */
+    if (align == 0 || (align & (align - 1)) != 0) {
+        size_t a = sizeof(void *);
+        while (a < align) {
+            if (a > SIZE_MAX / 2) return NULL;
+            a <<= 1;
+        }
+        align = a;
+    }
     t_slab *slab = (t_slab *)calloc(1, sizeof(t_slab));
     if (!slab) return NULL;
     slab->object_size = object_size;
-    slab->alignment = (alignment == 0) ? object_size : alignment;
+    slab->alignment = align;
     slab->pages = NULL;
     slab->used = 0;
     return slab;
