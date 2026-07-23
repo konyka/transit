@@ -309,15 +309,27 @@ int t_domain_subscribe(t_domain *domain, const char *queue_name,
         return -1;
     }
     if (t_vec_push(&domain->sub_wrappers, ctx) != 0) {
-        t_queue_remove_consumer_ud(q, ctx);
-        free(ctx->queue_name);
-        free(ctx);
+        if (t_queue_remove_consumer_ud(q, ctx) == 0) {
+            free(ctx->queue_name);
+            free(ctx);
+        } else {
+            /* Queue still holds ud (e.g. free_pending); never free under it. */
+            ctx->zombie = 1;
+            if (t_vec_push(&domain->deferred_free, ctx) != 0) {
+                /* OOM: leak ctx rather than UAF via live consumer ud. */
+            }
+            domain_reap_queue_if_pending(domain, queue_name, q);
+            domain_purge_deferred(domain);
+        }
+        if (domain_try_complete_destroy(domain)) return -1;
         return -1;
     }
     domain_reap_queue_if_pending(domain, queue_name, q);
     domain_purge_deferred(domain);
     t_dispatch_reap_deferred();
     if (domain_try_complete_destroy(domain)) return -1;
+    /* Drain may have marked the queue dying; do not report a false success. */
+    if (!t_domain_has_subscription(domain, queue_name, cb, ud)) return -1;
     return 0;
 }
 

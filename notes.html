@@ -718,6 +718,10 @@
             <li>tcp conn destroy guards nested on_close (no double-free)</li>
             <li>map contains treats NULL values as present; insert reuses tombstones</li>
             <li>dispatch register binds session_id and rejects duplicate session ptr</li>
+            <li>domain subscribe avoids UAF on rollback; fails if reap drops sub</li>
+            <li>tcp write rejects len beyond SSIZE_MAX</li>
+            <li>vec_find rejects indices above INT_MAX</li>
+            <li>session retain/pin clamp at SIZE_MAX (no wrap)</li>
         </ul>
     </div>
 

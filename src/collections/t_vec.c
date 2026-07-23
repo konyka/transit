@@ -2,6 +2,7 @@
 #include <string.h> /* for memcpy if needed */
 #include <stddef.h>
 #include <stdint.h>
+#include <limits.h>
 #include "t_vec.h"
 
 static int t_vec_grow(t_vec *v, size_t min_cap) {
@@ -118,7 +119,10 @@ int t_vec_reserve(t_vec *v, size_t capacity) {
 int t_vec_find(const t_vec *v, const void *item) {
     if (!v) return -1;
     for (size_t i = 0; i < v->len; ++i) {
-        if (v->items[i] == item) return (int)i;
+        if (v->items[i] == item) {
+            if (i > (size_t)INT_MAX) return -1;
+            return (int)i;
+        }
     }
     return -1;
 }

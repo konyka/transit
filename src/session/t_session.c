@@ -51,7 +51,7 @@ int t_session_destroy(t_session *sess) {
 }
 
 void t_session_retain(t_session *sess) {
-    if (sess) sess->refs++;
+    if (sess && sess->refs < SIZE_MAX) sess->refs++;
 }
 
 void t_session_release(t_session *sess) {
@@ -59,7 +59,7 @@ void t_session_release(t_session *sess) {
 }
 
 void t_session_pin(t_session *sess) {
-    if (sess) sess->pins++;
+    if (sess && sess->pins < SIZE_MAX) sess->pins++;
 }
 
 void t_session_unpin(t_session *sess) {

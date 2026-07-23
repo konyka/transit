@@ -4,6 +4,7 @@
 #include "t_time.h"
 #include <stdlib.h>
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -253,6 +254,7 @@ int t_tcp_conn_stop_read(t_tcp_conn *conn) {
 
 ssize_t t_tcp_conn_write(t_tcp_conn *conn, const void *buf, size_t len) {
     if (!conn || conn->closed || conn->fd < 0 || !buf) return -1;
+    if (len > (size_t)SSIZE_MAX) return -1;
     const unsigned char *p = (const unsigned char *)buf;
     size_t left = len;
     size_t written = 0;
