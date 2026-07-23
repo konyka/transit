@@ -2,6 +2,7 @@
 #include "t_time.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 struct t_dlq {
     t_dlq_entry *entries;
@@ -18,6 +19,10 @@ t_dlq *t_dlq_create(size_t max_entries) {
     t_dlq *dlq = (t_dlq *)calloc(1, sizeof(*dlq));
     if (!dlq) return NULL;
     dlq->capacity = max_entries > 0 ? max_entries : 1024;
+    if (dlq->capacity > SIZE_MAX / sizeof(t_dlq_entry)) {
+        free(dlq);
+        return NULL;
+    }
     dlq->entries = (t_dlq_entry *)calloc(dlq->capacity, sizeof(t_dlq_entry));
     if (!dlq->entries) { free(dlq); return NULL; }
     return dlq;
@@ -37,6 +42,8 @@ void t_dlq_destroy(t_dlq *dlq) {
 int t_dlq_push(t_dlq *dlq, const char *topic, const uint8_t *payload, size_t len, const char *reason) {
     if (!dlq || (len > 0 && !payload)) return -1;
     if (len > T_DLQ_MAX_PAYLOAD) return -1;
+    if (topic && strlen(topic) > T_DLQ_MAX_STR) return -1;
+    if (reason && strlen(reason) > T_DLQ_MAX_STR) return -1;
 
     /* Allocate first so a full queue is not evicted on OOM. */
     char *topic_copy = topic ? strdup(topic) : NULL;

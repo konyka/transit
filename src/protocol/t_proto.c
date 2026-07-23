@@ -98,16 +98,15 @@ int t_proto_decode_msg(t_proto_msg *msg, const uint8_t *buf, size_t buf_len) {
     if (hdr.payload_len > T_PROTO_MAX_PAYLOAD) return -1;
     size_t total = T_PROTO_HEADER_SIZE + hdr.payload_len;
     if (buf_len < total) return -1;
-    /* verify CRC over header(with CRC=0) + payload */
-    uint8_t *tmp = (uint8_t*)malloc(total);
-    if (!tmp) return -1;
-    memcpy(tmp, buf, total);
-    uint32_t zero = 0;
-    memcpy(tmp + 4, &zero, 4);
-    uint32_t crc_calc = t_crc32c(tmp, total);
-    free(tmp);
-    if (crc_calc != hdr.crc32c) {
-        return -1;
+    /* verify CRC over header(with CRC=0) + payload without a full-frame copy */
+    {
+        static const uint8_t zcrc[4] = {0, 0, 0, 0};
+        uint32_t crc_calc = t_crc32c_update(0xFFFFFFFFu, buf, 4);
+        crc_calc = t_crc32c_update(crc_calc, zcrc, 4);
+        if (total > 8)
+            crc_calc = t_crc32c_update(crc_calc, buf + 8, total - 8);
+        crc_calc ^= 0xFFFFFFFFu;
+        if (crc_calc != hdr.crc32c) return -1;
     }
     /* Allocate replacement first so a failed decode keeps the prior payload. */
     uint8_t *new_payload = NULL;

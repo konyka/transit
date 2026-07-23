@@ -722,6 +722,10 @@
             <li>tcp write rejects len beyond SSIZE_MAX</li>
             <li>vec_find rejects indices above INT_MAX</li>
             <li>session retain/pin clamp at SIZE_MAX (no wrap)</li>
+            <li>list push/splice reject count wrap at SIZE_MAX</li>
+            <li>dlq create guards capacity overflow; push bounds topic/reason</li>
+            <li>proto decode verifies CRC without full-frame malloc</li>
+            <li>ratelimit create rejects NaN/Inf refill rates</li>
         </ul>
     </div>
 

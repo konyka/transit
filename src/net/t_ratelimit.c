@@ -20,7 +20,8 @@ t_ratelimit *t_ratelimit_create(size_t max_tokens, double refill_rate) {
         free(rl);
         return NULL;
     }
-    if (refill_rate < 0.0) refill_rate = 0.0;
+    /* Reject NaN/Inf/negative so tokens cannot become permanently unusable. */
+    if (!(refill_rate >= 0.0) || refill_rate > 1e18) refill_rate = 0.0;
     rl->max_tokens = max_tokens;
     rl->refill_rate = refill_rate;
     rl->tokens = (double)max_tokens;

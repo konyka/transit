@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdint.h>
 #include "t_list.h"
 
 void t_list_init(t_list *l) {
@@ -17,7 +18,7 @@ size_t t_list_count(const t_list *l) {
 }
 
 void t_list_push_front(t_list *l, t_list_node *node) {
-    if (!l || !node) return;
+    if (!l || !node || l->count == SIZE_MAX) return;
     node->prev = NULL;
     node->next = l->head;
     if (l->head) l->head->prev = node; else l->tail = node;
@@ -26,7 +27,7 @@ void t_list_push_front(t_list *l, t_list_node *node) {
 }
 
 void t_list_push_back(t_list *l, t_list_node *node) {
-    if (!l || !node) return;
+    if (!l || !node || l->count == SIZE_MAX) return;
     node->next = NULL;
     node->prev = l->tail;
     if (l->tail) l->tail->next = node; else l->head = node;
@@ -75,6 +76,7 @@ void t_list_splice(t_list *dst, t_list *src) {
         dst->tail = src->tail;
         dst->count = src->count;
     } else {
+        if (src->count > SIZE_MAX - dst->count) return;
         dst->tail->next = src->head;
         src->head->prev = dst->tail;
         dst->tail = src->tail;
