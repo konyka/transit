@@ -48,7 +48,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 ## Test Results
 
-34 test executables (29 unit + 2 integration + 3 benchmark), 100% pass rate
+35 test executables (30 unit + 2 integration + 3 benchmark), 100% pass rate
 (regular + ASan + UBSan clean):
 
 | Test | Description |
@@ -67,6 +67,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_error_log | Error handling + logging |
 | test_event_timer | Event loop + min-heap timer |
 | test_flowcontrol | Credit-based flow control / backpressure |
+| test_map | Hash map replacement, removal, and tombstone compaction |
 | test_memory_buf | Tiered pool, slab, refcount buffer, arena |
 | test_memory_pool | Memory pool allocation patterns |
 | test_mpmc_stress | MPMC 2P/2C concurrent stress |
@@ -106,6 +107,13 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | Vec push (1M) | 333M ops/sec |
 | Map insert/lookup (100K) | 6.7M ops/sec |
 | MPMC queue (1P/1C) | 5M ops/sec |
+
+### Performance Notes
+
+- `t_map` tracks tombstones and compacts when removals dominate, keeping
+  remove-heavy paths such as TTL expiry from degrading into long probe chains.
+- The CI sanitizer matrix maps directly to `ENABLE_ASAN` and `ENABLE_UBSAN`, so
+  sanitizer jobs exercise instrumented builds instead of plain Release builds.
 
 ## Cross-Platform
 
