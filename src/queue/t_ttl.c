@@ -158,6 +158,7 @@ size_t t_ttl_expire(t_ttl *ttl, uint64_t now) {
     if (!ttl->free_pending) {
         size_t live = t_map_len(&ttl->entries);
         size_t hlen = t_pqueue_len(&ttl->heap);
+        if (expired > 0) (void)t_map_compact(&ttl->entries);
         if (hlen > 64 && live > 0 && hlen > live * 4) {
             t_pqueue fresh;
             if (t_pqueue_init(&fresh, live) == 0) {

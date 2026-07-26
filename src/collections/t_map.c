@@ -22,6 +22,7 @@ void t_map_init(t_map *m) {
     m->entries = NULL;
     m->cap = 0;
     m->len = 0;
+    m->tombstones = 0;
 }
 
 void t_map_destroy(t_map *m) {
@@ -37,6 +38,7 @@ void t_map_destroy(t_map *m) {
     m->entries = NULL;
     m->cap = 0;
     m->len = 0;
+    m->tombstones = 0;
 }
 
 static int t_map_resize(t_map *m, size_t new_cap) {
@@ -78,6 +80,7 @@ static int t_map_resize(t_map *m, size_t new_cap) {
     m->entries = new_entries;
     m->cap = new_cap;
     m->len = new_len;
+    m->tombstones = 0;
     return 0;
 }
 
@@ -85,9 +88,12 @@ static int t_map_grow_if_needed(t_map *m) {
     if (m->cap == 0) {
         return t_map_resize(m, 8);
     }
-    /* Grow at ~70% load without overflowing len*10 or cap*7. */
+    if (m->tombstones > m->cap / 4 && m->tombstones > m->len) {
+        return t_map_resize(m, m->cap);
+    }
+    /* Grow at ~70% used slots without overflowing len*10 or cap*7. */
     size_t threshold = (m->cap / 10) * 7 + ((m->cap % 10) * 7) / 10;
-    if (m->len >= threshold) {
+    if (m->len + m->tombstones >= threshold) {
         if (m->cap > SIZE_MAX / 2) return -1;
         return t_map_resize(m, m->cap * 2);
     }
@@ -116,6 +122,7 @@ int t_map_insert(t_map *m, const char *key, void *val) {
             e->val = val;
             e->occupied = 1;
             m->len++;
+            if (first_tomb != (size_t)-1) m->tombstones--;
             return 0;
         } else if (e->occupied == 2) {
             if (first_tomb == (size_t)-1) first_tomb = probe;
@@ -135,6 +142,7 @@ int t_map_insert(t_map *m, const char *key, void *val) {
         e->val = val;
         e->occupied = 1;
         m->len++;
+        m->tombstones--;
         return 0;
     }
     /* if we reach here, need to resize and retry */
@@ -173,12 +181,20 @@ void *t_map_remove(t_map *m, const char *key) {
         if (e->occupied == 1 && e->key && strcmp(e->key, key) == 0) {
             void *ret = e->val;
             e->occupied = 2; /* tombstone */
-            // do not free key to keep tombstone semantics consistent
+            e->val = NULL;
+            m->tombstones++;
             m->len--;
             return ret;
         }
     }
     return NULL;
+}
+
+int t_map_compact(t_map *m) {
+    if (!m || m->cap == 0) return 0;
+    if (m->tombstones == 0) return 0;
+    if (m->tombstones <= m->cap / 4 && m->tombstones <= m->len) return 0;
+    return t_map_resize(m, m->cap);
 }
 
 int t_map_contains(const t_map *m, const char *key) {
@@ -211,6 +227,7 @@ void t_map_clear(t_map *m) {
             m->entries[i].occupied = 0;
         }
         m->len = 0;
+        m->tombstones = 0;
     }
 }
 

@@ -17,15 +17,17 @@ typedef struct t_map {
     t_map_entry *entries;
     size_t       cap;
     size_t       len;
+    size_t       tombstones;
 } t_map;
 
-#define T_MAP_INIT { NULL, 0, 0 }
+#define T_MAP_INIT { NULL, 0, 0, 0 }
 
 void    t_map_init(t_map *m);
 void    t_map_destroy(t_map *m);
 int     t_map_insert(t_map *m, const char *key, void *val);
 void   *t_map_get(const t_map *m, const char *key);
 void   *t_map_remove(t_map *m, const char *key);
+int     t_map_compact(t_map *m);
 int     t_map_contains(const t_map *m, const char *key);
 size_t  t_map_len(const t_map *m);
 void    t_map_clear(t_map *m);
