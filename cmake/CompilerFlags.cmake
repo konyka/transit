@@ -18,13 +18,11 @@ if(MSVC)
 else()
     # GCC / Clang flags
     add_compile_options(-Wall -Wextra -Werror -fPIC)
-    # Try C23 first, then C11, then C99
+    # CMake 3.16 does not know C23 dialect flags for newer compilers. Keep the
+    # build system on C11 while source remains C99-C23 compatible.
     include(CheckCCompilerFlag)
-    check_c_compiler_flag("-std=c23" HAS_C23)
     check_c_compiler_flag("-std=c11" HAS_C11)
-    if(HAS_C23)
-        set(CMAKE_C_STANDARD 23)
-    elseif(HAS_C11)
+    if(HAS_C11)
         set(CMAKE_C_STANDARD 11)
     else()
         set(CMAKE_C_STANDARD 99)
