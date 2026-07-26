@@ -20,7 +20,7 @@ typedef enum t_memory_order {
     typedef _Atomic unsigned int t_atomic_uint;
     typedef _Atomic long t_atomic_long;
     typedef _Atomic unsigned long t_atomic_ulong;
-    typedef _Atomic void* t_atomic_ptr;
+    typedef _Atomic(void *) t_atomic_ptr;
     
     #define T_ATOMIC_INIT(val) (val)
     
