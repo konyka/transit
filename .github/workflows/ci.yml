@@ -52,13 +52,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        sanitizer: [asan, ubsan]
+        sanitizer:
+          - name: asan
+            option: ENABLE_ASAN
+          - name: ubsan
+            option: ENABLE_UBSAN
     
     steps:
       - uses: actions/checkout@v4
       
-      - name: Configure with ${{ matrix.sanitizer }}
-        run: cmake -B build -DENABLE_${{ matrix.sanitizer }}=ON
+      - name: Configure with ${{ matrix.sanitizer.name }}
+        run: cmake -B build -D${{ matrix.sanitizer.option }}=ON
       
       - name: Build
         run: cmake --build build -j

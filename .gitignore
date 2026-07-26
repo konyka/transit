@@ -56,6 +56,8 @@ dkms.conf
 
 # Build directory
 build/
+build-*/
+compile_commands.json
 
 # IDE
 .vscode/
