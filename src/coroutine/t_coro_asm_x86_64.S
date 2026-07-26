@@ -1,6 +1,8 @@
     .text
     .globl t_coro_switch
+#if defined(__ELF__)
     .type t_coro_switch, @function
+#endif
     .align 16
 
 t_coro_switch:
@@ -20,10 +22,14 @@ t_coro_switch:
     popq %rbx
     ret
 
+#if defined(__ELF__)
     .size t_coro_switch, . - t_coro_switch
+#endif
 
     .globl t_coro_trampoline
+#if defined(__ELF__)
     .type t_coro_trampoline, @function
+#endif
     .align 16
 
 t_coro_trampoline:
@@ -31,4 +37,7 @@ t_coro_trampoline:
     callq t_coro_wrapper
     ud2
 
+#if defined(__ELF__)
     .size t_coro_trampoline, . - t_coro_trampoline
+    .section .note.GNU-stack,"",@progbits
+#endif
