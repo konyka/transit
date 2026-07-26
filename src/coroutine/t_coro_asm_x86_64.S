@@ -1,11 +1,17 @@
+#if defined(__APPLE__)
+#define T_ASM_SYM(name) _##name
+#else
+#define T_ASM_SYM(name) name
+#endif
+
     .text
-    .globl t_coro_switch
+    .globl T_ASM_SYM(t_coro_switch)
 #if defined(__ELF__)
-    .type t_coro_switch, @function
+    .type T_ASM_SYM(t_coro_switch), @function
 #endif
     .align 16
 
-t_coro_switch:
+T_ASM_SYM(t_coro_switch):
     pushq %rbx
     pushq %rbp
     pushq %r12
@@ -23,21 +29,21 @@ t_coro_switch:
     ret
 
 #if defined(__ELF__)
-    .size t_coro_switch, . - t_coro_switch
+    .size T_ASM_SYM(t_coro_switch), . - T_ASM_SYM(t_coro_switch)
 #endif
 
-    .globl t_coro_trampoline
+    .globl T_ASM_SYM(t_coro_trampoline)
 #if defined(__ELF__)
-    .type t_coro_trampoline, @function
+    .type T_ASM_SYM(t_coro_trampoline), @function
 #endif
     .align 16
 
-t_coro_trampoline:
+T_ASM_SYM(t_coro_trampoline):
     movq %rbx, %rdi
-    callq t_coro_wrapper
+    callq T_ASM_SYM(t_coro_wrapper)
     ud2
 
 #if defined(__ELF__)
-    .size t_coro_trampoline, . - t_coro_trampoline
+    .size T_ASM_SYM(t_coro_trampoline), . - T_ASM_SYM(t_coro_trampoline)
     .section .note.GNU-stack,"",@progbits
 #endif
