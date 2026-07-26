@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <string.h>
 #include "t_time.h"
 #include "t_test.h"
