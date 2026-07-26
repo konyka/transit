@@ -11,14 +11,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        cc: [gcc, clang]
-        exclude:
-          - os: windows-latest
-            cc: clang
         include:
-          - os: windows-latest
-            cc: cl
+          - os: ubuntu-latest
+            cc: gcc
+            generator: Unix Makefiles
+          - os: ubuntu-latest
+            cc: clang
+            generator: Unix Makefiles
+          - os: macos-latest
+            cc: gcc
+            generator: Unix Makefiles
+          - os: macos-latest
+            cc: clang
+            generator: Unix Makefiles
     
     runs-on: ${{ matrix.os }}
     
@@ -32,7 +37,7 @@ jobs:
       
       - name: Configure
         # -Werror is always enabled via cmake/CompilerFlags.cmake
-        run: cmake -B build -DCMAKE_C_COMPILER=${{ matrix.cc }}
+        run: cmake -B build -G "${{ matrix.generator }}" -DCMAKE_C_COMPILER=${{ matrix.cc }}
         env:
           CC: ${{ matrix.cc }}
       

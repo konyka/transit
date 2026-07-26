@@ -22,6 +22,8 @@ July 2026 review.
   strategy that avoids per-update heap deletion.
 - Add unit coverage for map replacement, removal, tombstone compaction, and
   post-compaction insertion.
+- Keep CI on currently portable Linux/macOS targets; Windows backend sources
+  remain present, but CI is disabled until POSIX and assembly fallbacks exist.
 
 ## Verification
 

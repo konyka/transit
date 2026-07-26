@@ -119,9 +119,10 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 - **Linux**: epoll backend (primary, fully tested)
 - **macOS**: kqueue backend (implemented, conditional via `T_HAVE_KQUEUE`)
-- **Windows**: IOCP backend (implemented, conditional via `T_HAVE_IOCP`)
+- **Windows**: IOCP backend sources are present, but full Windows CI is disabled
+  until POSIX-dependent modules and coroutine assembly have portable fallbacks.
 
-CI runs on all three platforms via GitHub Actions.
+CI runs Linux and macOS builds via GitHub Actions, plus Linux ASan/UBSan jobs.
 
 ## Quick Start
 
