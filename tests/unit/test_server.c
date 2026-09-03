@@ -7,6 +7,7 @@
 #include "t_client.h"
 #include "t_error.h"
 #include "t_socket.h"
+#include "t_cluster.h"
 #include <pthread.h>
 #include <unistd.h>
 #include <string.h>
@@ -320,6 +321,45 @@ T_TEST(server_autodelete_on_last_close) {
     t_client_destroy(c);
     t_server_destroy(srv);
     t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_follower_post_redirect_hint) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_cluster *cl = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 1, "127.0.0.1", 4222), 0);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 2, "127.0.0.1", 9999), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(cl, 2), 0);
+    T_ASSERT_EQ(t_broker_set_cluster(b, cl), 0);
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(c, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    usleep(30000);
+    T_ASSERT_EQ(t_client_post(c, "jobs", (const uint8_t *)"x", 1, 0), 0);
+    usleep(30000);
+    T_ASSERT_EQ(t_client_last_status(c), (int)T_ERR_AGAIN);
+    T_ASSERT_STR_EQ(t_client_last_ack_name(c), "127.0.0.1_9999");
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_cluster_destroy(cl);
     t_evloop_destroy(loop);
 }
 

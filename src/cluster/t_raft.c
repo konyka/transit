@@ -35,6 +35,8 @@ struct t_raft {
     int log_fd;
     int sync_every;
     int unsynced;
+    uint64_t election_timeout_ms;
+    uint64_t heartbeat_interval_ms;
 };
 
 static int ensure_log_cap(t_raft *r, size_t needed) {
@@ -208,7 +210,6 @@ static uint64_t raft_last_term(const t_raft *r) {
 }
 
 t_raft *t_raft_create(const t_raft_config *cfg) {
-    (void)cfg;
     t_raft *r = (t_raft *)calloc(1, sizeof(t_raft));
     if (!r) return NULL;
     r->self_id = cfg ? cfg->node_id : 0;
@@ -223,6 +224,8 @@ t_raft *t_raft_create(const t_raft_config *cfg) {
     r->apply_cb = NULL;
     r->apply_ud = NULL;
     r->log_fd = -1;
+    r->election_timeout_ms = (cfg && cfg->election_timeout_ms) ? cfg->election_timeout_ms : 150;
+    r->heartbeat_interval_ms = (cfg && cfg->heartbeat_interval_ms) ? cfg->heartbeat_interval_ms : 50;
     return r;
 }
 
@@ -393,6 +396,18 @@ int t_raft_grant_vote(t_raft *raft, uint64_t candidate_id) {
 
 uint64_t t_raft_voted_for(const t_raft *raft) {
     return raft ? raft->voted_for : 0;
+}
+
+uint64_t t_raft_id(const t_raft *raft) {
+    return raft ? raft->self_id : 0;
+}
+
+uint64_t t_raft_election_timeout_ms(const t_raft *raft) {
+    return raft ? raft->election_timeout_ms : 0;
+}
+
+uint64_t t_raft_heartbeat_interval_ms(const t_raft *raft) {
+    return raft ? raft->heartbeat_interval_ms : 0;
 }
 
 uint64_t t_raft_last_log_index(const t_raft *raft) {

@@ -247,6 +247,10 @@ int t_broker_is_leader(const t_broker *broker) {
     return t_cluster_is_leader(broker->cluster);
 }
 
+t_cluster *t_broker_cluster(t_broker *broker) {
+    return broker ? broker->cluster : NULL;
+}
+
 static int broker_wal_path(char *out, size_t cap, const char *dir,
                            const char *domain, const char *queue) {
     if (!out || !dir || !domain || !queue) return -1;

@@ -7,6 +7,9 @@
 #include "t_dispatch.h"
 #include "t_version.h"
 #include "t_log.h"
+#include "t_cluster.h"
+#include "t_raft.h"
+#include "t_peer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +20,9 @@ static t_broker *g_broker;
 static t_server *g_server;
 static t_admin  *g_admin;
 static t_config *g_config;
+static t_cluster *g_cluster;
+static t_raft   *g_raft;
+static t_peer   *g_peer;
 
 static void on_stats(t_admin_stats *stats, void *ud) {
     (void)ud;
@@ -34,6 +40,7 @@ static void usage(const char *prog) {
     fprintf(stderr, "  -p <port>   Client listen port (default: 4222)\n");
     fprintf(stderr, "  -a <port>   Admin stats port (default: 8222)\n");
     fprintf(stderr, "  -d <dir>    Durable WAL directory (mkdir 0700)\n");
+    fprintf(stderr, "  -C <port>   Cluster peer port (opt-in; default bind 127.0.0.1)\n");
     fprintf(stderr, "  -v          Print version and exit\n");
     fprintf(stderr, "  --help      Show this help\n");
 }
@@ -44,6 +51,7 @@ int main(int argc, char **argv) {
     const char *datadir = NULL;
     int client_port = 4222;
     int admin_port = 8222;
+    int cluster_port = -1;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
@@ -56,6 +64,8 @@ int main(int argc, char **argv) {
             admin_port = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
             datadir = argv[++i];
+        } else if (strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
+            cluster_port = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-v") == 0) {
             printf("transit %s\n", t_version());
             return 0;
@@ -83,6 +93,8 @@ int main(int argc, char **argv) {
         if (ap > 0) admin_port = ap;
         const char *dd = t_config_get(g_config, "storage", "datadir");
         if (dd && dd[0]) datadir = dd;
+        int kp = t_config_get_int(g_config, "cluster", "port", -1);
+        if (cluster_port < 0 && kp >= 0) cluster_port = kp;
     }
 
     t_signal_install();
@@ -134,6 +146,57 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (cluster_port >= 0) {
+        if (cluster_port > 65535) {
+            fprintf(stderr, "Invalid cluster port\n");
+            t_server_destroy(g_server);
+            t_broker_destroy(g_broker);
+            t_evloop_destroy(g_loop);
+            t_config_destroy(g_config);
+            return 1;
+        }
+        g_cluster = t_cluster_create(1);
+        t_raft_config rcfg;
+        memset(&rcfg, 0, sizeof(rcfg));
+        rcfg.node_id = 1;
+        rcfg.election_timeout_ms = 150;
+        rcfg.heartbeat_interval_ms = 50;
+        g_raft = t_raft_create(&rcfg);
+        t_peer_config pcfg;
+        t_peer_config_init(&pcfg);
+        pcfg.host = host;
+        pcfg.port = (uint16_t)cluster_port;
+        g_peer = t_peer_create(g_loop, g_raft, g_cluster, &pcfg);
+        if (!g_cluster || !g_raft || !g_peer || t_peer_start(g_peer) != 0) {
+            fprintf(stderr, "Failed to listen for cluster peers on %s:%d\n",
+                    host, cluster_port);
+            if (g_peer) t_peer_destroy(g_peer);
+            if (g_raft) t_raft_destroy(g_raft);
+            if (g_cluster) t_cluster_destroy(g_cluster);
+            t_server_destroy(g_server);
+            t_broker_destroy(g_broker);
+            t_evloop_destroy(g_loop);
+            t_config_destroy(g_config);
+            return 1;
+        }
+        if (t_cluster_add_node(g_cluster, 1, t_peer_host(g_peer),
+                               t_peer_port(g_peer)) != 0 ||
+            t_broker_set_cluster(g_broker, g_cluster) != 0 ||
+            t_peer_campaign(g_peer) != 0) {
+            fprintf(stderr, "Failed to start cluster peer\n");
+            t_peer_destroy(g_peer);
+            t_raft_destroy(g_raft);
+            t_cluster_destroy(g_cluster);
+            t_server_destroy(g_server);
+            t_broker_destroy(g_broker);
+            t_evloop_destroy(g_loop);
+            t_config_destroy(g_config);
+            return 1;
+        }
+        fprintf(stdout, "transit cluster peer on %s:%u\n",
+                t_peer_host(g_peer), (unsigned)t_peer_port(g_peer));
+    }
+
     g_admin = t_admin_create(g_loop, "127.0.0.1", admin_port);
     if (g_admin) {
         t_admin_set_stats_cb(g_admin, on_stats, NULL);
@@ -159,8 +222,11 @@ int main(int argc, char **argv) {
         t_admin_destroy(g_admin);
     }
     if (g_server) t_server_destroy(g_server);
+    if (g_peer) t_peer_destroy(g_peer);
     t_broker_stop(g_broker);
     t_broker_destroy(g_broker);
+    if (g_raft) t_raft_destroy(g_raft);
+    if (g_cluster) t_cluster_destroy(g_cluster);
     t_evloop_destroy(g_loop);
     t_config_destroy(g_config);
 

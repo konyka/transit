@@ -45,6 +45,9 @@ int                t_raft_request_vote(t_raft *raft, uint64_t candidate_id,
                                         uint64_t term);
 int                t_raft_grant_vote(t_raft *raft, uint64_t candidate_id);
 uint64_t           t_raft_voted_for(const t_raft *raft);
+uint64_t           t_raft_id(const t_raft *raft);
+uint64_t           t_raft_election_timeout_ms(const t_raft *raft);
+uint64_t           t_raft_heartbeat_interval_ms(const t_raft *raft);
 uint64_t           t_raft_last_log_index(const t_raft *raft);
 uint64_t           t_raft_last_log_term(const t_raft *raft);
 /* Durable log (term + votedFor in the header, entries append-only). */

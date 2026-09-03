@@ -21,36 +21,35 @@ separate that library from a production message bus.
 - Raft RPCs (`RequestVote` / `AppendEntries`) as `T_MSG_CLUSTER` payloads,
   persistent raft log (`t_raft_open_log`), and leader-only publish when a
   cluster is attached to the broker. The client port still closes `CLUSTER`
-  frames; peer transport is the next slice.
+  frames.
+- Cluster peer transport (`t_peer`): loopback-default listen (port 4223,
+  or ephemeral), election timeouts, short-lived `T_MSG_CLUSTER` dials,
+  and follower `POST` ACK names of the form `host_port` (colon is not a
+  valid queue-name character). `transit-server -C` / `[cluster] port=` is
+  opt-in.
 
 ## Remaining (priority order)
 
-### 1. Cluster peer transport (reliability)
-
-`t_raft_rpc` is in-process. Needed: a loopback-default cluster listen port that
-exchanges `T_MSG_CLUSTER` frames, election timeouts, and follower redirect
-hints for clients (`T_ERR_AGAIN` is already returned on follower `POST`).
-
-### 2. Authentication (security)
+### 1. Authentication (security)
 
 Client connections are unauthenticated. Plan: first frame after TCP is a
 `T_MSG_OPEN_QUEUE`-style handshake with HMAC of a pre-shared key (no extra
 deps), reject and close on failure, bind remote traffic only after auth.
 TLS is deferred (would break the zero-dependency rule unless optional).
 
-### 3. Credit-based flow control on the wire
+### 2. Credit-based flow control on the wire
 
 `t_flowcontrol` exists but is not attached to `t_server` connections. Attach
 per-session credits to `PUSH` so a slow consumer cannot fill `t_conn` send
 buffers (already capped at 64 MiB).
 
-### 4. Pull consume + ack on the wire
+### 3. Pull consume + ack on the wire
 
 Queue `ack`/`nack` is pull-inflight only. Network `PUSH` is fire-and-forget.
 A later `T_MSG_CONFIRM` should map to inflight ack once a pull-mode consumer
 API exists on the session.
 
-### 5. Windows / non-x86_64
+### 4. Windows / non-x86_64
 
 IOCP sources exist; POSIX modules and coroutine assembly do not. Keep CI on
 Linux/macOS until those fallbacks exist.

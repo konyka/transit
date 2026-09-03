@@ -38,6 +38,7 @@ int         t_broker_set_wal_sync_every(t_broker *broker, int n);
 /* Borrowed cluster pointer. When set, publish is leader-only. */
 int         t_broker_set_cluster(t_broker *broker, t_cluster *cluster);
 int         t_broker_is_leader(const t_broker *broker);
+t_cluster  *t_broker_cluster(t_broker *broker);
 
 int         t_broker_publish(t_broker *broker, const char *queue_name,
                               const uint8_t *data, size_t len, int priority);

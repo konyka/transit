@@ -14,6 +14,7 @@
 #include "t_time.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <limits.h>
 
@@ -356,7 +357,18 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
                 nm = namebuf;
         } else if (msg->header.type == T_MSG_POST) {
             t_wire_post p;
-            if (t_wire_decode_post(msg->payload, msg->payload_len, &p) == 0 &&
+            if (status == T_ERR_AGAIN) {
+                t_cluster *cl = t_broker_cluster(sc->srv->broker);
+                t_node *ld = cl ? t_cluster_get_leader(cl) : NULL;
+                if (ld && t_node_host(ld)) {
+                    int hn = snprintf(namebuf, sizeof(namebuf), "%s_%u",
+                                      t_node_host(ld), (unsigned)t_node_port(ld));
+                    if (hn > 0 && (size_t)hn < sizeof(namebuf) &&
+                        t_wire_name_valid(namebuf, (size_t)hn))
+                        nm = namebuf;
+                }
+            }
+            if (!nm && t_wire_decode_post(msg->payload, msg->payload_len, &p) == 0 &&
                 t_wire_name_copy(namebuf, sizeof(namebuf), p.name, p.name_len) == 0)
                 nm = namebuf;
         }

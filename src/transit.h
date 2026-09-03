@@ -54,5 +54,6 @@
 #include "t_node.h"
 #include "t_raft.h"
 #include "t_cluster.h"
+#include "t_peer.h"
 
 #endif /* TRANSIT_H */

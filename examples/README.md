@@ -9,6 +9,7 @@ This directory contains C examples that illustrate how to use the Transit MQ API
   listener, broker, evloop, signal, shutdown). Default client bind is
   `127.0.0.1:4222`; pass `-h 0.0.0.0` only when remote clients are intended.
   Durable queues need `-d <dir>` or `[storage] datadir=` in the INI config.
+  Cluster peer listen is opt-in: `-C <port>` or `[cluster] port=`.
 
 ## Build and run
 

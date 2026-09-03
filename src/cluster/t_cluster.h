@@ -18,5 +18,7 @@ int        t_cluster_set_leader(t_cluster *cluster, uint64_t node_id);
 uint64_t   t_cluster_self_id(const t_cluster *cluster);
 int        t_cluster_is_leader(const t_cluster *cluster);
 size_t     t_cluster_alive_count(const t_cluster *cluster);
+typedef void (*t_cluster_node_fn)(t_node *node, void *ud);
+void       t_cluster_foreach(t_cluster *cluster, t_cluster_node_fn fn, void *ud);
 
 #endif

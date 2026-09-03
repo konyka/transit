@@ -105,7 +105,12 @@ Empty payload. Server replies `ACK` and refreshes the session timestamp.
 
 ### `CLUSTER`
 
-Not accepted on the client port (connection closed). Peer payloads:
+Not accepted on the client port (connection closed). The cluster peer
+listener (`t_peer`, default `127.0.0.1:4223`, `transit-server -C` /
+`[cluster] port=`) accepts only `T_MSG_CLUSTER` and replies in-kind.
+Other frame types close the peer connection.
+
+Peer payloads:
 
 ```
 u8 rpc   /* 1 VoteReq, 2 VoteResp, 3 AppendReq, 4 AppendResp */
@@ -120,7 +125,9 @@ u8 rpc   /* 1 VoteReq, 2 VoteResp, 3 AppendReq, 4 AppendResp */
 Handle with `t_raft_rpc`. Durable term/vote/entries: `t_raft_open_log`.
 
 Follower `POST` on the client port returns `T_ERR_AGAIN` when a cluster is
-attached and this node is not leader.
+attached and this node is not leader. The ACK name is `host_port` of the
+current leader cluster node (underscore because `:` is not a valid name
+character). Empty name if no leader is known.
 
 ## Server safety switches
 
@@ -142,6 +149,8 @@ already binds `127.0.0.1`.
 - `t_client_open_queue(..., T_CLIENT_OPEN_PRODUCER \| T_CLIENT_OPEN_CONSUMER)`.
   High byte: `T_CLIENT_QFLAG_DURABLE` / `EXCLUSIVE` / `AUTODELETE`.
 - `t_client_last_status()` — last decoded `ACK` status.
+- `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
+  follower `POST` `T_ERR_AGAIN`).
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

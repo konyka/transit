@@ -26,6 +26,7 @@ int        t_client_connect(t_client *client, const char *host, uint16_t port);
 int        t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t port);
 int        t_client_disconnect(t_client *client);
 int        t_client_last_status(const t_client *client);
+const char *t_client_last_ack_name(const t_client *client);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,

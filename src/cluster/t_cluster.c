@@ -126,3 +126,12 @@ size_t t_cluster_alive_count(const t_cluster *cluster) {
     }
     return count;
 }
+
+void t_cluster_foreach(t_cluster *cluster, t_cluster_node_fn fn, void *ud) {
+    if (!cluster || !fn) return;
+    t_map_iter it = t_map_iter_begin(&cluster->nodes);
+    const char *k;
+    void *v;
+    while (t_map_iter_next(&it, &k, &v))
+        fn((t_node *)v, ud);
+}

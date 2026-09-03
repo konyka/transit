@@ -84,6 +84,9 @@ T_TEST(raft_create_destroy) {
     T_ASSERT_EQ((int)t_raft_commit_index(r), 0);
     T_ASSERT_EQ((int)t_raft_last_applied(r), 0);
     T_ASSERT_EQ((int)t_raft_voted_for(r), 0);
+    T_ASSERT_EQ((int)t_raft_id(r), 1);
+    T_ASSERT_EQ((int)t_raft_election_timeout_ms(r), 150);
+    T_ASSERT_EQ((int)t_raft_heartbeat_interval_ms(r), 50);
     t_raft_destroy(r);
 }
 

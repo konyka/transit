@@ -24,7 +24,7 @@ src/
 ├── session/     session lifecycle, activity tracking, timeout detection
 ├── client/      in-process stub + TCP dial (`t_client_dial`)
 ├── broker/      domain management, publish/subscribe, dispatcher
-└── cluster/     Raft RPCs + persistent log, node membership, leader-only publish
+└── cluster/     Raft RPCs + persistent log, peer transport, leader-only publish
 ```
 
 ## Build
@@ -49,7 +49,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 ## Test Results
 
-37 test executables (32 unit + 2 integration + 3 benchmark), 100% pass rate
+39 test executables (34 unit + 2 integration + 3 benchmark), 100% pass rate
 (regular + ASan + UBSan clean):
 
 | Test | Description |
@@ -58,6 +58,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_broker | Broker domain/queue/pubsub management |
 | test_cgroup | Consumer group round-robin dispatch |
 | test_cluster | Raft consensus + cluster membership |
+| test_peer | Cluster peer listen, election, log replicate |
 | test_collections_lockfree | SPSC ringbuf + MPMC Vyukov queue |
 | test_config | INI-style configuration parser |
 | test_conn | TCP connection with protocol framing |
@@ -101,6 +102,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 ./build/examples/demo_full        # Comprehensive demo (all subsystems)
 ./build/examples/transit-server   # Integrated server (config+admin+broker+evloop)
                                   # -d <dir> or [storage] datadir= for durable queues
+                                  # -C <port> or [cluster] port= for peer listen
 ```
 
 ## Benchmarks (Linux, GCC)
@@ -124,6 +126,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 - `transit-server` and `t_server` default to loopback. Admin HTTP stays on
   `127.0.0.1`. Oversize names, trailing junk, and unknown frame types close the
   socket. Durable `OPEN` without `-d`/`[storage] datadir` fails closed (`T_ERR_IO`).
+  Cluster peer listen is opt-in (`-C` / `[cluster] port=`).
 
 ## Cross-Platform
 

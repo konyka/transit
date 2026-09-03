@@ -42,6 +42,7 @@ struct t_client {
     t_conn   *conn;
     int       net_mode;
     int       last_status;
+    char      last_ack_name[T_WIRE_MAX_NAME + 1];
 };
 
 /* Helpers */
@@ -111,8 +112,13 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     if (!c || c->free_pending || !msg) return;
     if (msg->header.type == T_MSG_ACK) {
         t_wire_ack a;
-        if (t_wire_decode_ack(msg->payload, msg->payload_len, &a) == 0)
+        if (t_wire_decode_ack(msg->payload, msg->payload_len, &a) == 0) {
             c->last_status = a.status;
+            c->last_ack_name[0] = '\0';
+            if (a.name && a.name_len)
+                (void)t_wire_name_copy(c->last_ack_name, sizeof(c->last_ack_name),
+                                       a.name, a.name_len);
+        }
         return;
     }
     if (msg->header.type != T_MSG_PUSH) return;
@@ -163,6 +169,7 @@ t_client *t_client_create(const char *client_id) {
     c->conn = NULL;
     c->net_mode = 0;
     c->last_status = 0;
+    c->last_ack_name[0] = '\0';
     return c;
 }
 
@@ -198,6 +205,7 @@ int t_client_connect(t_client *client, const char *host, uint16_t port) {
     if (!client || client->free_pending || client->net_mode) return -1;
     client->connected = 1;
     client->last_status = 0;
+    client->last_ack_name[0] = '\0';
     return 0;
 }
 
@@ -213,6 +221,7 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
     client->net_mode = 1;
     client->connected = 1;
     client->last_status = 0;
+    client->last_ack_name[0] = '\0';
     t_conn_set_on_msg(conn, client_on_msg, client);
     t_conn_set_on_close(conn, client_on_close, client);
     return 0;
@@ -220,6 +229,10 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
 
 int t_client_last_status(const t_client *client) {
     return client ? client->last_status : (int)T_ERR_INVALID;
+}
+
+const char *t_client_last_ack_name(const t_client *client) {
+    return client ? client->last_ack_name : NULL;
 }
 
 int t_client_disconnect(t_client *client) {
