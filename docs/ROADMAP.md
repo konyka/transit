@@ -44,13 +44,15 @@ separate that library from a production message bus.
 - Event-loop wakeup: POSIX still uses a pipe; IOCP posts
   `PostQueuedCompletionStatus`. `t_conn`/`t_tcp` go through `t_socket`
   and `t_mutex` instead of `fcntl`/`close`/`pthread_mutex`.
+- Durable WAL file I/O: POSIX `open`/`fsync` or Windows `CreateFile` /
+  `FlushFileBuffers`. `t_broker_set_datadir` uses `CreateDirectoryA`.
 
 ## Remaining (priority order)
 
 ### 1. Rest of Windows POSIX modules
 
-IOCP sources exist. Still POSIX: WAL/file I/O, signals, thread pool,
-admin HTTP. Full Windows CI stays off until those have backends.
+Still POSIX: Raft log rewrite, file-backed storage dump, signals, thread
+pool, admin HTTP. Full Windows CI stays off until those have backends.
 
 ## Non-goals for now
 

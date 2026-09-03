@@ -8,8 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#if T_PLATFORM_WINDOWS
+#include <windows.h>
+#else
 #include <errno.h>
 #include <sys/stat.h>
+#endif
 
 typedef struct t_broker {
     char *broker_id;
@@ -215,9 +219,21 @@ size_t t_broker_domain_count(const t_broker *broker) {
 
 int t_broker_set_datadir(t_broker *broker, const char *path) {
     if (!broker || broker->free_pending || !path || !path[0]) return -1;
+#if T_PLATFORM_WINDOWS
+    if (!CreateDirectoryA(path, NULL)) {
+        DWORD err = GetLastError();
+        if (err != ERROR_ALREADY_EXISTS) return -1;
+    }
+    {
+        DWORD attrs = GetFileAttributesA(path);
+        if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+            return -1;
+    }
+#else
     if (mkdir(path, 0700) != 0 && errno != EEXIST) return -1;
     struct stat st;
     if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) return -1;
+#endif
     char *dup = strdup(path);
     if (!dup) return -1;
     free(broker->datadir);
