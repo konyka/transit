@@ -258,6 +258,15 @@ int t_conn_send(t_conn *conn, const t_proto_msg *msg)
     return 0;
 }
 
+int t_conn_flush(t_conn *conn)
+{
+    if (!conn) return -1;
+    if (t_atomic_load_int(&conn->closed)) return -1;
+    t_conn_handle_write(conn);
+    if (t_atomic_load_int(&conn->closed)) return -1;
+    return conn->send_len == 0 ? 0 : -1;
+}
+
 void t_conn_set_on_msg(t_conn *conn, t_conn_msg_cb cb, void *ud)
 {
     if (conn) {

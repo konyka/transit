@@ -363,6 +363,127 @@ T_TEST(server_follower_post_redirect_hint) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(server_non_loopback_requires_psk) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.host = "0.0.0.0";
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    T_ASSERT_NOT_NULL(srv);
+    T_ASSERT_EQ(t_server_start(srv), -1);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_psk_rejects_unauthenticated) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    const uint8_t psk[] = "unit-psk";
+    cfg.psk = psk;
+    cfg.psk_len = sizeof(psk) - 1;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    T_ASSERT_EQ(t_server_start(srv), 0);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(c, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    usleep(40000);
+    T_ASSERT_EQ(t_client_last_status(c), (int)T_ERR_PERMISSION);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_psk_accepts_matching_client) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    const uint8_t psk[] = "unit-psk";
+    cfg.psk = psk;
+    cfg.psk_len = sizeof(psk) - 1;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    T_ASSERT_EQ(t_server_start(srv), 0);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_set_psk(c, psk, sizeof(psk) - 1), 0);
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(c, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    usleep(40000);
+    T_ASSERT_EQ(t_client_last_status(c), 0);
+    T_ASSERT_EQ(t_client_post(c, "jobs", (const uint8_t *)"x", 1, 0), 0);
+    usleep(30000);
+    T_ASSERT_EQ(t_client_last_status(c), 0);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_psk_rejects_wrong_key) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    const uint8_t psk[] = "unit-psk";
+    const uint8_t bad[] = "other-psk";
+    cfg.psk = psk;
+    cfg.psk_len = sizeof(psk) - 1;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    T_ASSERT_EQ(t_server_start(srv), 0);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_set_psk(c, bad, sizeof(bad) - 1), 0);
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    usleep(40000);
+    T_ASSERT_EQ(t_client_last_status(c), (int)T_ERR_PERMISSION);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

@@ -17,7 +17,7 @@ src/
 ├── coroutine/   pure x86-64 assembly context switch (6 callee-saved regs)
 ├── net/         non-blocking socket, TCP, framed conn, protocol server,
 │                admin HTTP, ratelimit
-├── protocol/    binary wire protocol (16-byte header), CRC32C, typed payloads
+├── protocol/    binary wire protocol (16-byte header), CRC32C, HMAC-SHA256 AUTH, typed payloads
 ├── storage/     in-memory + file-backed hashmap, POSIX mmap, append-only WAL
 ├── queue/       FIFO/priority/broadcast, topic router (* #), flowcontrol,
 │                DLQ, message TTL (heap+map+compact), consumer groups
@@ -49,7 +49,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 ## Test Results
 
-39 test executables (34 unit + 2 integration + 3 benchmark), 100% pass rate
+40 test executables (35 unit + 2 integration + 3 benchmark), 100% pass rate
 (regular + ASan + UBSan clean):
 
 | Test | Description |
@@ -75,6 +75,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_mpmc_stress | MPMC 2P/2C concurrent stress |
 | test_net_tcp | Non-blocking socket + TCP server/client |
 | test_proto | Binary wire protocol + CRC32C |
+| test_hmac | SHA-256 / HMAC-SHA256 + AUTH MAC |
 | test_wire | Typed payload encode/decode + name rules |
 | test_queue | FIFO/priority/broadcast queues + router |
 | test_ratelimit | Per-connection token bucket rate limiter |
@@ -103,6 +104,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 ./build/examples/transit-server   # Integrated server (config+admin+broker+evloop)
                                   # -d <dir> or [storage] datadir= for durable queues
                                   # -C <port> or [cluster] port= for peer listen
+                                  # -k <psk> or [auth] psk= for client AUTH
 ```
 
 ## Benchmarks (Linux, GCC)
@@ -127,6 +129,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
   `127.0.0.1`. Oversize names, trailing junk, and unknown frame types close the
   socket. Durable `OPEN` without `-d`/`[storage] datadir` fails closed (`T_ERR_IO`).
   Cluster peer listen is opt-in (`-C` / `[cluster] port=`).
+  Client AUTH (`-k` / `[auth] psk=`) is required off loopback.
 
 ## Cross-Platform
 

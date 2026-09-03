@@ -10,6 +10,7 @@ This directory contains C examples that illustrate how to use the Transit MQ API
   `127.0.0.1:4222`; pass `-h 0.0.0.0` only when remote clients are intended.
   Durable queues need `-d <dir>` or `[storage] datadir=` in the INI config.
   Cluster peer listen is opt-in: `-C <port>` or `[cluster] port=`.
+  Remote bind (`-h 0.0.0.0`) requires `-k <psk>` or `[auth] psk=`.
 
 ## Build and run
 

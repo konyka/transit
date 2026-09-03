@@ -12,6 +12,7 @@
 #include "t_domain.h"
 #include "t_queue.h"
 #include "t_time.h"
+#include "t_hmac.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -28,6 +29,7 @@ typedef struct t_server_conn {
     int           in_cb;
     int           freed;
     int           free_pending;
+    int           authed;
 } t_server_conn;
 
 struct t_server {
@@ -51,6 +53,8 @@ struct t_server {
     int              stopping;
     int              in_cb;
     int              free_pending;
+    uint8_t         *psk;
+    size_t           psk_len;
 };
 
 static void server_on_accept(t_tcp_server *tcp, int client_fd, t_sockaddr *peer, void *ud);
@@ -305,6 +309,24 @@ static int32_t handle_confirm(t_server_conn *sc, const t_proto_msg *msg) {
     return T_OK_CODE;
 }
 
+static int32_t handle_auth(t_server_conn *sc, const t_proto_msg *msg) {
+    const uint8_t *mac = NULL;
+    if (t_wire_decode_auth(msg->payload, msg->payload_len, &mac) != 0)
+        return T_ERR_PROTO;
+    uint8_t expect[T_HMAC_SHA256_LEN];
+    if (t_auth_mac(expect, sc->srv->psk, sc->srv->psk_len) != 0)
+        return T_ERR_GENERIC;
+    if (!t_hmac_equal(mac, expect, T_HMAC_SHA256_LEN)) {
+        t_hmac_wipe(expect, sizeof(expect));
+        return T_ERR_PERMISSION;
+    }
+    t_hmac_wipe(expect, sizeof(expect));
+    sc->authed = 1;
+    if (send_ack(sc, T_MSG_AUTH, T_OK_CODE, NULL) != 0)
+        return T_ERR_IO;
+    return T_OK_CODE;
+}
+
 static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     t_server_conn *sc = (t_server_conn *)ud;
     if (!sc || sc->freed || !msg) return;
@@ -320,6 +342,27 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
         sc->srv->msgs_dropped++;
         (void)send_ack(sc, msg->header.type, (int32_t)T_ERR_BUSY, NULL);
         sc->in_cb--;
+        if (sc->free_pending) server_conn_free(sc);
+        return;
+    }
+
+    if (sc->srv->psk_len > 0 && !sc->authed) {
+        if (msg->header.type != T_MSG_AUTH) {
+            (void)send_ack(sc, msg->header.type, (int32_t)T_ERR_PERMISSION, NULL);
+            close_conn = 1;
+        } else {
+            status = handle_auth(sc, msg);
+            if (status != T_OK_CODE) {
+                (void)send_ack(sc, T_MSG_AUTH, status, NULL);
+                close_conn = 1;
+            }
+        }
+        sc->in_cb--;
+        if (close_conn && sc->conn) {
+            (void)t_conn_flush(sc->conn);
+            t_conn_destroy(conn);
+            return;
+        }
         if (sc->free_pending) server_conn_free(sc);
         return;
     }
@@ -341,6 +384,9 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     case T_MSG_CONFIRM:
     case T_MSG_REJECT:
         status = handle_confirm(sc, msg);
+        break;
+    case T_MSG_AUTH:
+        close_conn = 1;
         break;
     default:
         close_conn = 1;
@@ -480,6 +526,27 @@ t_server *t_server_create(t_evloop *loop, t_broker *broker, const t_server_confi
         free(srv);
         return NULL;
     }
+    if (cfg->psk_len > T_AUTH_PSK_MAX || (cfg->psk_len > 0 && !cfg->psk)) {
+        t_tcp_server_destroy(srv->tcp);
+        t_vec_destroy(&srv->conns);
+        t_map_destroy(&srv->open_refs);
+        free(srv->host);
+        free(srv);
+        return NULL;
+    }
+    if (cfg->psk_len > 0) {
+        srv->psk = (uint8_t *)malloc(cfg->psk_len);
+        if (!srv->psk) {
+            t_tcp_server_destroy(srv->tcp);
+            t_vec_destroy(&srv->conns);
+            t_map_destroy(&srv->open_refs);
+            free(srv->host);
+            free(srv);
+            return NULL;
+        }
+        memcpy(srv->psk, cfg->psk, cfg->psk_len);
+        srv->psk_len = cfg->psk_len;
+    }
     return srv;
 }
 
@@ -494,12 +561,24 @@ void t_server_destroy(t_server *srv) {
     t_tcp_server_destroy(srv->tcp);
     t_vec_destroy(&srv->conns);
     t_map_destroy(&srv->open_refs);
+    if (srv->psk) {
+        t_hmac_wipe(srv->psk, srv->psk_len);
+        free(srv->psk);
+    }
     free(srv->host);
     free(srv);
 }
 
 int t_server_start(t_server *srv) {
     if (!srv || srv->running || !srv->tcp) return -1;
+    if (srv->psk_len == 0) {
+        unsigned a = 0, b = 0, c = 0, d = 0;
+        char extra;
+        if (!srv->host ||
+            sscanf(srv->host, "%u.%u.%u.%u%c", &a, &b, &c, &d, &extra) != 4 ||
+            a != 127 || b > 255 || c > 255 || d > 255)
+            return -1;
+    }
     if (t_tcp_server_listen(srv->tcp, srv->host, srv->port, server_on_accept, srv) != 0)
         return -1;
     srv->bound_port = t_socket_local_port(srv->tcp->fd);

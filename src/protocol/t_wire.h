@@ -134,4 +134,8 @@ int t_wire_encode_append_resp(uint8_t *buf, size_t cap, uint64_t term, uint8_t s
                               uint64_t match_index);
 int t_wire_decode_append_resp(const uint8_t *buf, size_t len, t_wire_append_resp *out);
 
+#define T_WIRE_AUTH_MAC_LEN 32
+int t_wire_encode_auth(uint8_t *buf, size_t cap, const uint8_t mac[T_WIRE_AUTH_MAC_LEN]);
+int t_wire_decode_auth(const uint8_t *buf, size_t len, const uint8_t **mac);
+
 #endif /* T_WIRE_H */

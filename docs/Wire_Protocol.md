@@ -103,6 +103,21 @@ Accepted as liveness if the queue is open; not yet mapped to pull-inflight
 
 Empty payload. Server replies `ACK` and refreshes the session timestamp.
 
+### `AUTH` (client → server)
+
+First frame when a PSK is configured (`t_server_config.psk` /
+`transit-server -k` / `[auth] psk=`). Payload is exactly 32 bytes:
+
+```
+u8 mac[32]   /* HMAC-SHA256(psk, "transit.auth.v1") */
+```
+
+Trailing junk is rejected. Success: `ACK` `T_OK`. Wrong MAC or any other
+frame first: `ACK` `T_ERR_PERMISSION` and the connection is closed.
+No PSK on loopback: AUTH is not required (an unexpected `AUTH` frame
+closes like any unknown type). Binding a non-loopback address without a
+PSK fails at `t_server_start`.
+
 ### `CLUSTER`
 
 Not accepted on the client port (connection closed). The cluster peer
@@ -137,15 +152,16 @@ character). Empty name if no leader is known.
 | `max_conns` | 1024 | Extra accepts are closed immediately |
 | Token bucket | 128 burst, 50/s | Excess frames get `ACK` `T_ERR_BUSY` |
 | Idle timeout | 30s | Session inactivity closes the socket |
-| Send buffer | 64 MiB | Existing `t_conn` cap against slow peers |
+| PSK AUTH | unset | First frame HMAC-SHA256; required off loopback |
 
-`0.0.0.0` is allowed only when set explicitly (CLI/config). Admin HTTP
-already binds `127.0.0.1`.
+`0.0.0.0` is allowed only when set explicitly (CLI/config) **and** a PSK is
+configured. Admin HTTP already binds `127.0.0.1`.
 
 ## Client API
 
 - `t_client_connect` — in-process stub (tests and local fanout).
 - `t_client_dial(client, loop, host, port)` — real TCP using `t_conn`.
+  If `t_client_set_psk` was called, the first frame is `T_MSG_AUTH`.
 - `t_client_open_queue(..., T_CLIENT_OPEN_PRODUCER \| T_CLIENT_OPEN_CONSUMER)`.
   High byte: `T_CLIENT_QFLAG_DURABLE` / `EXCLUSIVE` / `AUTODELETE`.
 - `t_client_last_status()` — last decoded `ACK` status.

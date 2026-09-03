@@ -10,6 +10,7 @@
 #include "t_cluster.h"
 #include "t_raft.h"
 #include "t_peer.h"
+#include "t_hmac.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +42,7 @@ static void usage(const char *prog) {
     fprintf(stderr, "  -a <port>   Admin stats port (default: 8222)\n");
     fprintf(stderr, "  -d <dir>    Durable WAL directory (mkdir 0700)\n");
     fprintf(stderr, "  -C <port>   Cluster peer port (opt-in; default bind 127.0.0.1)\n");
+    fprintf(stderr, "  -k <psk>    Client AUTH pre-shared key (required off loopback)\n");
     fprintf(stderr, "  -v          Print version and exit\n");
     fprintf(stderr, "  --help      Show this help\n");
 }
@@ -52,6 +54,7 @@ int main(int argc, char **argv) {
     int client_port = 4222;
     int admin_port = 8222;
     int cluster_port = -1;
+    const char *psk = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
@@ -66,6 +69,8 @@ int main(int argc, char **argv) {
             datadir = argv[++i];
         } else if (strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
             cluster_port = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-k") == 0 && i + 1 < argc) {
+            psk = argv[++i];
         } else if (strcmp(argv[i], "-v") == 0) {
             printf("transit %s\n", t_version());
             return 0;
@@ -95,6 +100,8 @@ int main(int argc, char **argv) {
         if (dd && dd[0]) datadir = dd;
         int kp = t_config_get_int(g_config, "cluster", "port", -1);
         if (cluster_port < 0 && kp >= 0) cluster_port = kp;
+        const char *ak = t_config_get(g_config, "auth", "psk");
+        if (ak && ak[0] && !psk) psk = ak;
     }
 
     t_signal_install();
@@ -136,9 +143,22 @@ int main(int argc, char **argv) {
     t_server_config_init(&scfg);
     scfg.host = host;
     scfg.port = (uint16_t)client_port;
+    if (psk) {
+        size_t n = strlen(psk);
+        if (n == 0 || n > T_AUTH_PSK_MAX) {
+            fprintf(stderr, "Invalid AUTH psk length\n");
+            t_broker_destroy(g_broker);
+            t_evloop_destroy(g_loop);
+            t_config_destroy(g_config);
+            return 1;
+        }
+        scfg.psk = (const uint8_t *)psk;
+        scfg.psk_len = n;
+    }
     g_server = t_server_create(g_loop, g_broker, &scfg);
     if (!g_server || t_server_start(g_server) != 0) {
-        fprintf(stderr, "Failed to listen on %s:%d\n", host, client_port);
+        fprintf(stderr, "Failed to listen on %s:%d (non-loopback requires -k / [auth] psk=)\n",
+                host, client_port);
         if (g_server) t_server_destroy(g_server);
         t_broker_destroy(g_broker);
         t_evloop_destroy(g_loop);

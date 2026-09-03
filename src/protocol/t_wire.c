@@ -437,3 +437,15 @@ int t_wire_decode_append_resp(const uint8_t *buf, size_t len, t_wire_append_resp
     *out = tmp;
     return 0;
 }
+
+int t_wire_encode_auth(uint8_t *buf, size_t cap, const uint8_t mac[T_WIRE_AUTH_MAC_LEN]) {
+    if (!buf || !mac || cap < T_WIRE_AUTH_MAC_LEN) return -1;
+    memcpy(buf, mac, T_WIRE_AUTH_MAC_LEN);
+    return T_WIRE_AUTH_MAC_LEN;
+}
+
+int t_wire_decode_auth(const uint8_t *buf, size_t len, const uint8_t **mac) {
+    if (!buf || !mac || len != T_WIRE_AUTH_MAC_LEN) return -1;
+    *mac = buf;
+    return 0;
+}

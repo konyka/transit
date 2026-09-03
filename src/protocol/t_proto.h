@@ -21,6 +21,7 @@ typedef enum t_msg_type {
     T_MSG_REJECT,
     T_MSG_HEARTBEAT,
     T_MSG_CLUSTER,
+    T_MSG_AUTH,
     T_MSG_MAX
 } t_msg_type;
 

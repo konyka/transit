@@ -9,6 +9,7 @@
 #include "t_wire.h"
 #include "t_proto.h"
 #include "t_error.h"
+#include "t_hmac.h"
 
 /* Minimal in-process client implementation with queue registry and subscriptions. */
 typedef struct t_client_queue_entry {
@@ -43,6 +44,8 @@ struct t_client {
     int       net_mode;
     int       last_status;
     char      last_ack_name[T_WIRE_MAX_NAME + 1];
+    uint8_t  *psk;
+    size_t    psk_len;
 };
 
 /* Helpers */
@@ -189,6 +192,10 @@ void t_client_destroy(t_client *client) {
         free(client->subs[i].queue);
     }
     free(client->subs);
+    if (client->psk) {
+        t_hmac_wipe(client->psk, client->psk_len);
+        free(client->psk);
+    }
     free(client);
 }
 
@@ -224,6 +231,35 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
     client->last_ack_name[0] = '\0';
     t_conn_set_on_msg(conn, client_on_msg, client);
     t_conn_set_on_close(conn, client_on_close, client);
+    if (client->psk_len > 0) {
+        uint8_t mac[T_HMAC_SHA256_LEN];
+        uint8_t buf[T_WIRE_AUTH_MAC_LEN];
+        if (t_auth_mac(mac, client->psk, client->psk_len) != 0) {
+            client_drop_conn(client);
+            return -1;
+        }
+        int n = t_wire_encode_auth(buf, sizeof(buf), mac);
+        t_hmac_wipe(mac, sizeof(mac));
+        if (n < 0 || client_send_payload(client, T_MSG_AUTH, buf, (size_t)n) != 0) {
+            client_drop_conn(client);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int t_client_set_psk(t_client *client, const uint8_t *psk, size_t len) {
+    if (!client || client->free_pending) return -1;
+    if (len == 0 || len > T_AUTH_PSK_MAX || !psk) return -1;
+    uint8_t *copy = (uint8_t *)malloc(len);
+    if (!copy) return -1;
+    memcpy(copy, psk, len);
+    if (client->psk) {
+        t_hmac_wipe(client->psk, client->psk_len);
+        free(client->psk);
+    }
+    client->psk = copy;
+    client->psk_len = len;
     return 0;
 }
 

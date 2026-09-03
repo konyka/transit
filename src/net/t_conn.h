@@ -16,6 +16,7 @@ t_conn *t_conn_create(int fd, t_evloop *loop);
 void     t_conn_destroy(t_conn *conn);
 
 int      t_conn_send(t_conn *conn, const t_proto_msg *msg);
+int      t_conn_flush(t_conn *conn);
 void     t_conn_set_on_msg(t_conn *conn, t_conn_msg_cb cb, void *ud);
 void     t_conn_set_on_close(t_conn *conn, t_conn_close_cb cb, void *ud);
 

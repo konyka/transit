@@ -24,6 +24,7 @@ int        t_client_is_connected(const t_client *client);
 int        t_client_connect(t_client *client, const char *host, uint16_t port);
 /* Real TCP dial. `t_client_connect` remains the in-process stub. */
 int        t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t port);
+int        t_client_set_psk(t_client *client, const uint8_t *psk, size_t len);
 int        t_client_disconnect(t_client *client);
 int        t_client_last_status(const t_client *client);
 const char *t_client_last_ack_name(const t_client *client);

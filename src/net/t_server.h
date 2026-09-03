@@ -16,6 +16,8 @@ typedef struct t_server_config {
     size_t      rate_tokens;   /* burst; default 128; 0 = always busy */
     double      rate_refill;   /* tokens per millisecond */
     int64_t     idle_timeout_ms; /* 0 = disabled */
+    const uint8_t *psk;        /* NULL = no AUTH; required off loopback */
+    size_t         psk_len;
 } t_server_config;
 
 void t_server_config_init(t_server_config *cfg);

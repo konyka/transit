@@ -181,6 +181,19 @@ T_TEST(wire_cluster_rejects_trailing_junk) {
     T_ASSERT(t_wire_decode_vote_req(buf, (size_t)n + 1, &out) != 0);
 }
 
+T_TEST(wire_auth_roundtrip) {
+    uint8_t mac[T_WIRE_AUTH_MAC_LEN];
+    memset(mac, 0xab, sizeof(mac));
+    uint8_t buf[40];
+    int n = t_wire_encode_auth(buf, sizeof(buf), mac);
+    T_ASSERT_EQ(n, T_WIRE_AUTH_MAC_LEN);
+    const uint8_t *got = NULL;
+    T_ASSERT_EQ(t_wire_decode_auth(buf, (size_t)n, &got), 0);
+    T_ASSERT_MEM_EQ(got, mac, T_WIRE_AUTH_MAC_LEN);
+    T_ASSERT(t_wire_decode_auth(buf, (size_t)n + 1, &got) != 0);
+    T_ASSERT(t_wire_decode_auth(buf, 31, &got) != 0);
+}
+
 int main(void) {
     return t_run_all_tests();
 }
