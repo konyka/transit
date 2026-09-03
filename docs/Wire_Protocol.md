@@ -69,7 +69,7 @@ u8  data[data_len]
 ### `PUSH` (server → client)
 
 ```
-u64 msg_id     /* per-connection sequence, not a durable offset */
+u64 msg_id     /* queue id for FIFO/priority pull; per-connection for broadcast */
 u8  priority
 u16 name_len
 u8  name[name_len]
@@ -77,10 +77,13 @@ u32 data_len
 u8  data[data_len]
 ```
 
+FIFO and priority queues are consumed into inflight before `PUSH`. A `PUSH`
+is sent only when a session credit can be acquired; otherwise the message
+stays pending. Broadcast still fans out fire-and-forget (per-connection
+`msg_id`) and skipped deliveries are not requeued.
+
 Each connection has a PUSH credit window (`t_server_config.push_credits`,
-default 64, `0` = unlimited). A `PUSH` is sent only when a credit can be
-acquired; otherwise that delivery is skipped (queue callbacks remain
-fire-and-forget). Slow consumers therefore cannot grow `t_conn` send
+default 64, `0` = unlimited). Slow consumers cannot grow `t_conn` send
 buffers beyond the window (the buffer itself is still capped at 64 MiB).
 
 ### `ACK` (server → client)
@@ -100,11 +103,13 @@ u16 name_len
 u8  name[name_len]
 ```
 
-If the queue is open, each `CONFIRM`/`REJECT` returns one PUSH credit
-(capped at the window). These frames skip the per-connection token bucket
-so a slow consumer can still refill credits. Not yet mapped to
-pull-inflight `t_queue_ack`. The TCP client (`t_client_dial`) sends
-`CONFIRM` automatically after a decoded `PUSH`.
+`CONFIRM` calls `t_queue_ack` for a matching inflight `PUSH` on this
+session (WAL `DEL` for durable queues). `REJECT` calls `t_queue_nack` and
+the server immediately tries to `PUSH` again. Unknown ids still return a
+credit (capped at the window) and `ACK` `T_OK`. Disconnect nacks leftover
+inflight. These frames skip the per-connection token bucket. Broadcast
+`PUSH` is not inflight — confirm only returns a credit. The TCP client
+(`t_client_dial`) sends `CONFIRM` automatically after a decoded `PUSH`.
 
 ### `HEARTBEAT` / `NOP`
 

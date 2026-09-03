@@ -79,7 +79,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_wire | Typed payload encode/decode + name rules |
 | test_queue | FIFO/priority/broadcast queues + router |
 | test_ratelimit | Per-connection token bucket rate limiter |
-| test_server | Protocol server: bind, max-conns, pub/sub, rate limit, PUSH credits |
+| test_server | Protocol server: bind, pub/sub, rate limit, PUSH credits, pull ack |
 | test_session | Session lifecycle + activity tracking |
 | test_shutdown | Graceful shutdown (signal → evloop stop) |
 | test_signal | SIGPIPE/SIGINT/SIGTERM handling |
@@ -126,7 +126,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 - Wire decode aliases the frame buffer (no payload copy). The protocol server
   applies O(1) token-bucket checks before touching the broker. Per-session
   PUSH credits (default 64) stop a slow consumer from filling the 64 MiB
-  send buffer; `CONFIRM` returns a credit and is not rate-limited.
+  send buffer; FIFO/priority `CONFIRM` acks inflight and `REJECT` requeues.
 - `transit-server` and `t_server` default to loopback. Admin HTTP stays on
   `127.0.0.1`. Oversize names, trailing junk, and unknown frame types close the
   socket. Durable `OPEN` without `-d`/`[storage] datadir` fails closed (`T_ERR_IO`).

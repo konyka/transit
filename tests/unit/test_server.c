@@ -564,10 +564,13 @@ T_TEST(server_push_credits_cap) {
 
     T_ASSERT_EQ(raw_send_confirm(cons, g_raw_push_ids[0], "jobs"), 0);
     T_ASSERT_EQ(raw_send_confirm(cons, g_raw_push_ids[1], "jobs"), 0);
-    usleep(40000);
-    T_ASSERT_EQ(t_client_post(prod, "jobs", x, 1, 0), 0);
-    usleep(60000);
-    T_ASSERT_EQ(g_raw_push_n, 3);
+    usleep(80000);
+    T_ASSERT_EQ(g_raw_push_n, 4);
+
+    T_ASSERT_EQ(raw_send_confirm(cons, g_raw_push_ids[2], "jobs"), 0);
+    T_ASSERT_EQ(raw_send_confirm(cons, g_raw_push_ids[3], "jobs"), 0);
+    usleep(80000);
+    T_ASSERT_EQ(g_raw_push_n, 5);
 
     t_evloop_stop(loop);
     pthread_join(th, NULL);
@@ -612,6 +615,159 @@ T_TEST(server_push_credits_auto_confirm) {
     }
     usleep(40000);
     T_ASSERT_EQ(g_got, 5);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+static int raw_send_reject(t_conn *conn, uint64_t msg_id, const char *name) {
+    uint8_t buf[8 + 2 + T_WIRE_MAX_NAME];
+    int n = t_wire_encode_confirm(buf, sizeof(buf), msg_id, name);
+    if (n < 0) return -1;
+    t_proto_msg m;
+    t_proto_header_init(&m.header, T_MSG_REJECT, (uint32_t)n);
+    m.payload = buf;
+    m.payload_len = (size_t)n;
+    return t_conn_send(conn, &m);
+}
+
+T_TEST(server_confirm_acks_pull) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(cons, "jobs", T_CLIENT_OPEN_CONSUMER), 0);
+    T_ASSERT_EQ(t_client_subscribe(cons, "jobs", on_net_msg, NULL), 0);
+    T_ASSERT_EQ(t_client_open_queue(prod, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    usleep(40000);
+    g_got = 0;
+    T_ASSERT_EQ(t_client_post(prod, "jobs", (const uint8_t *)"ack", 3, 0), 0);
+    usleep(80000);
+    T_ASSERT_EQ(g_got, 1);
+    t_domain *d = t_broker_get_domain(b, "default");
+    t_queue *q = (t_queue *)t_domain_get_queue(d, "jobs");
+    T_ASSERT_NOT_NULL(q);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 0);
+    T_ASSERT_EQ(t_queue_has_inflight(q), 0);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_reject_requeues) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    cfg.push_credits = 1;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    int cfd = t_socket_dial_ipv4("127.0.0.1", port);
+    T_ASSERT(cfd >= 0);
+    t_conn *cons = t_conn_create(cfd, loop);
+    T_ASSERT_NOT_NULL(cons);
+    g_raw_push_n = 0;
+    t_conn_set_on_msg(cons, raw_on_push, NULL);
+    T_ASSERT_EQ(raw_send_open_consumer(cons, "jobs"), 0);
+
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(prod, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    usleep(40000);
+    T_ASSERT_EQ(t_client_post(prod, "jobs", (const uint8_t *)"r", 1, 0), 0);
+    usleep(60000);
+    T_ASSERT_EQ(g_raw_push_n, 1);
+    uint64_t first = g_raw_push_ids[0];
+    T_ASSERT_EQ(raw_send_reject(cons, first, "jobs"), 0);
+    usleep(80000);
+    T_ASSERT_EQ(g_raw_push_n, 2);
+    T_ASSERT_EQ((long long)g_raw_push_ids[1], (long long)first);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_conn_destroy(cons);
+    t_client_destroy(prod);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_disconnect_requeues) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    int cfd = t_socket_dial_ipv4("127.0.0.1", port);
+    T_ASSERT(cfd >= 0);
+    t_conn *raw = t_conn_create(cfd, loop);
+    T_ASSERT_NOT_NULL(raw);
+    g_raw_push_n = 0;
+    t_conn_set_on_msg(raw, raw_on_push, NULL);
+    T_ASSERT_EQ(raw_send_open_consumer(raw, "jobs"), 0);
+
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(prod, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    usleep(40000);
+    T_ASSERT_EQ(t_client_post(prod, "jobs", (const uint8_t *)"keep", 4, 0), 0);
+    usleep(60000);
+    T_ASSERT_EQ(g_raw_push_n, 1);
+    t_conn_destroy(raw);
+    usleep(40000);
+
+    g_got = 0;
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(cons, "jobs", T_CLIENT_OPEN_CONSUMER), 0);
+    T_ASSERT_EQ(t_client_subscribe(cons, "jobs", on_net_msg, NULL), 0);
+    usleep(80000);
+    T_ASSERT_EQ(g_got, 1);
+    T_ASSERT_STR_EQ(g_payload, "keep");
 
     t_evloop_stop(loop);
     pthread_join(th, NULL);

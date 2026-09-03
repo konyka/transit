@@ -20,12 +20,18 @@
 #include <stdint.h>
 #include <limits.h>
 
+typedef struct t_push_inf {
+    char    *name;
+    uint64_t id;
+} t_push_inf;
+
 typedef struct t_server_conn {
     t_server     *srv;
     t_conn       *conn;
     t_session    *sess;
     t_ratelimit  *rl;
     t_map         opened; /* name -> (void*)(uintptr_t)mode */
+    t_vec         inflight; /* t_push_inf*: pull PUSHes awaiting CONFIRM */
     uint64_t      next_push_id;
     int           in_cb;
     int           freed;
@@ -95,19 +101,21 @@ static int send_ack(t_server_conn *sc, uint16_t req_type, int32_t status, const 
     return send_frame(sc->conn, T_MSG_ACK, buf, (size_t)n);
 }
 
-static void server_push_cb(const char *queue_name, const uint8_t *data, size_t len, void *ud) {
-    t_server_conn *sc = (t_server_conn *)ud;
-    if (!sc || sc->freed || !sc->conn || !queue_name) return;
-    if (len > T_PROTO_MAX_PAYLOAD) return;
-    if (sc->fc && t_fc_acquire(sc->fc, 1) != 0) return;
+static void server_flush_pull(t_server *srv, const char *name);
+
+static int server_send_push(t_server_conn *sc, const char *queue_name, uint64_t msg_id,
+                            uint8_t priority, const uint8_t *data, size_t len, int track) {
+    if (!sc || sc->freed || !sc->conn || !queue_name) return -1;
+    if (len > T_PROTO_MAX_PAYLOAD) return -1;
+    if (sc->fc && t_fc_acquire(sc->fc, 1) != 0) return -1;
     size_t nlen = strlen(queue_name);
     if (nlen > T_WIRE_MAX_NAME) {
         if (sc->fc) t_fc_release(sc->fc, 1);
-        return;
+        return -1;
     }
     if (len > SIZE_MAX - (8u + 1u + 2u + nlen + 4u)) {
         if (sc->fc) t_fc_release(sc->fc, 1);
-        return;
+        return -1;
     }
     size_t need = 8u + 1u + 2u + nlen + 4u + len;
     uint8_t stack[512];
@@ -117,29 +125,138 @@ static void server_push_cb(const char *queue_name, const uint8_t *data, size_t l
         buf = (uint8_t *)malloc(need);
         if (!buf) {
             if (sc->fc) t_fc_release(sc->fc, 1);
-            return;
+            return -1;
         }
         heap = 1;
     }
-    if (sc->next_push_id == UINT64_MAX) sc->next_push_id = 0;
-    uint64_t id = ++sc->next_push_id;
-    int n = t_wire_encode_push(buf, need, id, 0, queue_name, data, (uint32_t)len);
-    if (n > 0) {
-        if (send_frame(sc->conn, T_MSG_PUSH, buf, (size_t)n) != 0) {
+    t_push_inf *inf = NULL;
+    if (track) {
+        inf = (t_push_inf *)malloc(sizeof(*inf));
+        if (!inf) {
+            if (heap) free(buf);
             if (sc->fc) t_fc_release(sc->fc, 1);
-        } else {
-            t_session_record_send(sc->sess);
+            return -1;
         }
-    } else if (sc->fc) {
-        t_fc_release(sc->fc, 1);
+        inf->name = strdup(queue_name);
+        inf->id = msg_id;
+        if (!inf->name || t_vec_push(&sc->inflight, inf) != 0) {
+            free(inf->name);
+            free(inf);
+            if (heap) free(buf);
+            if (sc->fc) t_fc_release(sc->fc, 1);
+            return -1;
+        }
+    }
+    int n = t_wire_encode_push(buf, need, msg_id, priority, queue_name, data, (uint32_t)len);
+    int rc = -1;
+    if (n > 0 && send_frame(sc->conn, T_MSG_PUSH, buf, (size_t)n) == 0) {
+        t_session_record_send(sc->sess);
+        rc = 0;
+    }
+    if (rc != 0) {
+        if (inf) {
+            (void)t_vec_pop(&sc->inflight);
+            free(inf->name);
+            free(inf);
+        }
+        if (sc->fc) t_fc_release(sc->fc, 1);
     }
     if (heap) free(buf);
+    return rc;
+}
+
+static void server_push_cb(const char *queue_name, const uint8_t *data, size_t len, void *ud) {
+    t_server_conn *sc = (t_server_conn *)ud;
+    if (!sc || sc->freed || !sc->conn || !queue_name) return;
+    if (sc->next_push_id == UINT64_MAX) sc->next_push_id = 0;
+    uint64_t id = ++sc->next_push_id;
+    (void)server_send_push(sc, queue_name, id, 0, data, len, 0);
 }
 
 static t_queue *server_lookup_queue(t_broker *b, const char *name) {
     t_domain *d = t_broker_get_domain(b, "default");
     if (!d) return NULL;
     return (t_queue *)t_domain_get_queue(d, name);
+}
+
+static size_t server_net_consumers(t_server *srv, const char *name, const t_server_conn *except) {
+    size_t n = 0;
+    if (!srv || !name) return 0;
+    for (size_t i = 0; i < srv->conns.len; i++) {
+        t_server_conn *sc = (t_server_conn *)srv->conns.items[i];
+        if (!sc || sc == except || sc->freed) continue;
+        uintptr_t mode = (uintptr_t)t_map_get(&sc->opened, name);
+        if (mode & T_WIRE_MODE_CONSUMER) n++;
+    }
+    return n;
+}
+
+static t_push_inf *server_inflight_take(t_server_conn *sc, const char *name, uint64_t id) {
+    if (!sc || !name) return NULL;
+    for (size_t i = 0; i < sc->inflight.len; i++) {
+        t_push_inf *inf = (t_push_inf *)sc->inflight.items[i];
+        if (inf && inf->id == id && inf->name && strcmp(inf->name, name) == 0) {
+            (void)t_vec_remove(&sc->inflight, i);
+            return inf;
+        }
+    }
+    return NULL;
+}
+
+static void server_inflight_nack(t_server_conn *sc, const char *only_name) {
+    if (!sc) return;
+    for (size_t i = 0; i < sc->inflight.len; ) {
+        t_push_inf *inf = (t_push_inf *)sc->inflight.items[i];
+        if (!inf) {
+            (void)t_vec_remove(&sc->inflight, i);
+            continue;
+        }
+        if (only_name && (!inf->name || strcmp(inf->name, only_name) != 0)) {
+            i++;
+            continue;
+        }
+        (void)t_vec_remove(&sc->inflight, i);
+        if (sc->srv && inf->name) {
+            t_queue *q = server_lookup_queue(sc->srv->broker, inf->name);
+            if (q) (void)t_queue_nack(q, inf->id);
+        }
+        free(inf->name);
+        free(inf);
+    }
+}
+
+static t_server_conn *server_pick_pull_consumer(t_server *srv, const char *name) {
+    if (!srv || !name) return NULL;
+    for (size_t i = 0; i < srv->conns.len; i++) {
+        t_server_conn *sc = (t_server_conn *)srv->conns.items[i];
+        if (!sc || sc->freed || !sc->conn) continue;
+        uintptr_t mode = (uintptr_t)t_map_get(&sc->opened, name);
+        if ((mode & T_WIRE_MODE_CONSUMER) == 0) continue;
+        if (sc->fc && t_fc_available(sc->fc) == 0) continue;
+        return sc;
+    }
+    return NULL;
+}
+
+static void server_flush_pull(t_server *srv, const char *name) {
+    if (!srv || !name) return;
+    t_queue *q = server_lookup_queue(srv->broker, name);
+    if (!q) return;
+    if (t_queue_get_type(q) == T_QUEUE_BROADCAST) return;
+    if (t_queue_consumer_count(q) > 0) return;
+    while (t_queue_pending_count(q) > 0) {
+        t_server_conn *sc = server_pick_pull_consumer(srv, name);
+        if (!sc) break;
+        t_msg m;
+        if (t_queue_consume(q, &m) != 0) break;
+        uint8_t pri = 0;
+        if (m.priority > 0)
+            pri = (m.priority > 255) ? 255 : (uint8_t)m.priority;
+        if (server_send_push(sc, name, m.msg_id, pri, m.data, m.data_len, 1) != 0) {
+            (void)t_queue_nack(q, m.msg_id);
+            break;
+        }
+    }
 }
 
 static void server_unref_open(t_server *srv, const char *name) {
@@ -159,13 +276,16 @@ static void server_unref_open(t_server *srv, const char *name) {
 
 static void server_unsub_all(t_server_conn *sc) {
     if (!sc || !sc->srv || !sc->srv->broker) return;
+    server_inflight_nack(sc, NULL);
     t_map_iter it = t_map_iter_begin(&sc->opened);
     const char *k;
     void *v;
     while (t_map_iter_next(&it, &k, &v)) {
         uintptr_t mode = (uintptr_t)v;
-        if (mode & T_WIRE_MODE_CONSUMER)
+        if (mode & T_WIRE_MODE_CONSUMER) {
             (void)t_broker_unsubscribe(sc->srv->broker, k, server_push_cb, sc);
+            server_flush_pull(sc->srv, k);
+        }
         server_unref_open(sc->srv, k);
     }
 }
@@ -199,6 +319,7 @@ static void server_conn_free(t_server_conn *sc) {
     sc->rl = NULL;
     t_fc_destroy(sc->fc);
     sc->fc = NULL;
+    t_vec_destroy(&sc->inflight);
     sc->conn = NULL;
     free(sc);
 }
@@ -245,7 +366,8 @@ static int32_t handle_open(t_server_conn *sc, const t_proto_msg *msg) {
     if ((mode & T_WIRE_MODE_CONSUMER) && !(prev & T_WIRE_MODE_CONSUMER)) {
         t_queue *q = server_lookup_queue(b, name);
         if (q && (t_queue_get_flags(q) & T_QUEUE_FLAG_EXCLUSIVE) &&
-            t_queue_consumer_count(q) > 0)
+            (t_queue_consumer_count(q) > 0 ||
+             server_net_consumers(sc->srv, name, sc) > 0))
             return T_ERR_BUSY;
     }
     if (t_map_insert(&sc->opened, name, (void *)mode) != 0)
@@ -258,18 +380,21 @@ static int32_t handle_open(t_server_conn *sc, const t_proto_msg *msg) {
         }
     }
     if ((mode & T_WIRE_MODE_CONSUMER) && !(prev & T_WIRE_MODE_CONSUMER)) {
-        if (t_broker_subscribe(b, name, server_push_cb, sc) != 0) {
+        t_queue *q = server_lookup_queue(b, name);
+        int push = q && t_queue_get_type(q) == T_QUEUE_BROADCAST;
+        if (push && t_broker_subscribe(b, name, server_push_cb, sc) != 0) {
             if (prev == 0) {
                 (void)t_map_remove(&sc->opened, name);
                 server_unref_open(sc->srv, name);
             } else {
                 (void)t_map_insert(&sc->opened, name, (void *)prev);
             }
-            t_queue *q = server_lookup_queue(b, name);
             if (q && (t_queue_get_flags(q) & T_QUEUE_FLAG_EXCLUSIVE))
                 return T_ERR_BUSY;
             return T_ERR_GENERIC;
         }
+        if (!push)
+            server_flush_pull(sc->srv, name);
     }
     if (send_ack(sc, T_MSG_OPEN_QUEUE, T_OK_CODE, name) != 0)
         return T_ERR_IO;
@@ -286,8 +411,11 @@ static int32_t handle_close(t_server_conn *sc, const t_proto_msg *msg) {
     void *v = t_map_remove(&sc->opened, name);
     if (!v) return T_ERR_NOTFOUND;
     uintptr_t mode = (uintptr_t)v;
-    if (mode & T_WIRE_MODE_CONSUMER)
+    if (mode & T_WIRE_MODE_CONSUMER) {
+        server_inflight_nack(sc, name);
         (void)t_broker_unsubscribe(sc->srv->broker, name, server_push_cb, sc);
+        server_flush_pull(sc->srv, name);
+    }
     server_unref_open(sc->srv, name);
     if (send_ack(sc, T_MSG_CLOSE_QUEUE, T_OK_CODE, name) != 0)
         return T_ERR_IO;
@@ -310,6 +438,7 @@ static int32_t handle_post(t_server_conn *sc, const t_proto_msg *msg) {
         return T_ERR_AGAIN;
     if (t_broker_publish(sc->srv->broker, name, p.data, p.data_len, (int)p.priority) != 0)
         return T_ERR_GENERIC;
+    server_flush_pull(sc->srv, name);
     if (send_ack(sc, T_MSG_POST, T_OK_CODE, name) != 0)
         return T_ERR_IO;
     return T_OK_CODE;
@@ -324,7 +453,20 @@ static int32_t handle_confirm(t_server_conn *sc, const t_proto_msg *msg) {
         return T_ERR_INVALID;
     if (!t_map_contains(&sc->opened, name))
         return T_ERR_PERMISSION;
+    t_push_inf *inf = server_inflight_take(sc, name, c.msg_id);
+    if (inf) {
+        t_queue *q = server_lookup_queue(sc->srv->broker, name);
+        if (q) {
+            if (msg->header.type == T_MSG_REJECT)
+                (void)t_queue_nack(q, inf->id);
+            else
+                (void)t_queue_ack(q, inf->id);
+        }
+        free(inf->name);
+        free(inf);
+    }
     if (sc->fc) t_fc_release(sc->fc, 1);
+    server_flush_pull(sc->srv, name);
     if (send_ack(sc, (uint16_t)msg->header.type, T_OK_CODE, name) != 0)
         return T_ERR_IO;
     return T_OK_CODE;
@@ -486,6 +628,7 @@ static void server_on_accept(t_tcp_server *tcp, int client_fd, t_sockaddr *peer,
     }
     sc->srv = srv;
     t_map_init(&sc->opened);
+    t_vec_init(&sc->inflight);
     sc->sess = t_session_create((uint64_t)(srv->conns.len + 1));
     sc->rl = t_ratelimit_create(srv->rate_tokens, srv->rate_refill);
     if (srv->push_credits > 0)
@@ -499,6 +642,7 @@ static void server_on_accept(t_tcp_server *tcp, int client_fd, t_sockaddr *peer,
         t_ratelimit_destroy(sc->rl);
         t_fc_destroy(sc->fc);
         t_map_destroy(&sc->opened);
+        t_vec_destroy(&sc->inflight);
         free(sc);
         srv->in_cb--;
         return;

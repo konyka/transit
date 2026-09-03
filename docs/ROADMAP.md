@@ -33,16 +33,14 @@ separate that library from a production message bus.
 - Per-session PUSH credits (`t_flowcontrol`): default 64 outstanding
   `PUSH` frames. `CONFIRM`/`REJECT` return a credit and are not
   rate-limited. The TCP client auto-sends `CONFIRM` after each `PUSH`.
+- Network FIFO/priority delivery is pull-inflight: `PUSH` carries the
+  queue `msg_id`, `CONFIRM` maps to `t_queue_ack`, `REJECT` to
+  `t_queue_nack`. Disconnect nacks leftover inflight so another consumer
+  can take the message. Broadcast still uses fire-and-forget push.
 
 ## Remaining (priority order)
 
-### 1. Pull consume + ack on the wire
-
-Queue `ack`/`nack` is pull-inflight only. Network `PUSH` is fire-and-forget.
-A later `T_MSG_CONFIRM` should map to inflight ack once a pull-mode consumer
-API exists on the session.
-
-### 2. Windows / non-x86_64
+### 1. Windows / non-x86_64
 
 IOCP sources exist; POSIX modules and coroutine assembly do not. Keep CI on
 Linux/macOS until those fallbacks exist.

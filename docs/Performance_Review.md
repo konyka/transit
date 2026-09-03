@@ -29,8 +29,9 @@ July 2026 review.
 - Durable WAL is append-only (PUT/DEL). Default fsync every 32 records so the
   hot path is not a syscall per message; tests use `sync_every=1`.
 - Protocol `PUSH` takes a per-session credit (`t_flowcontrol`, default 64,
-  no timed refill). `CONFIRM`/`REJECT` return a credit and skip the token
-  bucket so backpressure cannot deadlock.
+  no timed refill). FIFO/priority consume into inflight; `CONFIRM` acks and
+  `REJECT` requeues. `CONFIRM`/`REJECT` skip the token bucket so
+  backpressure cannot deadlock.
 
 ## Verification
 
