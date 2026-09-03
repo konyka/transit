@@ -30,6 +30,10 @@ int         t_broker_create_queue(t_broker *broker, const char *domain_name,
                                   const char *queue_name, int type, int flags);
 int         t_broker_delete_queue(t_broker *broker, const char *domain_name,
                                   const char *queue_name);
+/* Directory for durable WALs (mkdir 0700). Required for T_QUEUE_FLAG_DURABLE. */
+int         t_broker_set_datadir(t_broker *broker, const char *path);
+const char *t_broker_datadir(const t_broker *broker);
+int         t_broker_set_wal_sync_every(t_broker *broker, int n);
 
 int         t_broker_publish(t_broker *broker, const char *queue_name,
                               const uint8_t *data, size_t len, int priority);

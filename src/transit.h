@@ -32,6 +32,7 @@
 #include "t_wire.h"
 #include "t_crc32c.h"
 #include "t_storage.h"
+#include "t_wal.h"
 #include "t_mmap.h"
 #include "t_queue.h"
 #include "t_router.h"

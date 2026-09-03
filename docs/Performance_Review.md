@@ -26,6 +26,8 @@ July 2026 review.
   remain present, but CI is disabled until POSIX and assembly fallbacks exist.
 - Wire protocol decode aliases the frame (no extra payload copy). The protocol
   server rate-limits in O(1) before broker work and caps accept fan-in.
+- Durable WAL is append-only (PUT/DEL). Default fsync every 32 records so the
+  hot path is not a syscall per message; tests use `sync_every=1`.
 
 ## Verification
 

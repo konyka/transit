@@ -33,6 +33,20 @@ Idempotent per connection. Consumer mode subscribes that connection for
 `PUSH`. Producer mode is required for `POST`. Queue is created in the
 `default` domain if it does not exist.
 
+`qflags` are applied only at create:
+
+- `T_QUEUE_FLAG_DURABLE` requires a broker datadir (`transit-server -d` or
+  `[storage] datadir=`). Missing datadir returns `T_ERR_IO`. Combined with
+  `BROADCAST` returns `T_ERR_INVALID`. WAL path is
+  `{datadir}/{domain}.{queue}.wal` (file mode `0600`, cap 256 MiB, default
+  fsync every 32 records).
+- `T_QUEUE_FLAG_EXCLUSIVE` refuses a second consumer with `T_ERR_BUSY`.
+- `T_QUEUE_FLAG_AUTODELETE` deletes the queue when the last network session
+  closes it (or disconnects).
+
+Client helper: `t_client_open_queue` packs mode in the low 8 bits and
+`T_CLIENT_QFLAG_*` in the high 8 bits so they do not collide.
+
 ### `CLOSE_QUEUE`
 
 ```
@@ -111,6 +125,7 @@ already binds `127.0.0.1`.
 - `t_client_connect` — in-process stub (tests and local fanout).
 - `t_client_dial(client, loop, host, port)` — real TCP using `t_conn`.
 - `t_client_open_queue(..., T_CLIENT_OPEN_PRODUCER \| T_CLIENT_OPEN_CONSUMER)`.
+  High byte: `T_CLIENT_QFLAG_DURABLE` / `EXCLUSIVE` / `AUTODELETE`.
 - `t_client_last_status()` — last decoded `ACK` status.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)

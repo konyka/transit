@@ -8,6 +8,10 @@
 
 #define T_CLIENT_OPEN_PRODUCER 0x01
 #define T_CLIENT_OPEN_CONSUMER 0x02
+/* Queue flags live in the high byte so they do not collide with mode. */
+#define T_CLIENT_QFLAG_DURABLE     0x0100
+#define T_CLIENT_QFLAG_EXCLUSIVE   0x0200
+#define T_CLIENT_QFLAG_AUTODELETE  0x0400
 
 typedef struct t_client t_client;
 

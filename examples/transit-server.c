@@ -33,6 +33,7 @@ static void usage(const char *prog) {
     fprintf(stderr, "  -h <host>   Listen host (default: 127.0.0.1)\n");
     fprintf(stderr, "  -p <port>   Client listen port (default: 4222)\n");
     fprintf(stderr, "  -a <port>   Admin stats port (default: 8222)\n");
+    fprintf(stderr, "  -d <dir>    Durable WAL directory (mkdir 0700)\n");
     fprintf(stderr, "  -v          Print version and exit\n");
     fprintf(stderr, "  --help      Show this help\n");
 }
@@ -40,6 +41,7 @@ static void usage(const char *prog) {
 int main(int argc, char **argv) {
     const char *config_file = NULL;
     const char *host = "127.0.0.1";
+    const char *datadir = NULL;
     int client_port = 4222;
     int admin_port = 8222;
 
@@ -52,6 +54,8 @@ int main(int argc, char **argv) {
             client_port = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-a") == 0 && i + 1 < argc) {
             admin_port = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
+            datadir = argv[++i];
         } else if (strcmp(argv[i], "-v") == 0) {
             printf("transit %s\n", t_version());
             return 0;
@@ -77,6 +81,8 @@ int main(int argc, char **argv) {
         if (cp > 0) client_port = cp;
         int ap = t_config_get_int(g_config, "admin", "port", 0);
         if (ap > 0) admin_port = ap;
+        const char *dd = t_config_get(g_config, "storage", "datadir");
+        if (dd && dd[0]) datadir = dd;
     }
 
     t_signal_install();
@@ -90,6 +96,13 @@ int main(int argc, char **argv) {
     g_broker = t_broker_create("transit-0");
     if (!g_broker) {
         fprintf(stderr, "Failed to create broker\n");
+        return 1;
+    }
+    if (datadir && t_broker_set_datadir(g_broker, datadir) != 0) {
+        fprintf(stderr, "Failed to use datadir: %s\n", datadir);
+        t_broker_destroy(g_broker);
+        t_evloop_destroy(g_loop);
+        t_config_destroy(g_config);
         return 1;
     }
     if (t_broker_start(g_broker) != 0) {

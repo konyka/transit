@@ -258,10 +258,11 @@ int t_client_open_queue(t_client *client, const char *queue_name, int flags) {
     client->queues[client->queues_size].name = qn;
     client->queues_size++;
     if (client->net_mode) {
-        uint8_t mode = (uint8_t)flags;
+        uint8_t mode = (uint8_t)(flags & 0xFF);
+        uint8_t qflags = (uint8_t)((flags >> 8) & 0xFF);
         if (mode == 0) mode = T_CLIENT_OPEN_PRODUCER;
         uint8_t buf[3 + 2 + T_WIRE_MAX_NAME];
-        int n = t_wire_encode_open(buf, sizeof(buf), T_QUEUE_FIFO, T_QUEUE_FLAG_NONE,
+        int n = t_wire_encode_open(buf, sizeof(buf), T_QUEUE_FIFO, qflags,
                                    mode, queue_name);
         if (n < 0) {
             free(qn);

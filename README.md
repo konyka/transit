@@ -18,7 +18,7 @@ src/
 ├── net/         non-blocking socket, TCP, framed conn, protocol server,
 │                admin HTTP, ratelimit
 ├── protocol/    binary wire protocol (16-byte header), CRC32C, typed payloads
-├── storage/     in-memory + file-backed hashmap, POSIX mmap wrapper
+├── storage/     in-memory + file-backed hashmap, POSIX mmap, append-only WAL
 ├── queue/       FIFO/priority/broadcast, topic router (* #), flowcontrol,
 │                DLQ, message TTL (heap+map+compact), consumer groups
 ├── session/     session lifecycle, activity tracking, timeout detection
@@ -82,6 +82,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_shutdown | Graceful shutdown (signal → evloop stop) |
 | test_signal | SIGPIPE/SIGINT/SIGTERM handling |
 | test_storage | In-memory/file storage + mmap |
+| test_wal | Durable WAL put/del, replay, exclusive, broker datadir |
 | test_sync_primitives | Thread synchronization primitives |
 | test_test_framework | Self-built test framework |
 | test_threadpool | Work-stealing thread pool |
@@ -99,6 +100,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 ./build/examples/demo_cluster     # Raft consensus + cluster demo
 ./build/examples/demo_full        # Comprehensive demo (all subsystems)
 ./build/examples/transit-server   # Integrated server (config+admin+broker+evloop)
+                                  # -d <dir> or [storage] datadir= for durable queues
 ```
 
 ## Benchmarks (Linux, GCC)
@@ -121,7 +123,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
   applies O(1) token-bucket checks before touching the broker.
 - `transit-server` and `t_server` default to loopback. Admin HTTP stays on
   `127.0.0.1`. Oversize names, trailing junk, and unknown frame types close the
-  socket.
+  socket. Durable `OPEN` without `-d`/`[storage] datadir` fails closed (`T_ERR_IO`).
 
 ## Cross-Platform
 

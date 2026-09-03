@@ -42,6 +42,7 @@ struct t_server {
     int64_t          idle_timeout_ms;
     int64_t          idle_timer_id;
     t_vec            conns;
+    t_map            open_refs; /* queue name -> open count */
     size_t           dropped_conns;
     size_t           msgs_in;
     size_t           msgs_dropped;
@@ -111,6 +112,27 @@ static void server_push_cb(const char *queue_name, const uint8_t *data, size_t l
     if (heap) free(buf);
 }
 
+static t_queue *server_lookup_queue(t_broker *b, const char *name) {
+    t_domain *d = t_broker_get_domain(b, "default");
+    if (!d) return NULL;
+    return (t_queue *)t_domain_get_queue(d, name);
+}
+
+static void server_unref_open(t_server *srv, const char *name) {
+    if (!srv || !name) return;
+    uintptr_t n = (uintptr_t)t_map_get(&srv->open_refs, name);
+    if (n == 0) return;
+    n--;
+    if (n > 0) {
+        (void)t_map_insert(&srv->open_refs, name, (void *)n);
+        return;
+    }
+    (void)t_map_remove(&srv->open_refs, name);
+    t_queue *q = server_lookup_queue(srv->broker, name);
+    if (q && (t_queue_get_flags(q) & T_QUEUE_FLAG_AUTODELETE))
+        (void)t_broker_delete_queue(srv->broker, "default", name);
+}
+
 static void server_unsub_all(t_server_conn *sc) {
     if (!sc || !sc->srv || !sc->srv->broker) return;
     t_map_iter it = t_map_iter_begin(&sc->opened);
@@ -120,6 +142,7 @@ static void server_unsub_all(t_server_conn *sc) {
         uintptr_t mode = (uintptr_t)v;
         if (mode & T_WIRE_MODE_CONSUMER)
             (void)t_broker_unsubscribe(sc->srv->broker, k, server_push_cb, sc);
+        server_unref_open(sc->srv, k);
     }
 }
 
@@ -183,18 +206,42 @@ static int32_t handle_open(t_server_conn *sc, const t_proto_msg *msg) {
     t_broker *b = sc->srv->broker;
     if ((o.mode & T_WIRE_MODE_CONSUMER) && !t_broker_is_running(b))
         return T_ERR_CLOSED;
+    if ((o.qflags & T_QUEUE_FLAG_DURABLE) && o.qtype == (uint8_t)T_QUEUE_BROADCAST)
+        return T_ERR_INVALID;
     if (!queue_exists(b, name)) {
-        if (t_broker_create_queue(b, "default", name, (int)o.qtype, (int)o.qflags) != 0)
+        if (t_broker_create_queue(b, "default", name, (int)o.qtype, (int)o.qflags) != 0) {
+            if (o.qflags & T_QUEUE_FLAG_DURABLE) return T_ERR_IO;
             return T_ERR_GENERIC;
+        }
     }
     uintptr_t prev = (uintptr_t)t_map_get(&sc->opened, name);
     uintptr_t mode = prev | (uintptr_t)o.mode;
+    if ((mode & T_WIRE_MODE_CONSUMER) && !(prev & T_WIRE_MODE_CONSUMER)) {
+        t_queue *q = server_lookup_queue(b, name);
+        if (q && (t_queue_get_flags(q) & T_QUEUE_FLAG_EXCLUSIVE) &&
+            t_queue_consumer_count(q) > 0)
+            return T_ERR_BUSY;
+    }
     if (t_map_insert(&sc->opened, name, (void *)mode) != 0)
         return T_ERR_NOMEM;
+    if (prev == 0) {
+        uintptr_t refs = (uintptr_t)t_map_get(&sc->srv->open_refs, name);
+        if (t_map_insert(&sc->srv->open_refs, name, (void *)(refs + 1)) != 0) {
+            (void)t_map_remove(&sc->opened, name);
+            return T_ERR_NOMEM;
+        }
+    }
     if ((mode & T_WIRE_MODE_CONSUMER) && !(prev & T_WIRE_MODE_CONSUMER)) {
         if (t_broker_subscribe(b, name, server_push_cb, sc) != 0) {
-            (void)t_map_insert(&sc->opened, name, (void *)prev);
-            if (prev == 0) (void)t_map_remove(&sc->opened, name);
+            if (prev == 0) {
+                (void)t_map_remove(&sc->opened, name);
+                server_unref_open(sc->srv, name);
+            } else {
+                (void)t_map_insert(&sc->opened, name, (void *)prev);
+            }
+            t_queue *q = server_lookup_queue(b, name);
+            if (q && (t_queue_get_flags(q) & T_QUEUE_FLAG_EXCLUSIVE))
+                return T_ERR_BUSY;
             return T_ERR_GENERIC;
         }
     }
@@ -215,6 +262,7 @@ static int32_t handle_close(t_server_conn *sc, const t_proto_msg *msg) {
     uintptr_t mode = (uintptr_t)v;
     if (mode & T_WIRE_MODE_CONSUMER)
         (void)t_broker_unsubscribe(sc->srv->broker, name, server_push_cb, sc);
+    server_unref_open(sc->srv, name);
     if (send_ack(sc, T_MSG_CLOSE_QUEUE, T_OK_CODE, name) != 0)
         return T_ERR_IO;
     return T_OK_CODE;
@@ -296,7 +344,7 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
         break;
     }
 
-    if (!close_conn && status != T_OK_CODE && status != T_ERR_IO) {
+    if (!close_conn && status != T_OK_CODE) {
         const char *nm = NULL;
         char namebuf[T_WIRE_MAX_NAME + 1];
         if (msg->header.type == T_MSG_OPEN_QUEUE) {
@@ -409,9 +457,11 @@ t_server *t_server_create(t_evloop *loop, t_broker *broker, const t_server_confi
     srv->idle_timeout_ms = cfg->idle_timeout_ms < 0 ? 0 : cfg->idle_timeout_ms;
     srv->idle_timer_id = -1;
     t_vec_init(&srv->conns);
+    t_map_init(&srv->open_refs);
     srv->tcp = t_tcp_server_create(loop);
     if (!srv->tcp) {
         t_vec_destroy(&srv->conns);
+        t_map_destroy(&srv->open_refs);
         free(srv->host);
         free(srv);
         return NULL;
@@ -429,6 +479,7 @@ void t_server_destroy(t_server *srv) {
     t_server_stop(srv);
     t_tcp_server_destroy(srv->tcp);
     t_vec_destroy(&srv->conns);
+    t_map_destroy(&srv->open_refs);
     free(srv->host);
     free(srv);
 }

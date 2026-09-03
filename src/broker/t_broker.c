@@ -3,8 +3,12 @@
 #include "t_dispatch.h"
 #include "t_queue.h"
 #include "t_map.h"
+#include "t_wal.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 typedef struct t_broker {
     char *broker_id;
@@ -12,6 +16,8 @@ typedef struct t_broker {
     int running;
     int free_pending; /* destroy deferred while delivering or ext_refs > 0 */
     size_t ext_refs;  /* e.g. live t_dispatch handles */
+    char *datadir;
+    int wal_sync_every;
 } t_broker;
 
 static int broker_any_delivering(const t_broker *broker) {
@@ -97,6 +103,7 @@ t_broker *t_broker_create(const char *broker_id) {
         return NULL;
     }
     t_domain_set_accepting(def, 0); /* closed until t_broker_start */
+    b->wal_sync_every = 32;
     return b;
 }
 
@@ -115,6 +122,7 @@ void t_broker_destroy(t_broker *broker) {
         t_domain_destroy((t_domain *)v);
     }
     t_map_destroy(&broker->domains);
+    free(broker->datadir);
     free(broker->broker_id);
     free(broker);
 }
@@ -203,6 +211,38 @@ size_t t_broker_domain_count(const t_broker *broker) {
     return broker ? t_map_len(&broker->domains) : 0;
 }
 
+int t_broker_set_datadir(t_broker *broker, const char *path) {
+    if (!broker || broker->free_pending || !path || !path[0]) return -1;
+    if (mkdir(path, 0700) != 0 && errno != EEXIST) return -1;
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) return -1;
+    char *dup = strdup(path);
+    if (!dup) return -1;
+    free(broker->datadir);
+    broker->datadir = dup;
+    return 0;
+}
+
+const char *t_broker_datadir(const t_broker *broker) {
+    return broker ? broker->datadir : NULL;
+}
+
+int t_broker_set_wal_sync_every(t_broker *broker, int n) {
+    if (!broker || broker->free_pending) return -1;
+    broker->wal_sync_every = n < 0 ? 0 : n;
+    return 0;
+}
+
+static int broker_wal_path(char *out, size_t cap, const char *dir,
+                           const char *domain, const char *queue) {
+    if (!out || !dir || !domain || !queue) return -1;
+    if (strchr(domain, '/') || strchr(queue, '/') ||
+        strchr(domain, '\\') || strchr(queue, '\\')) return -1;
+    int n = snprintf(out, cap, "%s/%s.%s.wal", dir, domain, queue);
+    if (n < 0 || (size_t)n >= cap) return -1;
+    return 0;
+}
+
 int t_broker_create_queue(t_broker *broker, const char *domain_name,
                           const char *queue_name, int type, int flags) {
     if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
@@ -218,7 +258,24 @@ int t_broker_create_queue(t_broker *broker, const char *domain_name,
         if (!d) return -1;
     }
     int r = t_domain_create_queue(d, queue_name, type, flags);
-    return r;
+    if (r != 0) return r;
+    if (flags & T_QUEUE_FLAG_DURABLE) {
+        if (!broker->datadir) {
+            (void)t_domain_delete_queue(d, queue_name);
+            return -1;
+        }
+        char path[1024];
+        if (broker_wal_path(path, sizeof(path), broker->datadir, domain_name, queue_name) != 0) {
+            (void)t_domain_delete_queue(d, queue_name);
+            return -1;
+        }
+        t_queue *q = (t_queue *)t_domain_get_queue(d, queue_name);
+        if (!q || t_queue_open_wal(q, path, broker->wal_sync_every) != 0) {
+            (void)t_domain_delete_queue(d, queue_name);
+            return -1;
+        }
+    }
+    return 0;
 }
 
 int t_broker_delete_queue(t_broker *broker, const char *domain_name,
@@ -226,7 +283,15 @@ int t_broker_delete_queue(t_broker *broker, const char *domain_name,
     if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
     t_domain *d = t_broker_get_domain(broker, domain_name);
     if (!d) return -1;
+    char walpath[1024];
+    walpath[0] = 0;
+    t_queue *q = (t_queue *)t_domain_get_queue(d, queue_name);
+    if (q && t_queue_wal_path(q)) {
+        (void)snprintf(walpath, sizeof(walpath), "%s", t_queue_wal_path(q));
+    }
     int r = t_domain_delete_queue(d, queue_name);
+    if (r == 0 && walpath[0])
+        (void)t_wal_unlink(walpath);
     t_dispatch_reap_deferred();
     broker_reap_domains(broker);
     if (broker_try_complete_destroy(broker)) return -1;

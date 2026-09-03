@@ -1,6 +1,8 @@
 #include "t_test.h"
 #include "t_server.h"
 #include "t_broker.h"
+#include "t_domain.h"
+#include "t_queue.h"
 #include "t_evloop.h"
 #include "t_client.h"
 #include "t_error.h"
@@ -207,6 +209,111 @@ T_TEST(server_rate_limit_busy) {
     usleep(30000);
     T_ASSERT_EQ(t_client_last_status(c), (int)T_ERR_BUSY);
     T_ASSERT(t_server_msgs_dropped(srv) >= 1);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_durable_needs_datadir) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *c = t_client_create("d");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(c, "dur.q",
+                                    T_CLIENT_OPEN_PRODUCER | T_CLIENT_QFLAG_DURABLE), 0);
+    usleep(30000);
+    T_ASSERT_EQ(t_client_last_status(c), (int)T_ERR_IO);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_exclusive_second_consumer) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *c1 = t_client_create("ex1");
+    t_client *c2 = t_client_create("ex2");
+    T_ASSERT_EQ(t_client_dial(c1, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(c2, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(c1, "ex.q",
+                                    T_CLIENT_OPEN_CONSUMER | T_CLIENT_QFLAG_EXCLUSIVE), 0);
+    usleep(30000);
+    T_ASSERT_EQ(t_client_last_status(c1), 0);
+    T_ASSERT_EQ(t_client_open_queue(c2, "ex.q",
+                                    T_CLIENT_OPEN_CONSUMER | T_CLIENT_QFLAG_EXCLUSIVE), 0);
+    usleep(30000);
+    T_ASSERT_EQ(t_client_last_status(c2), (int)T_ERR_BUSY);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(c1);
+    t_client_destroy(c2);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_autodelete_on_last_close) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *c = t_client_create("ad");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(c, "tmp.q",
+                                    T_CLIENT_OPEN_PRODUCER | T_CLIENT_QFLAG_AUTODELETE), 0);
+    usleep(30000);
+    T_ASSERT_EQ(t_client_last_status(c), 0);
+    t_domain *d = t_broker_get_domain(b, "default");
+    T_ASSERT_NOT_NULL(t_domain_get_queue(d, "tmp.q"));
+    T_ASSERT_EQ(t_client_close_queue(c, "tmp.q"), 0);
+    usleep(30000);
+    T_ASSERT_NULL(t_domain_get_queue(d, "tmp.q"));
 
     t_evloop_stop(loop);
     pthread_join(th, NULL);

@@ -12,12 +12,15 @@
 #include <string.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 /* public headers for API */
 #include "t_queue.h"
 #include "../collections/t_vec.h"
 #include "../collections/t_list.h"
 #include "../collections/t_pqueue.h"
+#include "t_wal.h"
+#include "t_map.h"
 
 /* Internal: in-flight entry. */
 typedef struct t_inflight {
@@ -53,6 +56,7 @@ struct t_queue {
 
     size_t total_published;
     size_t total_consumed;
+    t_wal *wal;
 };
 
 /* Helpers */
@@ -62,6 +66,18 @@ static void t_msg_free(t_msg *m) {
         free((void*)m->data);
     }
     free(m);
+}
+
+static int queue_wal_put(t_queue *q, uint64_t id, const uint8_t *data, size_t len, int priority) {
+    if (!q->wal) return 0;
+    uint8_t pri = 0;
+    if (priority > 0) pri = (priority > 255) ? 255 : (uint8_t)priority;
+    return t_wal_append(q->wal, T_WAL_PUT, pri, id, data, (uint32_t)len);
+}
+
+static void queue_wal_del(t_queue *q, uint64_t id) {
+    if (!q || !q->wal) return;
+    (void)t_wal_append(q->wal, T_WAL_DEL, 0, id, NULL, 0);
 }
 
 /* Create a new t_message with copied payload. */
@@ -127,6 +143,7 @@ static int t_queue_deliver_to_consumers(t_queue *q, t_msg *m) {
     q->delivering--;
     free(copies);
     free(snaps);
+    queue_wal_del(q, m->msg_id);
     /* Do not destroy here: callers (post/drain) still touch q. */
     return 0;
 }
@@ -178,6 +195,8 @@ static int t_queue_drain_backlog(t_queue *q) {
 t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     if (type != T_QUEUE_FIFO && type != T_QUEUE_PRIORITY && type != T_QUEUE_BROADCAST)
         return NULL;
+    if ((flags & T_QUEUE_FLAG_DURABLE) && type == T_QUEUE_BROADCAST)
+        return NULL;
     t_queue *q = (t_queue *)malloc(sizeof(t_queue));
     if (!q) return NULL;
     q->name = strdup(name ? name : "");
@@ -192,6 +211,7 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     q->next_consumer_id = 0;
     q->total_published = 0;
     q->total_consumed = 0;
+    q->wal = NULL;
 
     t_vec_init(&q->pending);
     t_vec_init(&q->consumers);
@@ -223,6 +243,8 @@ void t_queue_destroy(t_queue *q) {
         return;
     }
     q->free_pending = 0;
+    t_wal_close(q->wal);
+    q->wal = NULL;
     /* Free pending messages */
     for (size_t i = 0; i < q->pending.len; ++i) {
         t_msg *m = (t_msg *)q->pending.items[i];
@@ -267,6 +289,10 @@ t_qtype t_queue_get_type(const t_queue *q) {
     return q ? q->type : T_QUEUE_FIFO;
 }
 
+int t_queue_get_flags(const t_queue *q) {
+    return q ? q->flags : 0;
+}
+
 int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
     if (!q || q->closed || q->free_pending) return -1;
     if (len > 0 && !data) return -1;
@@ -288,6 +314,11 @@ int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {
             return -1;
         }
         memcpy((void *)m->data, data, len);
+    }
+    if (queue_wal_put(q, m->msg_id, data, len, priority) != 0) {
+        q->next_msg_id--;
+        t_msg_free(m);
+        return -1;
     }
 
     /* BROADCAST: deliver copies to all consumers; fail if none. */
@@ -419,6 +450,7 @@ size_t t_queue_pending_count(const t_queue *q) {
 
 uint64_t t_queue_add_consumer(t_queue *q, t_queue_msg_cb cb, void *ud) {
     if (!q || q->free_pending || !cb || q->closed) return 0;
+    if ((q->flags & T_QUEUE_FLAG_EXCLUSIVE) && q->consumers.len > 0) return 0;
     if (q->next_consumer_id == UINT64_MAX) return 0;
     t_cons_cb *wrapper = (t_cons_cb *)malloc(sizeof(t_cons_cb));
     if (!wrapper) return 0;
@@ -506,6 +538,7 @@ int t_queue_ack(t_queue *q, uint64_t msg_id) {
         }
         cur = next;
     }
+    if (freed) queue_wal_del(q, msg_id);
     return freed ? 0 : -1;
 }
 
@@ -586,4 +619,166 @@ size_t t_queue_total_published(const t_queue *q) {
 
 size_t t_queue_total_consumed(const t_queue *q) {
     return q ? q->total_consumed : 0;
+}
+
+int t_queue_restore(t_queue *q, uint64_t msg_id, const uint8_t *data,
+                    size_t len, int priority) {
+    if (!q || q->closed || q->free_pending) return -1;
+    if (len > T_QUEUE_MAX_PAYLOAD) return -1;
+    if (len > 0 && !data) return -1;
+    t_msg *m = (t_msg *)malloc(sizeof(t_msg));
+    if (!m) return -1;
+    m->msg_id = msg_id;
+    m->queue_name = q->name;
+    m->data_len = len;
+    m->priority = priority;
+    m->timestamp_ns = 0;
+    m->data = NULL;
+    if (len) {
+        m->data = malloc(len);
+        if (!m->data) {
+            free(m);
+            return -1;
+        }
+        memcpy((void *)m->data, data, len);
+    }
+    int ok = 0;
+    if (q->type == T_QUEUE_PRIORITY) {
+        ok = (t_pqueue_push(&q->pri, (int64_t)priority, m) == 0);
+    } else {
+        ok = (t_vec_push(&q->pending, m) == 0);
+    }
+    if (!ok) {
+        t_msg_free(m);
+        return -1;
+    }
+    if (msg_id > q->next_msg_id) q->next_msg_id = msg_id;
+    q->total_published++;
+    return 0;
+}
+
+typedef struct {
+    uint64_t msg_id;
+    uint8_t  priority;
+    uint8_t *data;
+    uint32_t len;
+} t_q_live;
+
+static void queue_recover_cb(const t_wal_rec *r, void *ud) {
+    t_map *live = (t_map *)ud;
+    char key[32];
+    snprintf(key, sizeof(key), "%016llx", (unsigned long long)r->msg_id);
+    if (r->op == T_WAL_DEL) {
+        t_q_live *old = (t_q_live *)t_map_remove(live, key);
+        if (old) {
+            free(old->data);
+            free(old);
+        }
+        return;
+    }
+    t_q_live *e = (t_q_live *)calloc(1, sizeof(*e));
+    if (!e) return;
+    e->msg_id = r->msg_id;
+    e->priority = r->priority;
+    e->len = r->data_len;
+    if (r->data_len) {
+        e->data = (uint8_t *)malloc(r->data_len);
+        if (!e->data) {
+            free(e);
+            return;
+        }
+        memcpy(e->data, r->data, r->data_len);
+    }
+    t_q_live *old = (t_q_live *)t_map_get(live, key);
+    if (t_map_insert(live, key, e) != 0) {
+        free(e->data);
+        free(e);
+        return;
+    }
+    if (old) {
+        free(old->data);
+        free(old);
+    }
+}
+
+static int live_cmp(const void *a, const void *b) {
+    const t_q_live *la = *(t_q_live *const *)a;
+    const t_q_live *lb = *(t_q_live *const *)b;
+    if (la->msg_id < lb->msg_id) return -1;
+    if (la->msg_id > lb->msg_id) return 1;
+    return 0;
+}
+
+static int t_queue_recover(t_queue *q) {
+    t_map live;
+    t_map_init(&live);
+    if (t_wal_replay(q->wal, queue_recover_cb, &live) != 0) {
+        t_map_iter it = t_map_iter_begin(&live);
+        const char *k;
+        void *v;
+        while (t_map_iter_next(&it, &k, &v)) {
+            t_q_live *e = (t_q_live *)v;
+            free(e->data);
+            free(e);
+        }
+        t_map_destroy(&live);
+        return -1;
+    }
+    size_t n = t_map_len(&live);
+    t_q_live **arr = NULL;
+    if (n > 0) {
+        arr = (t_q_live **)malloc(n * sizeof(*arr));
+        if (!arr) {
+            t_map_iter it = t_map_iter_begin(&live);
+            const char *k;
+            void *v;
+            while (t_map_iter_next(&it, &k, &v)) {
+                t_q_live *e = (t_q_live *)v;
+                free(e->data);
+                free(e);
+            }
+            t_map_destroy(&live);
+            return -1;
+        }
+        size_t i = 0;
+        t_map_iter it = t_map_iter_begin(&live);
+        const char *k;
+        void *v;
+        while (t_map_iter_next(&it, &k, &v) && i < n)
+            arr[i++] = (t_q_live *)v;
+        qsort(arr, i, sizeof(*arr), live_cmp);
+        for (size_t j = 0; j < i; j++) {
+            t_q_live *e = arr[j];
+            (void)t_queue_restore(q, e->msg_id, e->data, e->len, (int)e->priority);
+            free(e->data);
+            free(e);
+        }
+        free(arr);
+    }
+    t_map_destroy(&live);
+    return 0;
+}
+
+int t_queue_open_wal(t_queue *q, const char *path, int sync_every) {
+    if (!q || q->wal || !path) return -1;
+    if (!(q->flags & T_QUEUE_FLAG_DURABLE)) return -1;
+    if (q->type == T_QUEUE_BROADCAST) return -1;
+    t_wal *w = t_wal_open(path, sync_every);
+    if (!w) return -1;
+    q->wal = w;
+    if (t_queue_recover(q) != 0) {
+        t_wal_close(w);
+        q->wal = NULL;
+        return -1;
+    }
+    return 0;
+}
+
+int t_queue_flush(t_queue *q) {
+    if (!q || !q->wal) return -1;
+    return t_wal_flush(q->wal);
+}
+
+const char *t_queue_wal_path(const t_queue *q) {
+    return q && q->wal ? t_wal_path(q->wal) : NULL;
 }

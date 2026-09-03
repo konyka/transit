@@ -39,6 +39,14 @@ t_queue      *t_queue_create(const char *name, t_qtype type, int flags);
 void          t_queue_destroy(t_queue *q);
 const char   *t_queue_name(const t_queue *q);
 t_qtype       t_queue_get_type(const t_queue *q);
+int           t_queue_get_flags(const t_queue *q);
+/* Attach an append-only WAL and replay live records into pending. */
+int           t_queue_open_wal(t_queue *q, const char *path, int sync_every);
+int           t_queue_flush(t_queue *q);
+const char   *t_queue_wal_path(const t_queue *q);
+/* Inject a recovered message; does not append to the WAL. */
+int           t_queue_restore(t_queue *q, uint64_t msg_id, const uint8_t *data,
+                              size_t len, int priority);
 
 int           t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority);
 /* out_msg borrows inflight payload; valid until ack/nack/requeue/destroy. */

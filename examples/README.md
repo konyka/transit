@@ -8,6 +8,7 @@ This directory contains C examples that illustrate how to use the Transit MQ API
 - `transit-server.c` — Integrated server (config, admin HTTP, protocol
   listener, broker, evloop, signal, shutdown). Default client bind is
   `127.0.0.1:4222`; pass `-h 0.0.0.0` only when remote clients are intended.
+  Durable queues need `-d <dir>` or `[storage] datadir=` in the INI config.
 
 ## Build and run
 
