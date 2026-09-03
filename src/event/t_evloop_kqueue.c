@@ -70,6 +70,15 @@ static int t_kqueue_del(t_evloop *loop, t_evio *io) {
     return 0;
 }
 
+static void t_kqueue_wakeup(t_evloop *loop) {
+    if (!loop || loop->wakeup_fds[1] < 0) return;
+    char b = 1;
+    ssize_t w;
+    do {
+        w = write(loop->wakeup_fds[1], &b, 1);
+    } while (w < 0 && errno == EINTR);
+}
+
 static int t_kqueue_poll(t_evloop *loop, int timeout_ms) {
     t_evloop_kqueue_state *st = (t_evloop_kqueue_state *)loop->backend_state;
     struct timespec ts;
@@ -112,6 +121,7 @@ t_evloop_backend const t_kqueue_backend = {
     t_kqueue_mod,
     t_kqueue_del,
     t_kqueue_poll,
+    t_kqueue_wakeup,
 };
 
 #else

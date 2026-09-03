@@ -64,6 +64,15 @@ static int t_epoll_del(t_evloop *loop, t_evio *io) {
     return epoll_ctl(st->epoll_fd, EPOLL_CTL_DEL, io->fd, NULL);
 }
 
+static void t_epoll_wakeup(t_evloop *loop) {
+    if (!loop || loop->wakeup_fds[1] < 0) return;
+    char b = 1;
+    ssize_t w;
+    do {
+        w = write(loop->wakeup_fds[1], &b, 1);
+    } while (w < 0 && errno == EINTR);
+}
+
 static int t_epoll_poll(t_evloop *loop, int timeout_ms) {
     t_evloop_epoll_state *st = (t_evloop_epoll_state *)loop->backend_state;
     struct epoll_event events[128];
@@ -98,6 +107,7 @@ t_evloop_backend const t_epoll_backend = {
     t_epoll_mod,
     t_epoll_del,
     t_epoll_poll,
+    t_epoll_wakeup,
 };
 
 #else

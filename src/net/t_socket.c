@@ -92,6 +92,15 @@ static int set_nonblock(int fd) {
     return ioctl(fd, FIONBIO, &flags);
 #endif
 }
+
+static int set_block(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) return -1;
+    if (flags & O_NONBLOCK) {
+        if (fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == -1) return -1;
+    }
+    return 0;
+}
 #endif
 
 int t_socket_create(int domain, int type, int protocol) {
@@ -113,6 +122,23 @@ void t_socket_close(int fd) {
 
 int t_socket_set_nonblock(int fd) {
     return set_nonblock(fd);
+}
+
+int t_socket_set_block(int fd) {
+    return set_block(fd);
+}
+
+int t_socket_again(void) {
+    int err = sock_err();
+#if T_PLATFORM_WINDOWS
+    return err == WSAEWOULDBLOCK || err == WSAEINPROGRESS;
+#else
+    return err == EAGAIN || err == EWOULDBLOCK;
+#endif
+}
+
+int t_socket_intr(void) {
+    return sock_interrupted(sock_err());
 }
 
 int t_socket_set_reuseaddr(int fd) {
@@ -237,27 +263,18 @@ int t_socket_dial_ipv4(const char *ip, uint16_t port) {
         t_socket_close(fd);
         return -1;
     }
-#if T_PLATFORM_WINDOWS
-    if (set_block(fd) != 0) {
+    if (t_socket_set_block(fd) != 0) {
         t_socket_close(fd);
         return -1;
     }
-#else
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags >= 0) (void)fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
-#endif
     if (t_socket_connect(fd, &addr) != 0) {
         t_socket_close(fd);
         return -1;
     }
-#if T_PLATFORM_WINDOWS
-    if (set_nonblock(fd) != 0) {
+    if (t_socket_set_nonblock(fd) != 0) {
         t_socket_close(fd);
         return -1;
     }
-#else
-    if (flags >= 0) (void)fcntl(fd, F_SETFL, flags);
-#endif
     (void)t_socket_set_nodelay(fd);
     return fd;
 }

@@ -1,15 +1,13 @@
 #include "t_tcp.h"
 #include "t_socket.h"
 #include "t_evloop.h"
-#include "t_time.h"
 #include <stdlib.h>
-#include <errno.h>
 #include <limits.h>
 #include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+
+#ifndef SSIZE_MAX
+#define SSIZE_MAX ((ssize_t)(((size_t)-1) >> 1))
+#endif
 
 /* Forward declarations */
 static void t_tcp_server_accept_cb(t_evio *io, int flags, void *ud);
@@ -81,10 +79,7 @@ static void t_tcp_server_accept_cb(t_evio *io, int flags, void *ud) {
         t_sockaddr peer;
         int client = t_socket_accept(srv->fd, &peer);
         if (client < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-                if (errno == EINTR) continue;
-                break;
-            }
+            if (t_socket_intr()) continue;
             break;
         }
         if (srv->on_accept) {
@@ -124,20 +119,8 @@ int t_tcp_server_listen(t_tcp_server *srv, const char *ip, uint16_t port,
 }
 
 t_tcp_conn *t_tcp_dial(t_evloop *loop, const char *ip, uint16_t port) {
-    int fd = t_socket_create(AF_INET, SOCK_STREAM, 0);
+    int fd = t_socket_dial_ipv4(ip, port);
     if (fd < 0) return NULL;
-    t_sockaddr addr;
-    if (t_sockaddr_init_ipv4(&addr, ip, port) != 0) {
-        t_socket_close(fd);
-        return NULL;
-    }
-    /* t_socket_create is non-blocking; dial needs a completed handshake. */
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags >= 0) (void)fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
-    if (t_socket_connect(fd, &addr) != 0) {
-        t_socket_close(fd);
-        return NULL;
-    }
     return t_tcp_conn_create(fd, loop);
 }
 
@@ -153,7 +136,6 @@ t_tcp_conn *t_tcp_conn_create(int fd, t_evloop *loop) {
     conn->loop = loop;
     conn->on_read = NULL;
     conn->on_close = NULL;
-    // Keep fd non-blocking and delay options
     t_socket_set_nonblock(fd);
     t_socket_set_nodelay(fd);
     return conn;
@@ -210,7 +192,7 @@ static void t_tcp_conn_read_cb(t_evio *io, int flags, void *ud) {
             }
         }
     }
-    int eof_or_err = (r <= 0 && !(r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)));
+    int eof_or_err = (r <= 0 && !(r < 0 && (t_socket_again() || t_socket_intr())));
     if (!conn->closed && ((flags & T_EV_ERROR) || eof_or_err)) {
         conn->closed = 1;
         if (conn->loop) t_evloop_del(conn->loop, &conn->read_io);
@@ -265,7 +247,7 @@ ssize_t t_tcp_conn_write(t_tcp_conn *conn, const void *buf, size_t len) {
             left -= (size_t)n;
             continue;
         }
-        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && t_socket_intr()) continue;
         if (written > 0) return (ssize_t)written; /* partial; caller must continue */
         return -1;
     }

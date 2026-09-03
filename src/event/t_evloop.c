@@ -1,13 +1,16 @@
 #include "t_evloop_internal.h"
 #include "t_time.h"
 #include "t_shutdown.h"
+#include "t_compiler.h"
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <stdint.h>
 #include <limits.h>
+#if !T_PLATFORM_WINDOWS
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#endif
 
 static void timer_heap_swap(t_timer_entry *a, t_timer_entry *b) {
     t_timer_entry tmp = *a; *a = *b; *b = tmp;
@@ -162,10 +165,20 @@ static int evloop_process_timers(t_evloop *loop) {
     return 0;
 }
 
+static void evloop_close_wakeup(t_evloop *loop) {
+    if (!loop) return;
+#if !T_PLATFORM_WINDOWS
+    if (loop->wakeup_fds[0] >= 0) close(loop->wakeup_fds[0]);
+    if (loop->wakeup_fds[1] >= 0) close(loop->wakeup_fds[1]);
+#endif
+    loop->wakeup_fds[0] = loop->wakeup_fds[1] = -1;
+}
+
 t_evloop *t_evloop_create(void) {
     t_evloop *loop = (t_evloop *)calloc(1, sizeof(t_evloop));
     if (!loop) return NULL;
     loop->wakeup_fds[0] = loop->wakeup_fds[1] = -1;
+#if !T_PLATFORM_WINDOWS
     if (pipe(loop->wakeup_fds) != 0) {
         free(loop);
         return NULL;
@@ -174,12 +187,12 @@ t_evloop *t_evloop_create(void) {
     for (int i = 0; i < 2; ++i) {
         int fl = fcntl(loop->wakeup_fds[i], F_GETFL, 0);
         if (fl < 0 || fcntl(loop->wakeup_fds[i], F_SETFL, fl | O_NONBLOCK) < 0) {
-            close(loop->wakeup_fds[0]);
-            close(loop->wakeup_fds[1]);
+            evloop_close_wakeup(loop);
             free(loop);
             return NULL;
         }
     }
+#endif
     loop->wakeup_io.fd = loop->wakeup_fds[0];
     loop->wakeup_io.loop = loop;
     loop->wakeup_io.events = T_EV_READ;
@@ -193,30 +206,30 @@ t_evloop *t_evloop_create(void) {
 #elif defined(T_HAVE_EPOLL)
     loop->backend = &t_epoll_backend;
 #else
+    evloop_close_wakeup(loop);
     free(loop);
     return NULL;
 #endif
     if (loop->backend->create(loop) != 0) {
-        close(loop->wakeup_fds[0]);
-        close(loop->wakeup_fds[1]);
+        evloop_close_wakeup(loop);
         free(loop);
         return NULL;
     }
+#if !T_PLATFORM_WINDOWS
     if (loop->backend->add(loop, &loop->wakeup_io, T_EV_READ) != 0) {
         loop->backend->destroy(loop);
-        close(loop->wakeup_fds[0]);
-        close(loop->wakeup_fds[1]);
+        evloop_close_wakeup(loop);
         free(loop);
         return NULL;
     }
+#endif
 
     /* Pre-size defer list so poll-batch frees rarely hit realloc OOM. */
     loop->deferred_free_cap = 256;
     loop->deferred_free = (void **)calloc(loop->deferred_free_cap, sizeof(void *));
     if (!loop->deferred_free) {
         loop->backend->destroy(loop);
-        close(loop->wakeup_fds[0]);
-        close(loop->wakeup_fds[1]);
+        evloop_close_wakeup(loop);
         free(loop);
         return NULL;
     }
@@ -237,8 +250,7 @@ void t_evloop_destroy(t_evloop *loop) {
     loop->deferred_free = NULL;
     loop->deferred_free_cap = 0;
     loop->backend->destroy(loop);
-    if (loop->wakeup_fds[0] >= 0) close(loop->wakeup_fds[0]);
-    if (loop->wakeup_fds[1] >= 0) close(loop->wakeup_fds[1]);
+    evloop_close_wakeup(loop);
     free(loop->timers);
     free(loop);
 }
@@ -332,14 +344,7 @@ int t_evloop_run(t_evloop *loop, int timeout_ms) {
 void t_evloop_stop(t_evloop *loop) {
     if (!loop) return;
     loop->running = 0;
-    if (loop->wakeup_fds[1] >= 0) {
-        char b = 1;
-        ssize_t w;
-        do {
-            w = write(loop->wakeup_fds[1], &b, 1);
-        } while (w < 0 && errno == EINTR);
-        /* EAGAIN: a wake byte is already queued; running=0 is enough. */
-    }
+    if (loop->backend && loop->backend->wakeup) loop->backend->wakeup(loop);
 }
 
 int t_evloop_is_running(const t_evloop *loop) {

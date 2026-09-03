@@ -22,6 +22,7 @@ typedef struct t_evloop_backend {
     int  (*mod)(t_evloop *loop, t_evio *io, int events);
     int  (*del)(t_evloop *loop, t_evio *io);
     int  (*poll)(t_evloop *loop, int timeout_ms);
+    void (*wakeup)(t_evloop *loop);
 } t_evloop_backend;
 
 // Backend symbols provided by platform-specific implementations

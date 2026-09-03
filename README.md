@@ -138,8 +138,9 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 - **Linux**: epoll backend (primary, fully tested)
 - **macOS**: kqueue backend (implemented, conditional via `T_HAVE_KQUEUE`)
 - **AArch64**: coroutine switch matches the x86_64 assembly path
-- **Windows**: `t_mmap` and `t_socket` have native backends; IOCP sources are
-  present. Full CI stays off until evloop wakeup, `t_conn`, and WAL are portable.
+- **Windows**: mmap, Winsock2 sockets, IOCP wakeup (`PostQueuedCompletionStatus`),
+  and `t_conn`/`t_tcp` on those helpers. Full CI stays off until WAL, signals,
+  thread pool, and admin HTTP are portable.
 
 CI runs Linux and macOS builds via GitHub Actions, plus Linux ASan/UBSan jobs.
 

@@ -41,14 +41,16 @@ separate that library from a production message bus.
   callee-saved GPR frame). Other ISAs return NULL from `t_coro_create`.
 - Windows backends for `t_mmap` (CreateFileMapping) and `t_socket`
   (Winsock2). Mapping HANDLEs live in `os_file`/`os_map`, not `int fd`.
+- Event-loop wakeup: POSIX still uses a pipe; IOCP posts
+  `PostQueuedCompletionStatus`. `t_conn`/`t_tcp` go through `t_socket`
+  and `t_mutex` instead of `fcntl`/`close`/`pthread_mutex`.
 
 ## Remaining (priority order)
 
 ### 1. Rest of Windows POSIX modules
 
-IOCP sources exist. Still POSIX: evloop wakeup `pipe()`, `t_conn`/`t_tcp`,
-WAL/file I/O, signals, thread pool, admin HTTP. Full Windows CI stays
-off until those have backends.
+IOCP sources exist. Still POSIX: WAL/file I/O, signals, thread pool,
+admin HTTP. Full Windows CI stays off until those have backends.
 
 ## Non-goals for now
 

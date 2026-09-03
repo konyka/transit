@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 typedef struct {
     HANDLE iocp_handle;
@@ -39,9 +40,10 @@ static int t_iocp_add(t_evloop *loop, t_evio *io, int events)
 {
     t_evloop_iocp_state *st = (t_evloop_iocp_state *)loop->backend_state;
     if (!st || !io) return -1;
-    HANDLE res = CreateIoCompletionPort((HANDLE)(io->fd), st->iocp_handle, (ULONG_PTR)io, 0);
-    if (res == NULL) return -1;
     io->events = events;
+    if (io->fd < 0) return 0; /* wakeup has no HANDLE */
+    HANDLE res = CreateIoCompletionPort((HANDLE)(intptr_t)io->fd, st->iocp_handle, (ULONG_PTR)io, 0);
+    if (res == NULL) return -1;
     return 0;
 }
 
@@ -55,8 +57,17 @@ static int t_iocp_mod(t_evloop *loop, t_evio *io, int events)
 static int t_iocp_del(t_evloop *loop, t_evio *io)
 {
     if (!io) return -1;
-    CancelIo((HANDLE)(io->fd));
+    if (io->fd >= 0) (void)CancelIo((HANDLE)(intptr_t)io->fd);
     return 0;
+}
+
+static void t_iocp_wakeup(t_evloop *loop)
+{
+    t_evloop_iocp_state *st;
+    if (!loop) return;
+    st = (t_evloop_iocp_state *)loop->backend_state;
+    if (!st || !st->iocp_handle) return;
+    (void)PostQueuedCompletionStatus(st->iocp_handle, 0, (ULONG_PTR)&loop->wakeup_io, NULL);
 }
 
 static int t_iocp_poll(t_evloop *loop, int timeout_ms)
@@ -100,6 +111,7 @@ t_evloop_backend const t_iocp_backend = {
     t_iocp_mod,
     t_iocp_del,
     t_iocp_poll,
+    t_iocp_wakeup,
 };
 
 #else

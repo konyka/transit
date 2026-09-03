@@ -17,6 +17,7 @@ typedef SSIZE_T ssize_t;
 #endif
 #else
 #include <sys/types.h>
+#include <sys/socket.h>
 #endif
 
 /* Platform-agnostic socket helpers */
@@ -30,6 +31,7 @@ typedef struct t_sockaddr {
 int  t_socket_create(int domain, int type, int protocol);
 void t_socket_close(int fd);
 int  t_socket_set_nonblock(int fd);
+int  t_socket_set_block(int fd);
 int  t_socket_set_reuseaddr(int fd);
 int  t_socket_set_nodelay(int fd);
 int  t_socket_bind(int fd, const t_sockaddr *addr);
@@ -41,6 +43,9 @@ int  t_socket_connect_async(int fd, const t_sockaddr *addr);
 
 ssize_t t_socket_read(int fd, void *buf, size_t len);
 ssize_t t_socket_write(int fd, const void *buf, size_t len);
+/* Last t_socket_* error: would-block / interrupted (errno or WSAGetLastError). */
+int t_socket_again(void);
+int t_socket_intr(void);
 
 int t_sockaddr_init_ipv4(t_sockaddr *addr, const char *ip, uint16_t port);
 uint16_t t_sockaddr_port(const t_sockaddr *addr);

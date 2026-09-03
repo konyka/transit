@@ -22,10 +22,11 @@ July 2026 review.
   strategy that avoids per-update heap deletion.
 - Add unit coverage for map replacement, removal, tombstone compaction, and
   post-compaction insertion.
-- Keep CI on currently portable Linux/macOS targets. Windows has mmap and
-  Winsock2 socket backends plus IOCP sources; CI stays off until evloop
-  wakeup, `t_conn`, and WAL are portable. Coroutine switch is x86_64 and
-  AArch64 assembly; other ISAs leave `t_coro_create` NULL.
+- Keep CI on currently portable Linux/macOS targets. Windows has mmap,
+  Winsock2 sockets, IOCP wakeup, and `t_conn`/`t_tcp` on those helpers.
+  CI stays off until WAL, signals, thread pool, and admin HTTP are portable.
+  Coroutine switch is x86_64 and AArch64 assembly; other ISAs leave
+  `t_coro_create` NULL.
 - Wire protocol decode aliases the frame (no extra payload copy). The protocol
   server rate-limits in O(1) before broker work and caps accept fan-in.
 - Durable WAL is append-only (PUT/DEL). Default fsync every 32 records so the
