@@ -48,13 +48,15 @@ separate that library from a production message bus.
   `FlushFileBuffers`. `t_broker_set_datadir` uses `CreateDirectoryA`.
 - Raft log and file-backed storage dump go through internal `t_file`
   (POSIX fd or Windows HANDLE). Log rewrite still tmp+rename.
+- Shutdown signals: POSIX `sigaction` + ignore `SIGPIPE`; Windows CRT
+  `SIGINT`/`SIGTERM` plus `SetConsoleCtrlHandler` for Ctrl+C/Break/Close.
 
 ## Remaining (priority order)
 
 ### 1. Rest of Windows POSIX modules
 
-Still POSIX: signals, thread pool, admin HTTP. Full Windows CI stays
-off until those have backends.
+Still POSIX: thread pool, admin HTTP. Full Windows CI stays off until
+those have backends.
 
 ## Non-goals for now
 

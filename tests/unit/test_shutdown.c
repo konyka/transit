@@ -3,8 +3,6 @@
 #include "t_signal.h"
 #include "t_evloop.h"
 #include <signal.h>
-#include <unistd.h>
-#include <sys/types.h>
 
 T_TEST(shutdown_ctx_init) {
     t_evloop *loop = t_evloop_create();
@@ -19,7 +17,7 @@ T_TEST(shutdown_ctx_init) {
 T_TEST(shutdown_signal_stops_loop) {
     t_signal_install();
     t_evloop *loop = t_evloop_create();
-    kill(getpid(), SIGINT);
+    raise(SIGINT);
     T_ASSERT(t_signal_is_shutdown());
     t_evloop_destroy(loop);
 }
