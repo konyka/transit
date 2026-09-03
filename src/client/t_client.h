@@ -2,8 +2,12 @@
 #define T_CLIENT_H
 
 #include "t_compiler.h"
+#include "t_evloop.h"
 #include <stdint.h>
 #include <stddef.h>
+
+#define T_CLIENT_OPEN_PRODUCER 0x01
+#define T_CLIENT_OPEN_CONSUMER 0x02
 
 typedef struct t_client t_client;
 
@@ -14,7 +18,10 @@ void       t_client_destroy(t_client *client);
 const char *t_client_id(const t_client *client);
 int        t_client_is_connected(const t_client *client);
 int        t_client_connect(t_client *client, const char *host, uint16_t port);
+/* Real TCP dial. `t_client_connect` remains the in-process stub. */
+int        t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t port);
 int        t_client_disconnect(t_client *client);
+int        t_client_last_status(const t_client *client);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,

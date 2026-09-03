@@ -24,6 +24,8 @@ July 2026 review.
   post-compaction insertion.
 - Keep CI on currently portable Linux/macOS targets; Windows backend sources
   remain present, but CI is disabled until POSIX and assembly fallbacks exist.
+- Wire protocol decode aliases the frame (no extra payload copy). The protocol
+  server rate-limits in O(1) before broker work and caps accept fan-in.
 
 ## Verification
 

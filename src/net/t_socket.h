@@ -31,5 +31,8 @@ ssize_t t_socket_write(int fd, const void *buf, size_t len);
 
 int t_sockaddr_init_ipv4(t_sockaddr *addr, const char *ip, uint16_t port);
 uint16_t t_sockaddr_port(const t_sockaddr *addr);
+uint16_t t_socket_local_port(int fd);
+/* Blocking IPv4 connect; returns a non-blocking fd, or -1. */
+int t_socket_dial_ipv4(const char *ip, uint16_t port);
 
 #endif /* T_SOCKET_H */

@@ -5,7 +5,9 @@ This directory contains C examples that illustrate how to use the Transit MQ API
 - `demo_broker.c` — Broker lifecycle: queue creation, publish, subscribe, statistics
 - `demo_cluster.c` — Cluster/Raft: node addition, leadership, log entries
 - `demo_full.c` — Cross-subsystem demo (broker, dispatch, routing, cluster, storage, protocol)
-- `transit-server.c` — Integrated server binary (config, admin HTTP, broker, evloop, signal, shutdown)
+- `transit-server.c` — Integrated server (config, admin HTTP, protocol
+  listener, broker, evloop, signal, shutdown). Default client bind is
+  `127.0.0.1:4222`; pass `-h 0.0.0.0` only when remote clients are intended.
 
 ## Build and run
 

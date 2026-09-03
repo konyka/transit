@@ -136,3 +136,33 @@ uint16_t t_sockaddr_port(const t_sockaddr *addr) {
     if (!addr) return 0;
     return ntohs(addr->u.ipv4.port);
 }
+
+uint16_t t_socket_local_port(int fd) {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if (fd < 0) return 0;
+    memset(&addr, 0, sizeof(addr));
+    if (getsockname(fd, (struct sockaddr *)&addr, &len) != 0) return 0;
+    if (addr.sin_family != AF_INET) return 0;
+    return ntohs(addr.sin_port);
+}
+
+int t_socket_dial_ipv4(const char *ip, uint16_t port) {
+    if (!ip || port == 0) return -1;
+    int fd = t_socket_create(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    t_sockaddr addr;
+    if (t_sockaddr_init_ipv4(&addr, ip, port) != 0) {
+        t_socket_close(fd);
+        return -1;
+    }
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) (void)fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+    if (t_socket_connect(fd, &addr) != 0) {
+        t_socket_close(fd);
+        return -1;
+    }
+    if (flags >= 0) (void)fcntl(fd, F_SETFL, flags);
+    (void)t_socket_set_nodelay(fd);
+    return fd;
+}

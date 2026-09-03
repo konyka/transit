@@ -15,13 +15,14 @@ src/
 ├── event/       epoll / kqueue / IOCP backends (vtable), min-heap timer
 ├── threadpool/  work-stealing thread pool with per-worker MPMC queues
 ├── coroutine/   pure x86-64 assembly context switch (6 callee-saved regs)
-├── net/         non-blocking socket, TCP, framed conn, admin HTTP, ratelimit
-├── protocol/    binary wire protocol (16-byte header), CRC32C Castagnoli
+├── net/         non-blocking socket, TCP, framed conn, protocol server,
+│                admin HTTP, ratelimit
+├── protocol/    binary wire protocol (16-byte header), CRC32C, typed payloads
 ├── storage/     in-memory + file-backed hashmap, POSIX mmap wrapper
 ├── queue/       FIFO/priority/broadcast, topic router (* #), flowcontrol,
 │                DLQ, message TTL (heap+map+compact), consumer groups
 ├── session/     session lifecycle, activity tracking, timeout detection
-├── client/      queue registry, publish/subscribe (in-process stub)
+├── client/      in-process stub + TCP dial (`t_client_dial`)
 ├── broker/      domain management, publish/subscribe, dispatcher
 └── cluster/     simplified Raft consensus, node membership, leader election
 ```
@@ -48,7 +49,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 ## Test Results
 
-35 test executables (30 unit + 2 integration + 3 benchmark), 100% pass rate
+37 test executables (32 unit + 2 integration + 3 benchmark), 100% pass rate
 (regular + ASan + UBSan clean):
 
 | Test | Description |
@@ -73,8 +74,10 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_mpmc_stress | MPMC 2P/2C concurrent stress |
 | test_net_tcp | Non-blocking socket + TCP server/client |
 | test_proto | Binary wire protocol + CRC32C |
+| test_wire | Typed payload encode/decode + name rules |
 | test_queue | FIFO/priority/broadcast queues + router |
 | test_ratelimit | Per-connection token bucket rate limiter |
+| test_server | Protocol server: bind, max-conns, pub/sub, rate limit |
 | test_session | Session lifecycle + activity tracking |
 | test_shutdown | Graceful shutdown (signal → evloop stop) |
 | test_signal | SIGPIPE/SIGINT/SIGTERM handling |
@@ -114,6 +117,11 @@ cmake --build build-ubsan && cd build-ubsan && ctest
   remove-heavy paths such as TTL expiry from degrading into long probe chains.
 - The CI sanitizer matrix maps directly to `ENABLE_ASAN` and `ENABLE_UBSAN`, so
   sanitizer jobs exercise instrumented builds instead of plain Release builds.
+- Wire decode aliases the frame buffer (no payload copy). The protocol server
+  applies O(1) token-bucket checks before touching the broker.
+- `transit-server` and `t_server` default to loopback. Admin HTTP stays on
+  `127.0.0.1`. Oversize names, trailing junk, and unknown frame types close the
+  socket.
 
 ## Cross-Platform
 
@@ -130,22 +138,38 @@ CI runs Linux and macOS builds via GitHub Actions, plus Linux ASan/UBSan jobs.
 #include "transit.h"
 
 int main(void) {
+    t_evloop *loop = t_evloop_create();
     t_broker *broker = t_broker_create("my-broker");
     t_broker_start(broker);
-    t_broker_create_queue(broker, "default", "my.queue", T_QUEUE_FIFO, 0);
 
-    t_broker_subscribe(broker, "my.queue", my_callback, NULL);
-    t_broker_publish(broker, "my.queue", (const uint8_t *)"hello", 5, 0);
+    t_server_config cfg;
+    t_server_config_init(&cfg);   /* 127.0.0.1:4222 */
+    cfg.port = 0;                 /* ephemeral for tests */
+    t_server *srv = t_server_create(loop, broker, &cfg);
+    t_server_start(srv);
 
-    t_broker_stop(broker);
+    t_client *c = t_client_create("worker");
+    t_client_dial(c, loop, "127.0.0.1", t_server_port(srv));
+    t_client_open_queue(c, "my.queue", T_CLIENT_OPEN_PRODUCER);
+    t_client_post(c, "my.queue", (const uint8_t *)"hello", 5, 0);
+
+    t_client_destroy(c);
+    t_server_destroy(srv);
     t_broker_destroy(broker);
+    t_evloop_destroy(loop);
     return 0;
 }
 ```
 
+In-process (no TCP) still works via `t_broker_publish` / `t_broker_subscribe`
+or the stub `t_client_connect`.
+
+See [docs/Wire_Protocol.md](docs/Wire_Protocol.md) and
+[docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## Project Stats
 
-- 50 source files (`.c`/`.S`), 52 headers
+- 52 source files (`.c`/`.S`), 54 headers
 - ~6,400 LOC (source), ~1,900 LOC (headers)
 - ~3,500 LOC (tests)
 - Zero external dependencies

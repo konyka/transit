@@ -3,6 +3,7 @@
 #include "t_signal.h"
 #include "t_evloop.h"
 #include "t_broker.h"
+#include "t_server.h"
 #include "t_dispatch.h"
 #include "t_version.h"
 #include "t_log.h"
@@ -13,6 +14,7 @@
 
 static t_evloop *g_loop;
 static t_broker *g_broker;
+static t_server *g_server;
 static t_admin  *g_admin;
 static t_config *g_config;
 
@@ -28,7 +30,7 @@ static void usage(const char *prog) {
     fprintf(stderr, "Usage: %s [options]\n", prog);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -c <file>   Configuration file (INI format)\n");
-    fprintf(stderr, "  -h <host>   Listen host (default: 0.0.0.0)\n");
+    fprintf(stderr, "  -h <host>   Listen host (default: 127.0.0.1)\n");
     fprintf(stderr, "  -p <port>   Client listen port (default: 4222)\n");
     fprintf(stderr, "  -a <port>   Admin stats port (default: 8222)\n");
     fprintf(stderr, "  -v          Print version and exit\n");
@@ -37,7 +39,7 @@ static void usage(const char *prog) {
 
 int main(int argc, char **argv) {
     const char *config_file = NULL;
-    const char *host = "0.0.0.0";
+    const char *host = "127.0.0.1";
     int client_port = 4222;
     int admin_port = 8222;
 
@@ -90,6 +92,34 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Failed to create broker\n");
         return 1;
     }
+    if (t_broker_start(g_broker) != 0) {
+        fprintf(stderr, "Failed to start broker\n");
+        t_broker_destroy(g_broker);
+        t_evloop_destroy(g_loop);
+        t_config_destroy(g_config);
+        return 1;
+    }
+
+    if (client_port < 0 || client_port > 65535) {
+        fprintf(stderr, "Invalid client port\n");
+        t_broker_destroy(g_broker);
+        t_evloop_destroy(g_loop);
+        t_config_destroy(g_config);
+        return 1;
+    }
+    t_server_config scfg;
+    t_server_config_init(&scfg);
+    scfg.host = host;
+    scfg.port = (uint16_t)client_port;
+    g_server = t_server_create(g_loop, g_broker, &scfg);
+    if (!g_server || t_server_start(g_server) != 0) {
+        fprintf(stderr, "Failed to listen on %s:%d\n", host, client_port);
+        if (g_server) t_server_destroy(g_server);
+        t_broker_destroy(g_broker);
+        t_evloop_destroy(g_loop);
+        t_config_destroy(g_config);
+        return 1;
+    }
 
     g_admin = t_admin_create(g_loop, "127.0.0.1", admin_port);
     if (g_admin) {
@@ -100,7 +130,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    fprintf(stdout, "transit %s ready on %s:%d\n", t_version(), host, client_port);
+    fprintf(stdout, "transit %s ready on %s:%u\n",
+            t_version(), t_server_host(g_server), (unsigned)t_server_port(g_server));
     fflush(stdout);
 
     t_evloop_run(g_loop, 1000);
@@ -114,6 +145,8 @@ int main(int argc, char **argv) {
         t_admin_stop(g_admin);
         t_admin_destroy(g_admin);
     }
+    if (g_server) t_server_destroy(g_server);
+    t_broker_stop(g_broker);
     t_broker_destroy(g_broker);
     t_evloop_destroy(g_loop);
     t_config_destroy(g_config);
