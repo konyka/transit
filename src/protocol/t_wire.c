@@ -1,7 +1,7 @@
 #include "t_wire.h"
 #include "t_proto.h"
+#include "t_endian.h"
 #include <string.h>
-#include <arpa/inet.h>
 
 int t_wire_name_valid(const char *name, size_t len) {
     if (!name || len == 0 || len > T_WIRE_MAX_NAME) return 0;

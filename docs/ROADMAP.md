@@ -39,10 +39,16 @@ separate that library from a production message bus.
   can take the message. Broadcast still uses fire-and-forget push.
 - Coroutine context switch: x86_64 and AArch64 assembly (same 6/12
   callee-saved GPR frame). Other ISAs return NULL from `t_coro_create`.
+- Windows backends for `t_mmap` (CreateFileMapping) and `t_socket`
+  (Winsock2). Mapping HANDLEs live in `os_file`/`os_map`, not `int fd`.
 
 ## Remaining (priority order)
 
-### 1. Windows POSIX modules
+### 1. Rest of Windows POSIX modules
+
+IOCP sources exist. Still POSIX: evloop wakeup `pipe()`, `t_conn`/`t_tcp`,
+WAL/file I/O, signals, thread pool, admin HTTP. Full Windows CI stays
+off until those have backends.
 
 ## Non-goals for now
 

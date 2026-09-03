@@ -4,7 +4,20 @@
 #include "t_compiler.h"
 #include <stdint.h>
 #include <stddef.h>
+
+#if T_PLATFORM_WINDOWS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+#ifndef _SSIZE_T_DEFINED
+typedef SSIZE_T ssize_t;
+#define _SSIZE_T_DEFINED
+#endif
+#endif
+#else
 #include <sys/types.h>
+#endif
 
 /* Platform-agnostic socket helpers */
 typedef struct t_sockaddr {

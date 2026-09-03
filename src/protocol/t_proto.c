@@ -1,9 +1,9 @@
 #include "t_proto.h"
+#include "t_endian.h"
+#include "t_crc32c.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <arpa/inet.h>
-#include "t_crc32c.h"
 
 void t_proto_header_init(t_proto_header *hdr, t_msg_type type, uint32_t payload_len) {
     hdr->magic = T_PROTO_MAGIC;

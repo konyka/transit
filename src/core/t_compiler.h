@@ -36,6 +36,10 @@
 #endif
 #if defined(_WIN32)
     #define T_PLATFORM_WINDOWS 1
+    /* Must precede windows.h so it does not pull winsock.h before winsock2.h. */
+#ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+#endif
 #else
     #define T_PLATFORM_WINDOWS 0
 #endif

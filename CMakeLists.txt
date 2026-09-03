@@ -54,6 +54,10 @@ if(T_HAVE_PTHREAD)
     target_link_libraries(transit PUBLIC Threads::Threads)
 endif()
 
+if(T_PLATFORM_WINDOWS)
+    target_link_libraries(transit PUBLIC ws2_32)
+endif()
+
 if(BUILD_TESTS)
   add_subdirectory(tests)
 endif()

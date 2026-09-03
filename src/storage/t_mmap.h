@@ -9,6 +9,8 @@ typedef struct t_mmap {
     void   *addr;
     size_t  size;
     int     fd;
+    void   *os_file; /* Windows HANDLE; unused on POSIX */
+    void   *os_map;  /* Windows mapping HANDLE; unused on POSIX */
 } t_mmap;
 
 int     t_mmap_create(t_mmap *mm, const char *path, size_t size);
