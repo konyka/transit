@@ -46,13 +46,15 @@ separate that library from a production message bus.
   and `t_mutex` instead of `fcntl`/`close`/`pthread_mutex`.
 - Durable WAL file I/O: POSIX `open`/`fsync` or Windows `CreateFile` /
   `FlushFileBuffers`. `t_broker_set_datadir` uses `CreateDirectoryA`.
+- Raft log and file-backed storage dump go through internal `t_file`
+  (POSIX fd or Windows HANDLE). Log rewrite still tmp+rename.
 
 ## Remaining (priority order)
 
 ### 1. Rest of Windows POSIX modules
 
-Still POSIX: Raft log rewrite, file-backed storage dump, signals, thread
-pool, admin HTTP. Full Windows CI stays off until those have backends.
+Still POSIX: signals, thread pool, admin HTTP. Full Windows CI stays
+off until those have backends.
 
 ## Non-goals for now
 

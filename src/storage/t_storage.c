@@ -1,14 +1,10 @@
+#include "t_storage.h"
+#include "t_map.h"
+#include "t_file.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/stat.h>
-
-#include "t_storage.h"
-#include "t_map.h"
 
 /* Align with wire payload limit; reject oversized entries on put/load. */
 #define T_STORAGE_MAX_VALUE (16 * 1024 * 1024)
@@ -60,35 +56,26 @@ static void write_le64(uint8_t *p, uint64_t v) {
    This is a simple binary dump to support basic persistence. */
 static int t_storage_fs_load(t_storage *st, const char *path) {
     if (!st || !path) return -1;
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) {
+    t_file f;
+    t_file_init(&f);
+    if (t_file_open(&f, path, T_FILE_READ) != 0) {
         /* Missing file = empty store (created on first flush/destroy). */
-        return (errno == ENOENT) ? 0 : -1;
+        return t_file_not_found() ? 0 : -1;
     }
-    struct stat stf;
-    if (fstat(fd, &stf) != 0) { close(fd); return -1; }
-    /* Check before narrowing: truncated size_t can fake a tiny valid dump. */
-    if (stf.st_size < 0 ||
-        (uint64_t)stf.st_size > (uint64_t)SIZE_MAX ||
-        (uint64_t)stf.st_size > (uint64_t)T_STORAGE_MAX_FILE) {
-        close(fd);
+    uint64_t fsz = 0;
+    if (t_file_size(&f, &fsz) != 0) { t_file_close(&f); return -1; }
+    if (fsz > (uint64_t)SIZE_MAX || fsz > (uint64_t)T_STORAGE_MAX_FILE) {
+        t_file_close(&f);
         return -1;
     }
-    size_t total = (size_t)stf.st_size;
-    if (total == 0) { close(fd); return 0; }
+    size_t total = (size_t)fsz;
+    if (total == 0) { t_file_close(&f); return 0; }
     uint8_t *buf = (uint8_t*)malloc(total);
-    if (!buf) { close(fd); return -1; }
-    size_t off = 0;
-    while (off < total) {
-        ssize_t r = read(fd, buf + off, total - off);
-        if (r < 0) {
-            if (errno == EINTR) continue;
-            close(fd); free(buf); return -1;
-        }
-        if (r == 0) { close(fd); free(buf); return -1; }
-        off += (size_t)r;
+    if (!buf) { t_file_close(&f); return -1; }
+    if (t_file_read(&f, buf, total) != 0) {
+        t_file_close(&f); free(buf); return -1;
     }
-    close(fd);
+    t_file_close(&f);
     size_t pos = 0;
     char keybuf[32];
     while (pos + 16 <= total) {
@@ -315,51 +302,41 @@ int t_storage_flush(t_storage *storage) {
     if (!tmp) return -1;
     memcpy(tmp, storage->path, plen);
     memcpy(tmp + plen, ".tmp", 5);
-    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) { free(tmp); return -1; }
+    t_file f;
+    t_file_init(&f);
+    if (t_file_open(&f, tmp, T_FILE_WRITE | T_FILE_CREAT | T_FILE_TRUNC) != 0) {
+        free(tmp);
+        return -1;
+    }
     t_map_iter it = t_map_iter_begin(&storage->map);
     const char *k;
     void *v;
-    off_t wrote = 0;
+    uint64_t wrote = 0;
     while (t_map_iter_next(&it, &k, &v)) {
         t_storage_entry *e = (t_storage_entry*)v;
         if (!e) continue;
         uint64_t key = str_to_key(k);
         uint64_t len64 = (uint64_t)e->data_len;
-        if ((uint64_t)wrote > T_STORAGE_MAX_FILE ||
-            (uint64_t)(16 + e->data_len) > T_STORAGE_MAX_FILE - (uint64_t)wrote) {
-            close(fd); unlink(tmp); free(tmp); return -1;
+        if (wrote > T_STORAGE_MAX_FILE ||
+            (uint64_t)(16 + e->data_len) > T_STORAGE_MAX_FILE - wrote) {
+            t_file_close(&f); (void)t_file_unlink(tmp); free(tmp); return -1;
         }
         uint8_t header[16];
         write_le64(header, key);
         write_le64(header + 8, len64);
-        size_t hoff = 0;
-        while (hoff < 16) {
-            ssize_t w = write(fd, header + hoff, 16 - hoff);
-            if (w < 0) {
-                if (errno == EINTR) continue;
-                close(fd); unlink(tmp); free(tmp); return -1;
-            }
-            if (w == 0) { close(fd); unlink(tmp); free(tmp); return -1; }
-            hoff += (size_t)w;
+        if (t_file_write(&f, header, 16) != 0) {
+            t_file_close(&f); (void)t_file_unlink(tmp); free(tmp); return -1;
         }
         if (e->data_len > 0) {
-            size_t doff = 0;
-            while (doff < e->data_len) {
-                ssize_t w = write(fd, e->data + doff, e->data_len - doff);
-                if (w < 0) {
-                    if (errno == EINTR) continue;
-                    close(fd); unlink(tmp); free(tmp); return -1;
-                }
-                if (w == 0) { close(fd); unlink(tmp); free(tmp); return -1; }
-                doff += (size_t)w;
+            if (t_file_write(&f, e->data, e->data_len) != 0) {
+                t_file_close(&f); (void)t_file_unlink(tmp); free(tmp); return -1;
             }
         }
-        wrote += (16 + (off_t)e->data_len);
+        wrote += 16 + (uint64_t)e->data_len;
     }
-    if (fsync(fd) != 0) { close(fd); unlink(tmp); free(tmp); return -1; }
-    close(fd);
-    if (rename(tmp, storage->path) != 0) { unlink(tmp); free(tmp); return -1; }
+    if (t_file_sync(&f) != 0) { t_file_close(&f); (void)t_file_unlink(tmp); free(tmp); return -1; }
+    t_file_close(&f);
+    if (t_file_rename(tmp, storage->path) != 0) { (void)t_file_unlink(tmp); free(tmp); return -1; }
     free(tmp);
     storage->dirty = 0;
     return 0;

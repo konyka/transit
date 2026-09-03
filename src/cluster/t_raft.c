@@ -2,15 +2,12 @@
 #include "t_wire.h"
 #include "t_crc32c.h"
 #include "t_proto.h"
+#include "t_file.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <limits.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <sys/stat.h>
 
 #define T_RAFT_HDR 24
 #define T_RAFT_REC 25
@@ -32,7 +29,7 @@ struct t_raft {
     int applying; /* nest count while apply_cb runs */
     int free_pending;
     char *log_path;
-    int log_fd;
+    t_file logf;
     int sync_every;
     int unsynced;
     uint64_t election_timeout_ms;
@@ -76,53 +73,24 @@ static uint64_t read_le64(const uint8_t *p) {
     return (uint64_t)read_le32(p) | ((uint64_t)read_le32(p + 4) << 32);
 }
 
-static int full_write(int fd, const void *buf, size_t n) {
-    const uint8_t *p = (const uint8_t *)buf;
-    while (n) {
-        ssize_t w = write(fd, p, n);
-        if (w < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
-        p += (size_t)w;
-        n -= (size_t)w;
-    }
-    return 0;
-}
-
-static int full_read(int fd, void *buf, size_t n) {
-    uint8_t *p = (uint8_t *)buf;
-    size_t got = 0;
-    while (got < n) {
-        ssize_t r = read(fd, p + got, n - got);
-        if (r < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
-        if (r == 0) return 1;
-        got += (size_t)r;
-    }
-    return 0;
-}
-
 static int raft_sync_meta(t_raft *r) {
-    if (!r || r->log_fd < 0) return 0;
+    if (!r || !t_file_is_open(&r->logf)) return 0;
     uint8_t hdr[T_RAFT_HDR];
     memset(hdr, 0, sizeof(hdr));
     hdr[0] = 'T'; hdr[1] = 'R'; hdr[2] = 'F'; hdr[3] = 'T';
     hdr[4] = T_RAFT_VER;
     write_le64(hdr + 8, r->current_term);
     write_le64(hdr + 16, r->voted_for);
-    if (lseek(r->log_fd, 0, SEEK_SET) < 0) return -1;
-    if (full_write(r->log_fd, hdr, sizeof(hdr)) != 0) return -1;
-    if (fsync(r->log_fd) != 0) return -1;
-    if (lseek(r->log_fd, 0, SEEK_END) < 0) return -1;
+    if (t_file_seek(&r->logf, 0, SEEK_SET) != 0) return -1;
+    if (t_file_write(&r->logf, hdr, sizeof(hdr)) != 0) return -1;
+    if (t_file_sync(&r->logf) != 0) return -1;
+    if (t_file_seek(&r->logf, 0, SEEK_END) != 0) return -1;
     r->unsynced = 0;
     return 0;
 }
 
 static int raft_write_entry(t_raft *r, const t_raft_entry *e) {
-    if (!r || r->log_fd < 0 || !e) return 0;
+    if (!r || !t_file_is_open(&r->logf) || !e) return 0;
     if (e->data_len > T_PROTO_MAX_PAYLOAD) return -1;
     size_t rec = (size_t)T_RAFT_REC + e->data_len;
     uint8_t stack[256];
@@ -140,56 +108,57 @@ static int raft_write_entry(t_raft *r, const t_raft_entry *e) {
     if (e->data_len) memcpy(buf + T_RAFT_REC, e->data, e->data_len);
     uint32_t crc = t_crc32c(buf + 4, rec - 4);
     write_le32(buf, crc);
-    int rc = full_write(r->log_fd, buf, rec);
+    int rc = t_file_write(&r->logf, buf, rec);
     if (heap) free(buf);
     if (rc != 0) return -1;
     r->unsynced++;
     if (r->sync_every > 0 && r->unsynced >= r->sync_every) {
-        if (fsync(r->log_fd) != 0) return -1;
+        if (t_file_sync(&r->logf) != 0) return -1;
         r->unsynced = 0;
     }
     return 0;
 }
 
 static int raft_rewrite_log(t_raft *r) {
-    if (!r || r->log_fd < 0 || !r->log_path) return 0;
+    if (!r || !t_file_is_open(&r->logf) || !r->log_path) return 0;
     char tmp[1024];
     int n = snprintf(tmp, sizeof(tmp), "%s.tmp", r->log_path);
     if (n < 0 || (size_t)n >= sizeof(tmp)) return -1;
-    int fd = open(tmp, O_RDWR | O_CREAT | O_TRUNC, 0600);
-    if (fd < 0) return -1;
-    int saved = r->log_fd;
-    r->log_fd = fd;
+    t_file neu;
+    t_file_init(&neu);
+    if (t_file_open(&neu, tmp, T_FILE_READ | T_FILE_WRITE | T_FILE_CREAT | T_FILE_TRUNC) != 0)
+        return -1;
+    t_file saved = r->logf;
+    r->logf = neu;
     if (raft_sync_meta(r) != 0) {
-        r->log_fd = saved;
-        close(fd);
-        unlink(tmp);
+        r->logf = saved;
+        t_file_close(&neu);
+        (void)t_file_unlink(tmp);
         return -1;
     }
     for (size_t i = 0; i < r->log_count; i++) {
         if (raft_write_entry(r, &r->log[i]) != 0) {
-            r->log_fd = saved;
-            close(fd);
-            unlink(tmp);
+            r->logf = saved;
+            t_file_close(&neu);
+            (void)t_file_unlink(tmp);
             return -1;
         }
     }
-    if (fsync(fd) != 0) {
-        r->log_fd = saved;
-        close(fd);
-        unlink(tmp);
+    if (t_file_sync(&r->logf) != 0) {
+        r->logf = saved;
+        t_file_close(&neu);
+        (void)t_file_unlink(tmp);
         return -1;
     }
-    close(saved);
-    close(fd);
-    if (rename(tmp, r->log_path) != 0) {
-        unlink(tmp);
-        r->log_fd = open(r->log_path, O_RDWR, 0600);
+    t_file_close(&saved);
+    t_file_close(&r->logf);
+    if (t_file_rename(tmp, r->log_path) != 0) {
+        (void)t_file_unlink(tmp);
+        (void)t_file_open(&r->logf, r->log_path, T_FILE_READ | T_FILE_WRITE);
         return -1;
     }
-    r->log_fd = open(r->log_path, O_RDWR, 0600);
-    if (r->log_fd < 0) return -1;
-    if (lseek(r->log_fd, 0, SEEK_END) < 0) return -1;
+    if (t_file_open(&r->logf, r->log_path, T_FILE_READ | T_FILE_WRITE) != 0) return -1;
+    if (t_file_seek(&r->logf, 0, SEEK_END) != 0) return -1;
     r->unsynced = 0;
     return 0;
 }
@@ -223,7 +192,8 @@ t_raft *t_raft_create(const t_raft_config *cfg) {
     r->log_count = 0;
     r->apply_cb = NULL;
     r->apply_ud = NULL;
-    r->log_fd = -1;
+    r->log_path = NULL;
+    t_file_init(&r->logf);
     r->election_timeout_ms = (cfg && cfg->election_timeout_ms) ? cfg->election_timeout_ms : 150;
     r->heartbeat_interval_ms = (cfg && cfg->heartbeat_interval_ms) ? cfg->heartbeat_interval_ms : 50;
     return r;
@@ -240,7 +210,7 @@ void t_raft_destroy(t_raft *raft) {
         free(raft->log[i].data);
     }
     free(raft->log);
-    if (raft->log_fd >= 0) close(raft->log_fd);
+    t_file_close(&raft->logf);
     free(raft->log_path);
     free(raft);
 }
@@ -438,34 +408,31 @@ static int raft_append_copy(t_raft *r, uint64_t index, uint64_t term, uint8_t ty
 }
 
 int t_raft_open_log(t_raft *raft, const char *path, int sync_every) {
-    if (!raft || raft->log_fd >= 0 || !path || !path[0]) return -1;
+    if (!raft || t_file_is_open(&raft->logf) || !path || !path[0]) return -1;
     if (raft->log_count != 0) return -1;
     char *dup = strdup(path);
     if (!dup) return -1;
-    int fd = open(path, O_RDWR | O_CREAT, 0600);
-    if (fd < 0) {
+    if (t_file_open(&raft->logf, path, T_FILE_READ | T_FILE_WRITE | T_FILE_CREAT) != 0) {
         free(dup);
         return -1;
     }
     raft->log_path = dup;
-    raft->log_fd = fd;
     raft->sync_every = sync_every < 0 ? 0 : sync_every;
-    struct stat st;
-    if (fstat(fd, &st) != 0) {
-        close(fd);
-        raft->log_fd = -1;
+    uint64_t sz = 0;
+    if (t_file_size(&raft->logf, &sz) != 0) {
+        t_file_close(&raft->logf);
         free(raft->log_path);
         raft->log_path = NULL;
         return -1;
     }
-    if (st.st_size == 0) {
+    if (sz == 0) {
         if (raft_sync_meta(raft) != 0) return -1;
         return 0;
     }
-    if (st.st_size < T_RAFT_HDR) return -1;
+    if (sz < T_RAFT_HDR) return -1;
     uint8_t hdr[T_RAFT_HDR];
-    if (lseek(fd, 0, SEEK_SET) < 0) return -1;
-    if (full_read(fd, hdr, sizeof(hdr)) != 0) return -1;
+    if (t_file_seek(&raft->logf, 0, SEEK_SET) != 0) return -1;
+    if (t_file_read(&raft->logf, hdr, sizeof(hdr)) != 0) return -1;
     if (hdr[0] != 'T' || hdr[1] != 'R' || hdr[2] != 'F' || hdr[3] != 'T' || hdr[4] != T_RAFT_VER)
         return -1;
     raft->current_term = read_le64(hdr + 8);
@@ -473,7 +440,7 @@ int t_raft_open_log(t_raft *raft, const char *path, int sync_every) {
     raft->state = T_NODE_FOLLOWER;
     for (;;) {
         uint8_t rec[T_RAFT_REC];
-        int rr = full_read(fd, rec, sizeof(rec));
+        int rr = t_file_read(&raft->logf, rec, sizeof(rec));
         if (rr == 1) break;
         if (rr != 0) break;
         uint32_t crc = read_le32(rec);
@@ -486,7 +453,7 @@ int t_raft_open_log(t_raft *raft, const char *path, int sync_every) {
         if (len) {
             data = (uint8_t *)malloc(len);
             if (!data) return -1;
-            rr = full_read(fd, data, len);
+            rr = t_file_read(&raft->logf, data, len);
             if (rr != 0) {
                 free(data);
                 break;
@@ -506,7 +473,7 @@ int t_raft_open_log(t_raft *raft, const char *path, int sync_every) {
         if (term > raft->current_term) raft->current_term = term;
         free(data);
     }
-    if (lseek(fd, 0, SEEK_END) < 0) return -1;
+    if (t_file_seek(&raft->logf, 0, SEEK_END) != 0) return -1;
     return 0;
 }
 

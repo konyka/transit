@@ -23,10 +23,10 @@ July 2026 review.
 - Add unit coverage for map replacement, removal, tombstone compaction, and
   post-compaction insertion.
 - Keep CI on currently portable Linux/macOS targets. Windows has mmap,
-  Winsock2, IOCP wakeup, `t_conn`/`t_tcp`, and a CreateFile WAL.
-  CI stays off until Raft log, signals, thread pool, and admin HTTP are
-  portable. Coroutine switch is x86_64 and AArch64 assembly; other ISAs
-  leave `t_coro_create` NULL.
+  Winsock2, IOCP wakeup, `t_conn`/`t_tcp`, CreateFile WAL, Raft log, and
+  file-backed storage dumps. CI stays off until signals, thread pool, and
+  admin HTTP are portable. Coroutine switch is x86_64 and AArch64
+  assembly; other ISAs leave `t_coro_create` NULL.
 - Wire protocol decode aliases the frame (no extra payload copy). The protocol
   server rate-limits in O(1) before broker work and caps accept fan-in.
 - Durable WAL is append-only (PUT/DEL). Default fsync every 32 records so the
