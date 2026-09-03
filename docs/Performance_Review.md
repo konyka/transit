@@ -23,7 +23,8 @@ July 2026 review.
 - Add unit coverage for map replacement, removal, tombstone compaction, and
   post-compaction insertion.
 - Keep CI on currently portable Linux/macOS targets; Windows backend sources
-  remain present, but CI is disabled until POSIX and assembly fallbacks exist.
+  remain present, but CI is disabled until POSIX fallbacks exist. Coroutine
+  switch is x86_64 and AArch64 assembly; other ISAs leave `t_coro_create` NULL.
 - Wire protocol decode aliases the frame (no extra payload copy). The protocol
   server rate-limits in O(1) before broker work and caps accept fan-in.
 - Durable WAL is append-only (PUT/DEL). Default fsync every 32 records so the

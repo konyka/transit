@@ -37,13 +37,12 @@ separate that library from a production message bus.
   queue `msg_id`, `CONFIRM` maps to `t_queue_ack`, `REJECT` to
   `t_queue_nack`. Disconnect nacks leftover inflight so another consumer
   can take the message. Broadcast still uses fire-and-forget push.
+- Coroutine context switch: x86_64 and AArch64 assembly (same 6/12
+  callee-saved GPR frame). Other ISAs return NULL from `t_coro_create`.
 
 ## Remaining (priority order)
 
-### 1. Windows / non-x86_64
-
-IOCP sources exist; POSIX modules and coroutine assembly do not. Keep CI on
-Linux/macOS until those fallbacks exist.
+### 1. Windows POSIX modules
 
 ## Non-goals for now
 

@@ -3,8 +3,15 @@
 #include <string.h>
 #include <stdint.h>
 
+#if defined(T_ARCH_X64) || defined(T_ARCH_ARM64)
 extern void t_coro_switch(void **from_sp, void **to_sp);
 extern void t_coro_trampoline(void);
+#else
+static void t_coro_switch(void **from_sp, void **to_sp) {
+    (void)from_sp;
+    (void)to_sp;
+}
+#endif
 
 static __thread t_coro *g_current_coro = NULL;
 
@@ -25,9 +32,53 @@ void t_coro_wrapper(t_coro *coro) {
     t_coro_switch(&coro->saved_sp, &coro->caller->saved_sp);
 }
 
+static void *coro_init_stack(void *stack, size_t stack_size, t_coro *coro) {
+    char *base = (char *)stack;
+    char *top = (char *)((uintptr_t)(base + stack_size) & ~(uintptr_t)15);
+#if defined(T_ARCH_X64)
+    /* retaddr + 6 callee-saved GPRs (rbx, rbp, r12-r15). */
+    if (top < base + 8 + 6 * 8) return NULL;
+    top -= 8;
+    *(void **)top = (void *)t_coro_trampoline;
+    top -= 6 * 8;
+    void **regs = (void **)top;
+    regs[0] = NULL;
+    regs[1] = NULL;
+    regs[2] = NULL;
+    regs[3] = NULL;
+    regs[4] = NULL;
+    regs[5] = (void *)coro; /* rbx */
+    return top;
+#elif defined(T_ARCH_ARM64)
+    /* 6 stp pairs: x19-x28, x29/x30. x19 holds coro; x30 is trampoline. */
+    if (top < base + 96) return NULL;
+    top -= 96;
+    ((void **)(top + 0))[0] = NULL;
+    ((void **)(top + 0))[1] = (void *)t_coro_trampoline;
+    ((void **)(top + 16))[0] = NULL;
+    ((void **)(top + 16))[1] = NULL;
+    ((void **)(top + 32))[0] = NULL;
+    ((void **)(top + 32))[1] = NULL;
+    ((void **)(top + 48))[0] = NULL;
+    ((void **)(top + 48))[1] = NULL;
+    ((void **)(top + 64))[0] = NULL;
+    ((void **)(top + 64))[1] = NULL;
+    ((void **)(top + 80))[0] = (void *)coro; /* x19 */
+    ((void **)(top + 80))[1] = NULL;
+    return top;
+#else
+    (void)coro;
+    (void)base;
+    (void)top;
+    return NULL;
+#endif
+}
+
 t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
-    /* Need room for trampoline + 6 saved regs after 16-byte align. */
     if (!fn || stack_size < 256) return NULL;
+#if !defined(T_ARCH_X64) && !defined(T_ARCH_ARM64)
+    return NULL;
+#endif
     t_coro *coro = (t_coro *)calloc(1, sizeof(t_coro));
     if (!coro) return NULL;
     coro->fn = fn;
@@ -36,29 +87,12 @@ t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
     coro->stack = calloc(1, stack_size);
     if (!coro->stack) { free(coro); return NULL; }
     coro->state = T_CORO_READY;
-
-    char *base = (char *)coro->stack;
-    char *sp = base + stack_size;
-    sp = (char *)((uintptr_t)sp & ~(uintptr_t)15);
-    if (sp < base + 8 + 6 * 8) {
+    coro->saved_sp = coro_init_stack(coro->stack, stack_size, coro);
+    if (!coro->saved_sp) {
         free(coro->stack);
         free(coro);
         return NULL;
     }
-
-    sp -= 8;
-    *(void **)sp = (void *)t_coro_trampoline;
-
-    sp -= 6 * 8;
-    void **regs = (void **)sp;
-    regs[0] = NULL;       /* r15 */
-    regs[1] = NULL;       /* r14 */
-    regs[2] = NULL;       /* r13 */
-    regs[3] = NULL;       /* r12 */
-    regs[4] = NULL;       /* rbp */
-    regs[5] = (void *)coro; /* rbx */
-
-    coro->saved_sp = sp;
     return coro;
 }
 

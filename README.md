@@ -14,7 +14,7 @@ src/
 ├── collections/ vec, map, list, SPSC ringbuf, Vyukov MPMC, priority queue
 ├── event/       epoll / kqueue / IOCP backends (vtable), min-heap timer
 ├── threadpool/  work-stealing thread pool with per-worker MPMC queues
-├── coroutine/   pure x86-64 assembly context switch (6 callee-saved regs)
+├── coroutine/   x86_64 and AArch64 assembly context switch
 ├── net/         non-blocking socket, TCP, framed conn, protocol server,
 │                admin HTTP, ratelimit
 ├── protocol/    binary wire protocol (16-byte header), CRC32C, HMAC-SHA256 AUTH, typed payloads
@@ -137,8 +137,9 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 - **Linux**: epoll backend (primary, fully tested)
 - **macOS**: kqueue backend (implemented, conditional via `T_HAVE_KQUEUE`)
+- **AArch64**: coroutine switch matches the x86_64 assembly path
 - **Windows**: IOCP backend sources are present, but full Windows CI is disabled
-  until POSIX-dependent modules and coroutine assembly have portable fallbacks.
+  until POSIX-dependent modules have portable fallbacks.
 
 CI runs Linux and macOS builds via GitHub Actions, plus Linux ASan/UBSan jobs.
 
@@ -179,7 +180,7 @@ See [docs/Wire_Protocol.md](docs/Wire_Protocol.md) and
 
 ## Project Stats
 
-- 52 source files (`.c`/`.S`), 54 headers
+- 53 source files (`.c`/`.S`), 54 headers
 - ~6,400 LOC (source), ~1,900 LOC (headers)
 - ~3,500 LOC (tests)
 - Zero external dependencies

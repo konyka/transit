@@ -9,6 +9,8 @@
 static inline void t_spin_pause(void) {
 #if defined(__i386__) || defined(__x86_64__)
     __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    __asm__ __volatile__("yield");
 #else
     sched_yield();
 #endif
