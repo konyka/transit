@@ -293,3 +293,147 @@ int t_wire_decode_confirm(const uint8_t *buf, size_t len, t_wire_confirm *out) {
     *out = tmp;
     return 0;
 }
+
+int t_wire_encode_vote_req(uint8_t *buf, size_t cap, const t_wire_vote_req *req) {
+    if (!buf || !req) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (put_u8(&p, end, T_WIRE_CLUSTER_VOTE_REQ) != 0) return -1;
+    if (put_u64(&p, end, req->term) != 0) return -1;
+    if (put_u64(&p, end, req->candidate_id) != 0) return -1;
+    if (put_u64(&p, end, req->last_log_index) != 0) return -1;
+    if (put_u64(&p, end, req->last_log_term) != 0) return -1;
+    return (int)(p - buf);
+}
+
+int t_wire_decode_vote_req(const uint8_t *buf, size_t len, t_wire_vote_req *out) {
+    if (!buf || !out) return -1;
+    const uint8_t *p = buf;
+    const uint8_t *end = buf + len;
+    uint8_t rpc;
+    t_wire_vote_req tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    if (get_u8(&p, end, &rpc) != 0 || rpc != T_WIRE_CLUSTER_VOTE_REQ) return -1;
+    if (get_u64(&p, end, &tmp.term) != 0) return -1;
+    if (get_u64(&p, end, &tmp.candidate_id) != 0) return -1;
+    if (get_u64(&p, end, &tmp.last_log_index) != 0) return -1;
+    if (get_u64(&p, end, &tmp.last_log_term) != 0) return -1;
+    if (require_exact(p, end) != 0) return -1;
+    *out = tmp;
+    return 0;
+}
+
+int t_wire_encode_vote_resp(uint8_t *buf, size_t cap, uint64_t term, uint8_t granted) {
+    if (!buf) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (put_u8(&p, end, T_WIRE_CLUSTER_VOTE_RESP) != 0) return -1;
+    if (put_u64(&p, end, term) != 0) return -1;
+    if (put_u8(&p, end, granted ? 1 : 0) != 0) return -1;
+    return (int)(p - buf);
+}
+
+int t_wire_decode_vote_resp(const uint8_t *buf, size_t len, t_wire_vote_resp *out) {
+    if (!buf || !out) return -1;
+    const uint8_t *p = buf;
+    const uint8_t *end = buf + len;
+    uint8_t rpc;
+    t_wire_vote_resp tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    if (get_u8(&p, end, &rpc) != 0 || rpc != T_WIRE_CLUSTER_VOTE_RESP) return -1;
+    if (get_u64(&p, end, &tmp.term) != 0) return -1;
+    if (get_u8(&p, end, &tmp.granted) != 0) return -1;
+    if (require_exact(p, end) != 0) return -1;
+    *out = tmp;
+    return 0;
+}
+
+int t_wire_encode_append_req(uint8_t *buf, size_t cap, const t_wire_append_req *req,
+                             const t_wire_cluster_entry *ents, uint32_t n) {
+    if (!buf || !req) return -1;
+    if (n > T_WIRE_CLUSTER_MAX_ENTS) return -1;
+    if (n > 0 && !ents) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (put_u8(&p, end, T_WIRE_CLUSTER_APPEND_REQ) != 0) return -1;
+    if (put_u64(&p, end, req->term) != 0) return -1;
+    if (put_u64(&p, end, req->leader_id) != 0) return -1;
+    if (put_u64(&p, end, req->prev_log_index) != 0) return -1;
+    if (put_u64(&p, end, req->prev_log_term) != 0) return -1;
+    if (put_u64(&p, end, req->leader_commit) != 0) return -1;
+    if (put_u32(&p, end, n) != 0) return -1;
+    for (uint32_t i = 0; i < n; i++) {
+        if (ents[i].data_len > 0 && !ents[i].data) return -1;
+        if (ents[i].data_len > T_PROTO_MAX_PAYLOAD) return -1;
+        if (put_u64(&p, end, ents[i].index) != 0) return -1;
+        if (put_u64(&p, end, ents[i].term) != 0) return -1;
+        if (put_u8(&p, end, ents[i].type) != 0) return -1;
+        if (put_u32(&p, end, ents[i].data_len) != 0) return -1;
+        if (put_bytes(&p, end, ents[i].data, ents[i].data_len) != 0) return -1;
+    }
+    return (int)(p - buf);
+}
+
+int t_wire_decode_append_req(const uint8_t *buf, size_t len, t_wire_append_req *out,
+                             t_wire_cluster_entry *ents, uint32_t ent_cap) {
+    if (!buf || !out) return -1;
+    const uint8_t *p = buf;
+    const uint8_t *end = buf + len;
+    uint8_t rpc;
+    t_wire_append_req tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    if (get_u8(&p, end, &rpc) != 0 || rpc != T_WIRE_CLUSTER_APPEND_REQ) return -1;
+    if (get_u64(&p, end, &tmp.term) != 0) return -1;
+    if (get_u64(&p, end, &tmp.leader_id) != 0) return -1;
+    if (get_u64(&p, end, &tmp.prev_log_index) != 0) return -1;
+    if (get_u64(&p, end, &tmp.prev_log_term) != 0) return -1;
+    if (get_u64(&p, end, &tmp.leader_commit) != 0) return -1;
+    if (get_u32(&p, end, &tmp.nentries) != 0) return -1;
+    if (tmp.nentries > T_WIRE_CLUSTER_MAX_ENTS) return -1;
+    if (tmp.nentries > ent_cap) return -1;
+    if (tmp.nentries > 0 && !ents) return -1;
+    for (uint32_t i = 0; i < tmp.nentries; i++) {
+        t_wire_cluster_entry e;
+        memset(&e, 0, sizeof(e));
+        if (get_u64(&p, end, &e.index) != 0) return -1;
+        if (get_u64(&p, end, &e.term) != 0) return -1;
+        if (get_u8(&p, end, &e.type) != 0) return -1;
+        if (get_u32(&p, end, &e.data_len) != 0) return -1;
+        if (e.data_len > T_PROTO_MAX_PAYLOAD) return -1;
+        if ((size_t)(end - p) < e.data_len) return -1;
+        e.data = e.data_len ? p : NULL;
+        p += e.data_len;
+        ents[i] = e;
+    }
+    if (require_exact(p, end) != 0) return -1;
+    *out = tmp;
+    return 0;
+}
+
+int t_wire_encode_append_resp(uint8_t *buf, size_t cap, uint64_t term, uint8_t success,
+                              uint64_t match_index) {
+    if (!buf) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (put_u8(&p, end, T_WIRE_CLUSTER_APPEND_RESP) != 0) return -1;
+    if (put_u64(&p, end, term) != 0) return -1;
+    if (put_u8(&p, end, success ? 1 : 0) != 0) return -1;
+    if (put_u64(&p, end, match_index) != 0) return -1;
+    return (int)(p - buf);
+}
+
+int t_wire_decode_append_resp(const uint8_t *buf, size_t len, t_wire_append_resp *out) {
+    if (!buf || !out) return -1;
+    const uint8_t *p = buf;
+    const uint8_t *end = buf + len;
+    uint8_t rpc;
+    t_wire_append_resp tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    if (get_u8(&p, end, &rpc) != 0 || rpc != T_WIRE_CLUSTER_APPEND_RESP) return -1;
+    if (get_u64(&p, end, &tmp.term) != 0) return -1;
+    if (get_u8(&p, end, &tmp.success) != 0) return -1;
+    if (get_u64(&p, end, &tmp.match_index) != 0) return -1;
+    if (require_exact(p, end) != 0) return -1;
+    *out = tmp;
+    return 0;
+}

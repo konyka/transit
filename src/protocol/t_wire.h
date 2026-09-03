@@ -80,4 +80,58 @@ int t_wire_decode_ack(const uint8_t *buf, size_t len, t_wire_ack *out);
 int t_wire_encode_confirm(uint8_t *buf, size_t cap, uint64_t msg_id, const char *name);
 int t_wire_decode_confirm(const uint8_t *buf, size_t len, t_wire_confirm *out);
 
+/* T_MSG_CLUSTER payloads (peer port, not the client port). */
+#define T_WIRE_CLUSTER_VOTE_REQ    1
+#define T_WIRE_CLUSTER_VOTE_RESP   2
+#define T_WIRE_CLUSTER_APPEND_REQ  3
+#define T_WIRE_CLUSTER_APPEND_RESP 4
+#define T_WIRE_CLUSTER_MAX_ENTS    256
+
+typedef struct t_wire_cluster_entry {
+    uint64_t       index;
+    uint64_t       term;
+    uint8_t        type;
+    const uint8_t *data;
+    uint32_t       data_len;
+} t_wire_cluster_entry;
+
+typedef struct t_wire_vote_req {
+    uint64_t term;
+    uint64_t candidate_id;
+    uint64_t last_log_index;
+    uint64_t last_log_term;
+} t_wire_vote_req;
+
+typedef struct t_wire_vote_resp {
+    uint64_t term;
+    uint8_t  granted;
+} t_wire_vote_resp;
+
+typedef struct t_wire_append_req {
+    uint64_t term;
+    uint64_t leader_id;
+    uint64_t prev_log_index;
+    uint64_t prev_log_term;
+    uint64_t leader_commit;
+    uint32_t nentries;
+} t_wire_append_req;
+
+typedef struct t_wire_append_resp {
+    uint64_t term;
+    uint8_t  success;
+    uint64_t match_index;
+} t_wire_append_resp;
+
+int t_wire_encode_vote_req(uint8_t *buf, size_t cap, const t_wire_vote_req *req);
+int t_wire_decode_vote_req(const uint8_t *buf, size_t len, t_wire_vote_req *out);
+int t_wire_encode_vote_resp(uint8_t *buf, size_t cap, uint64_t term, uint8_t granted);
+int t_wire_decode_vote_resp(const uint8_t *buf, size_t len, t_wire_vote_resp *out);
+int t_wire_encode_append_req(uint8_t *buf, size_t cap, const t_wire_append_req *req,
+                             const t_wire_cluster_entry *ents, uint32_t n);
+int t_wire_decode_append_req(const uint8_t *buf, size_t len, t_wire_append_req *out,
+                             t_wire_cluster_entry *ents, uint32_t ent_cap);
+int t_wire_encode_append_resp(uint8_t *buf, size_t cap, uint64_t term, uint8_t success,
+                              uint64_t match_index);
+int t_wire_decode_append_resp(const uint8_t *buf, size_t len, t_wire_append_resp *out);
+
 #endif /* T_WIRE_H */

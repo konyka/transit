@@ -18,14 +18,18 @@ separate that library from a production message bus.
   records. Fail closed without a datadir. `DURABLE+BROADCAST` is rejected.
 - Exclusive queues refuse a second consumer (`T_ERR_BUSY`). Autodelete drops
   the queue when the last network session closes it.
+- Raft RPCs (`RequestVote` / `AppendEntries`) as `T_MSG_CLUSTER` payloads,
+  persistent raft log (`t_raft_open_log`), and leader-only publish when a
+  cluster is attached to the broker. The client port still closes `CLUSTER`
+  frames; peer transport is the next slice.
 
 ## Remaining (priority order)
 
-### 1. Real Raft / cluster replication (reliability)
+### 1. Cluster peer transport (reliability)
 
-`t_raft` and `t_cluster` are in-memory, single-process helpers. Needed: Raft
-RPCs over `T_MSG_CLUSTER`, persistent log, leader-only publish, follower
-redirect. Do not replicate every payload through the client port.
+`t_raft_rpc` is in-process. Needed: a loopback-default cluster listen port that
+exchanges `T_MSG_CLUSTER` frames, election timeouts, and follower redirect
+hints for clients (`T_ERR_AGAIN` is already returned on follower `POST`).
 
 ### 2. Authentication (security)
 

@@ -105,7 +105,22 @@ Empty payload. Server replies `ACK` and refreshes the session timestamp.
 
 ### `CLUSTER`
 
-Not accepted on the client port (connection closed).
+Not accepted on the client port (connection closed). Peer payloads:
+
+```
+u8 rpc   /* 1 VoteReq, 2 VoteResp, 3 AppendReq, 4 AppendResp */
+```
+
+`VoteReq`: `u64 term, candidate_id, last_log_index, last_log_term`  
+`VoteResp`: `u64 term`, `u8 granted`  
+`AppendReq`: `u64 term, leader_id, prev_log_index, prev_log_term, leader_commit`,
+`u32 n`, then `n` entries of `u64 index, term`, `u8 type`, `u32 len`, `data`.  
+`AppendResp`: `u64 term`, `u8 success`, `u64 match_index`.
+
+Handle with `t_raft_rpc`. Durable term/vote/entries: `t_raft_open_log`.
+
+Follower `POST` on the client port returns `T_ERR_AGAIN` when a cluster is
+attached and this node is not leader.
 
 ## Server safety switches
 

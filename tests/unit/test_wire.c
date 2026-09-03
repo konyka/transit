@@ -134,6 +134,53 @@ T_TEST(wire_encode_rejects_small_cap) {
     T_ASSERT(t_wire_encode_close(tiny, sizeof(tiny), "queue") < 0);
 }
 
+T_TEST(wire_cluster_vote_roundtrip) {
+    t_wire_vote_req in = {7, 3, 4, 2};
+    uint8_t buf[64];
+    int n = t_wire_encode_vote_req(buf, sizeof(buf), &in);
+    T_ASSERT(n > 0);
+    t_wire_vote_req out;
+    T_ASSERT_EQ(t_wire_decode_vote_req(buf, (size_t)n, &out), 0);
+    T_ASSERT_EQ((int)out.term, 7);
+    T_ASSERT_EQ((int)out.candidate_id, 3);
+    T_ASSERT_EQ((int)out.last_log_index, 4);
+    T_ASSERT_EQ((int)out.last_log_term, 2);
+    n = t_wire_encode_vote_resp(buf, sizeof(buf), 7, 1);
+    t_wire_vote_resp vr;
+    T_ASSERT_EQ(t_wire_decode_vote_resp(buf, (size_t)n, &vr), 0);
+    T_ASSERT_EQ((int)vr.granted, 1);
+}
+
+T_TEST(wire_cluster_append_roundtrip) {
+    uint8_t payload[] = {9, 8};
+    t_wire_cluster_entry ent = {1, 3, 2, payload, 2};
+    t_wire_append_req in = {3, 1, 0, 0, 1, 1};
+    uint8_t buf[128];
+    int n = t_wire_encode_append_req(buf, sizeof(buf), &in, &ent, 1);
+    T_ASSERT(n > 0);
+    t_wire_cluster_entry got;
+    t_wire_append_req out;
+    T_ASSERT_EQ(t_wire_decode_append_req(buf, (size_t)n, &out, &got, 1), 0);
+    T_ASSERT_EQ((int)out.term, 3);
+    T_ASSERT_EQ((int)out.nentries, 1);
+    T_ASSERT_EQ((int)got.index, 1);
+    T_ASSERT_MEM_EQ(got.data, payload, 2);
+    n = t_wire_encode_append_resp(buf, sizeof(buf), 3, 1, 1);
+    t_wire_append_resp ar;
+    T_ASSERT_EQ(t_wire_decode_append_resp(buf, (size_t)n, &ar), 0);
+    T_ASSERT_EQ((int)ar.success, 1);
+    T_ASSERT_EQ((int)ar.match_index, 1);
+}
+
+T_TEST(wire_cluster_rejects_trailing_junk) {
+    t_wire_vote_req in = {1, 1, 0, 0};
+    uint8_t buf[64];
+    int n = t_wire_encode_vote_req(buf, sizeof(buf), &in);
+    buf[n] = 0xFF;
+    t_wire_vote_req out;
+    T_ASSERT(t_wire_decode_vote_req(buf, (size_t)n + 1, &out) != 0);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

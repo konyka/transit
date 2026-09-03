@@ -280,6 +280,8 @@ static int32_t handle_post(t_server_conn *sc, const t_proto_msg *msg) {
         return T_ERR_PERMISSION;
     if (!t_broker_is_running(sc->srv->broker))
         return T_ERR_CLOSED;
+    if (!t_broker_is_leader(sc->srv->broker))
+        return T_ERR_AGAIN;
     if (t_broker_publish(sc->srv->broker, name, p.data, p.data_len, (int)p.priority) != 0)
         return T_ERR_GENERIC;
     if (send_ack(sc, T_MSG_POST, T_OK_CODE, name) != 0)

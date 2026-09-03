@@ -4,6 +4,7 @@
 #include "t_queue.h"
 #include "t_map.h"
 #include "t_wal.h"
+#include "t_cluster.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -18,6 +19,7 @@ typedef struct t_broker {
     size_t ext_refs;  /* e.g. live t_dispatch handles */
     char *datadir;
     int wal_sync_every;
+    t_cluster *cluster;
 } t_broker;
 
 static int broker_any_delivering(const t_broker *broker) {
@@ -233,6 +235,18 @@ int t_broker_set_wal_sync_every(t_broker *broker, int n) {
     return 0;
 }
 
+int t_broker_set_cluster(t_broker *broker, t_cluster *cluster) {
+    if (!broker || broker->free_pending) return -1;
+    broker->cluster = cluster;
+    return 0;
+}
+
+int t_broker_is_leader(const t_broker *broker) {
+    if (!broker) return 0;
+    if (!broker->cluster) return 1;
+    return t_cluster_is_leader(broker->cluster);
+}
+
 static int broker_wal_path(char *out, size_t cap, const char *dir,
                            const char *domain, const char *queue) {
     if (!out || !dir || !domain || !queue) return -1;
@@ -302,6 +316,7 @@ int t_broker_publish(t_broker *broker, const char *queue_name,
                      const uint8_t *data, size_t len, int priority) {
     if (!broker || broker->free_pending || !broker->running || !queue_name ||
         (len > 0 && !data)) return -1;
+    if (!t_broker_is_leader(broker)) return -1;
     t_domain *d = broker_find_queue_domain(broker, queue_name);
     if (!d) return -1;
     int r = t_domain_publish(d, queue_name, data, len, priority);

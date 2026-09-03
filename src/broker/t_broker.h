@@ -2,6 +2,7 @@
 #define T_BROKER_H
 
 #include "t_compiler.h"
+#include "t_cluster.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -34,6 +35,9 @@ int         t_broker_delete_queue(t_broker *broker, const char *domain_name,
 int         t_broker_set_datadir(t_broker *broker, const char *path);
 const char *t_broker_datadir(const t_broker *broker);
 int         t_broker_set_wal_sync_every(t_broker *broker, int n);
+/* Borrowed cluster pointer. When set, publish is leader-only. */
+int         t_broker_set_cluster(t_broker *broker, t_cluster *cluster);
+int         t_broker_is_leader(const t_broker *broker);
 
 int         t_broker_publish(t_broker *broker, const char *queue_name,
                               const uint8_t *data, size_t len, int priority);

@@ -24,7 +24,7 @@ src/
 ├── session/     session lifecycle, activity tracking, timeout detection
 ├── client/      in-process stub + TCP dial (`t_client_dial`)
 ├── broker/      domain management, publish/subscribe, dispatcher
-└── cluster/     simplified Raft consensus, node membership, leader election
+└── cluster/     Raft RPCs + persistent log, node membership, leader-only publish
 ```
 
 ## Build
