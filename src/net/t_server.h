@@ -9,6 +9,8 @@
 
 typedef struct t_server t_server;
 
+#define T_SERVER_PUSH_CREDITS_DEFAULT 64
+
 typedef struct t_server_config {
     const char *host;          /* default 127.0.0.1; IPv4 only */
     uint16_t    port;          /* 0 = ephemeral */
@@ -18,6 +20,7 @@ typedef struct t_server_config {
     int64_t     idle_timeout_ms; /* 0 = disabled */
     const uint8_t *psk;        /* NULL = no AUTH; required off loopback */
     size_t         psk_len;
+    size_t      push_credits;  /* outstanding PUSHes per session; 0 = unlimited */
 } t_server_config;
 
 void t_server_config_init(t_server_config *cfg);

@@ -13,6 +13,7 @@
 #include "t_queue.h"
 #include "t_time.h"
 #include "t_hmac.h"
+#include "t_flowcontrol.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -30,6 +31,7 @@ typedef struct t_server_conn {
     int           freed;
     int           free_pending;
     int           authed;
+    t_flowcontrol *fc;
 } t_server_conn;
 
 struct t_server {
@@ -55,6 +57,7 @@ struct t_server {
     int              free_pending;
     uint8_t         *psk;
     size_t           psk_len;
+    size_t           push_credits;
 };
 
 static void server_on_accept(t_tcp_server *tcp, int client_fd, t_sockaddr *peer, void *ud);
@@ -72,6 +75,7 @@ void t_server_config_init(t_server_config *cfg) {
     cfg->rate_tokens = 128;
     cfg->rate_refill = 0.05; /* 50 tokens/sec */
     cfg->idle_timeout_ms = 30000;
+    cfg->push_credits = T_SERVER_PUSH_CREDITS_DEFAULT;
 }
 
 static int send_frame(t_conn *conn, t_msg_type type, const uint8_t *payload, size_t plen) {
@@ -95,24 +99,39 @@ static void server_push_cb(const char *queue_name, const uint8_t *data, size_t l
     t_server_conn *sc = (t_server_conn *)ud;
     if (!sc || sc->freed || !sc->conn || !queue_name) return;
     if (len > T_PROTO_MAX_PAYLOAD) return;
+    if (sc->fc && t_fc_acquire(sc->fc, 1) != 0) return;
     size_t nlen = strlen(queue_name);
-    if (nlen > T_WIRE_MAX_NAME) return;
-    if (len > SIZE_MAX - (8u + 1u + 2u + nlen + 4u)) return;
+    if (nlen > T_WIRE_MAX_NAME) {
+        if (sc->fc) t_fc_release(sc->fc, 1);
+        return;
+    }
+    if (len > SIZE_MAX - (8u + 1u + 2u + nlen + 4u)) {
+        if (sc->fc) t_fc_release(sc->fc, 1);
+        return;
+    }
     size_t need = 8u + 1u + 2u + nlen + 4u + len;
     uint8_t stack[512];
     uint8_t *buf = stack;
     int heap = 0;
     if (need > sizeof(stack)) {
         buf = (uint8_t *)malloc(need);
-        if (!buf) return;
+        if (!buf) {
+            if (sc->fc) t_fc_release(sc->fc, 1);
+            return;
+        }
         heap = 1;
     }
     if (sc->next_push_id == UINT64_MAX) sc->next_push_id = 0;
     uint64_t id = ++sc->next_push_id;
     int n = t_wire_encode_push(buf, need, id, 0, queue_name, data, (uint32_t)len);
     if (n > 0) {
-        (void)send_frame(sc->conn, T_MSG_PUSH, buf, (size_t)n);
-        t_session_record_send(sc->sess);
+        if (send_frame(sc->conn, T_MSG_PUSH, buf, (size_t)n) != 0) {
+            if (sc->fc) t_fc_release(sc->fc, 1);
+        } else {
+            t_session_record_send(sc->sess);
+        }
+    } else if (sc->fc) {
+        t_fc_release(sc->fc, 1);
     }
     if (heap) free(buf);
 }
@@ -178,6 +197,8 @@ static void server_conn_free(t_server_conn *sc) {
     }
     t_ratelimit_destroy(sc->rl);
     sc->rl = NULL;
+    t_fc_destroy(sc->fc);
+    sc->fc = NULL;
     sc->conn = NULL;
     free(sc);
 }
@@ -303,7 +324,7 @@ static int32_t handle_confirm(t_server_conn *sc, const t_proto_msg *msg) {
         return T_ERR_INVALID;
     if (!t_map_contains(&sc->opened, name))
         return T_ERR_PERMISSION;
-    /* Push delivery is fire-and-forget; accept confirm as client liveness. */
+    if (sc->fc) t_fc_release(sc->fc, 1);
     if (send_ack(sc, (uint16_t)msg->header.type, T_OK_CODE, name) != 0)
         return T_ERR_IO;
     return T_OK_CODE;
@@ -338,13 +359,8 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     int close_conn = 0;
     int32_t status = T_OK_CODE;
     uint64_t now_ms = (uint64_t)t_time_now_ms();
-    if (!t_ratelimit_allow(sc->rl, now_ms)) {
-        sc->srv->msgs_dropped++;
-        (void)send_ack(sc, msg->header.type, (int32_t)T_ERR_BUSY, NULL);
-        sc->in_cb--;
-        if (sc->free_pending) server_conn_free(sc);
-        return;
-    }
+    int is_credit = (msg->header.type == T_MSG_CONFIRM ||
+                     msg->header.type == T_MSG_REJECT);
 
     if (sc->srv->psk_len > 0 && !sc->authed) {
         if (msg->header.type != T_MSG_AUTH) {
@@ -367,6 +383,27 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
         return;
     }
 
+    if (is_credit) {
+        status = handle_confirm(sc, msg);
+        if (status != T_OK_CODE)
+            (void)send_ack(sc, msg->header.type, status, NULL);
+        sc->in_cb--;
+        if (status == T_ERR_PROTO && sc->conn) {
+            t_conn_destroy(conn);
+            return;
+        }
+        if (sc->free_pending) server_conn_free(sc);
+        return;
+    }
+
+    if (!t_ratelimit_allow(sc->rl, now_ms)) {
+        sc->srv->msgs_dropped++;
+        (void)send_ack(sc, msg->header.type, (int32_t)T_ERR_BUSY, NULL);
+        sc->in_cb--;
+        if (sc->free_pending) server_conn_free(sc);
+        return;
+    }
+
     switch (msg->header.type) {
     case T_MSG_NOP:
     case T_MSG_HEARTBEAT:
@@ -380,10 +417,6 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
         break;
     case T_MSG_POST:
         status = handle_post(sc, msg);
-        break;
-    case T_MSG_CONFIRM:
-    case T_MSG_REJECT:
-        status = handle_confirm(sc, msg);
         break;
     case T_MSG_AUTH:
         close_conn = 1;
@@ -455,12 +488,16 @@ static void server_on_accept(t_tcp_server *tcp, int client_fd, t_sockaddr *peer,
     t_map_init(&sc->opened);
     sc->sess = t_session_create((uint64_t)(srv->conns.len + 1));
     sc->rl = t_ratelimit_create(srv->rate_tokens, srv->rate_refill);
+    if (srv->push_credits > 0)
+        sc->fc = t_fc_create(srv->push_credits, 0);
     sc->conn = t_conn_create(client_fd, srv->loop);
-    if (!sc->sess || !sc->rl || !sc->conn) {
+    if (!sc->sess || !sc->rl || !sc->conn ||
+        (srv->push_credits > 0 && !sc->fc)) {
         if (sc->conn) t_conn_destroy(sc->conn);
         else t_socket_close(client_fd);
         if (sc->sess) t_session_destroy(sc->sess);
         t_ratelimit_destroy(sc->rl);
+        t_fc_destroy(sc->fc);
         t_map_destroy(&sc->opened);
         free(sc);
         srv->in_cb--;
@@ -515,6 +552,7 @@ t_server *t_server_create(t_evloop *loop, t_broker *broker, const t_server_confi
     srv->rate_tokens = cfg->rate_tokens;
     srv->rate_refill = cfg->rate_refill;
     srv->idle_timeout_ms = cfg->idle_timeout_ms < 0 ? 0 : cfg->idle_timeout_ms;
+    srv->push_credits = cfg->push_credits;
     srv->idle_timer_id = -1;
     t_vec_init(&srv->conns);
     t_map_init(&srv->open_refs);

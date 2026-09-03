@@ -152,6 +152,12 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     }
     c->posting--;
     free(snaps);
+    if (c->net_mode && c->conn && !c->free_pending) {
+        uint8_t cbuf[8 + 2 + T_WIRE_MAX_NAME];
+        int cn = t_wire_encode_confirm(cbuf, sizeof(cbuf), p.msg_id, name);
+        if (cn > 0)
+            (void)client_send_payload(c, T_MSG_CONFIRM, cbuf, (size_t)cn);
+    }
     if (c->posting == 0 && c->free_pending) t_client_destroy(c);
 }
 

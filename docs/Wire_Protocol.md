@@ -77,7 +77,11 @@ u32 data_len
 u8  data[data_len]
 ```
 
-Push delivery is fire-and-forget (same as in-process consumer callbacks).
+Each connection has a PUSH credit window (`t_server_config.push_credits`,
+default 64, `0` = unlimited). A `PUSH` is sent only when a credit can be
+acquired; otherwise that delivery is skipped (queue callbacks remain
+fire-and-forget). Slow consumers therefore cannot grow `t_conn` send
+buffers beyond the window (the buffer itself is still capped at 64 MiB).
 
 ### `ACK` (server → client)
 
@@ -96,8 +100,11 @@ u16 name_len
 u8  name[name_len]
 ```
 
-Accepted as liveness if the queue is open; not yet mapped to pull-inflight
-`t_queue_ack`.
+If the queue is open, each `CONFIRM`/`REJECT` returns one PUSH credit
+(capped at the window). These frames skip the per-connection token bucket
+so a slow consumer can still refill credits. Not yet mapped to
+pull-inflight `t_queue_ack`. The TCP client (`t_client_dial`) sends
+`CONFIRM` automatically after a decoded `PUSH`.
 
 ### `HEARTBEAT` / `NOP`
 
@@ -150,9 +157,10 @@ character). Empty name if no leader is known.
 |---------|---------|--------|
 | Bind host | `127.0.0.1` | Loopback unless the operator passes another IPv4 |
 | `max_conns` | 1024 | Extra accepts are closed immediately |
-| Token bucket | 128 burst, 50/s | Excess frames get `ACK` `T_ERR_BUSY` |
+| Token bucket | 128 burst, 50/s | Excess frames get `ACK` `T_ERR_BUSY` (`CONFIRM`/`REJECT` exempt) |
 | Idle timeout | 30s | Session inactivity closes the socket |
 | PSK AUTH | unset | First frame HMAC-SHA256; required off loopback |
+| PUSH credits | 64 | Outstanding unacked `PUSH` per session; `0` = unlimited |
 
 `0.0.0.0` is allowed only when set explicitly (CLI/config) **and** a PSK is
 configured. Admin HTTP already binds `127.0.0.1`.
@@ -167,6 +175,8 @@ configured. Admin HTTP already binds `127.0.0.1`.
 - `t_client_last_status()` — last decoded `ACK` status.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
   follower `POST` `T_ERR_AGAIN`).
+- After each `PUSH`, the dialed client sends `CONFIRM` so the server
+  credit window can refill.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

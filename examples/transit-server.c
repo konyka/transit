@@ -55,6 +55,7 @@ int main(int argc, char **argv) {
     int admin_port = 8222;
     int cluster_port = -1;
     const char *psk = NULL;
+    int push_credits = -1;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
@@ -102,6 +103,8 @@ int main(int argc, char **argv) {
         if (cluster_port < 0 && kp >= 0) cluster_port = kp;
         const char *ak = t_config_get(g_config, "auth", "psk");
         if (ak && ak[0] && !psk) psk = ak;
+        int pc = t_config_get_int(g_config, "server", "push_credits", -1);
+        if (pc >= 0) push_credits = pc;
     }
 
     t_signal_install();
@@ -143,6 +146,7 @@ int main(int argc, char **argv) {
     t_server_config_init(&scfg);
     scfg.host = host;
     scfg.port = (uint16_t)client_port;
+    if (push_credits >= 0) scfg.push_credits = (size_t)push_credits;
     if (psk) {
         size_t n = strlen(psk);
         if (n == 0 || n > T_AUTH_PSK_MAX) {

@@ -30,22 +30,19 @@ separate that library from a production message bus.
 - Client AUTH: first frame is `T_MSG_AUTH` with HMAC-SHA256 of a pre-shared
   key over `transit.auth.v1`. Wrong or missing MAC closes the connection.
   Binding off loopback without a PSK fails closed. TLS is deferred.
+- Per-session PUSH credits (`t_flowcontrol`): default 64 outstanding
+  `PUSH` frames. `CONFIRM`/`REJECT` return a credit and are not
+  rate-limited. The TCP client auto-sends `CONFIRM` after each `PUSH`.
 
 ## Remaining (priority order)
 
-### 1. Credit-based flow control on the wire
-
-`t_flowcontrol` exists but is not attached to `t_server` connections. Attach
-per-session credits to `PUSH` so a slow consumer cannot fill `t_conn` send
-buffers (already capped at 64 MiB).
-
-### 2. Pull consume + ack on the wire
+### 1. Pull consume + ack on the wire
 
 Queue `ack`/`nack` is pull-inflight only. Network `PUSH` is fire-and-forget.
 A later `T_MSG_CONFIRM` should map to inflight ack once a pull-mode consumer
 API exists on the session.
 
-### 3. Windows / non-x86_64
+### 2. Windows / non-x86_64
 
 IOCP sources exist; POSIX modules and coroutine assembly do not. Keep CI on
 Linux/macOS until those fallbacks exist.

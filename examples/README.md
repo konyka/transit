@@ -11,6 +11,8 @@ This directory contains C examples that illustrate how to use the Transit MQ API
   Durable queues need `-d <dir>` or `[storage] datadir=` in the INI config.
   Cluster peer listen is opt-in: `-C <port>` or `[cluster] port=`.
   Remote bind (`-h 0.0.0.0`) requires `-k <psk>` or `[auth] psk=`.
+  Optional `[server] push_credits=` bounds outstanding `PUSH` frames
+  (default 64; `0` = unlimited).
 
 ## Build and run
 

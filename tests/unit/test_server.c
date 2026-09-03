@@ -8,6 +8,9 @@
 #include "t_error.h"
 #include "t_socket.h"
 #include "t_cluster.h"
+#include "t_conn.h"
+#include "t_wire.h"
+#include "t_proto.h"
 #include <pthread.h>
 #include <unistd.h>
 #include <string.h>
@@ -19,7 +22,7 @@ static void timer_stop(void *ud) {
 
 static void *loop_runner(void *arg) {
     t_evloop *loop = (t_evloop *)arg;
-    t_evloop_timer_add(loop, 400, 0, timer_stop, loop);
+    t_evloop_timer_add(loop, 800, 0, timer_stop, loop);
     t_evloop_run(loop, 50);
     return NULL;
 }
@@ -31,6 +34,7 @@ T_TEST(server_config_defaults) {
     T_ASSERT_EQ((int)cfg.port, 4222);
     T_ASSERT(cfg.max_conns > 0);
     T_ASSERT(cfg.idle_timeout_ms > 0);
+    T_ASSERT_EQ((int)cfg.push_credits, T_SERVER_PUSH_CREDITS_DEFAULT);
 }
 
 T_TEST(server_create_start_stop) {
@@ -479,6 +483,140 @@ T_TEST(server_psk_rejects_wrong_key) {
     t_evloop_stop(loop);
     pthread_join(th, NULL);
     t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+static int g_raw_push_n;
+static uint64_t g_raw_push_ids[8];
+
+static void raw_on_push(t_conn *conn, const t_proto_msg *msg, void *ud) {
+    (void)conn;
+    (void)ud;
+    if (!msg || msg->header.type != T_MSG_PUSH) return;
+    t_wire_push p;
+    if (t_wire_decode_push(msg->payload, msg->payload_len, &p) != 0) return;
+    if (g_raw_push_n < (int)(sizeof(g_raw_push_ids) / sizeof(g_raw_push_ids[0])))
+        g_raw_push_ids[g_raw_push_n] = p.msg_id;
+    g_raw_push_n++;
+}
+
+static int raw_send_open_consumer(t_conn *conn, const char *name) {
+    uint8_t buf[3 + 2 + T_WIRE_MAX_NAME];
+    int n = t_wire_encode_open(buf, sizeof(buf), T_QUEUE_FIFO, T_QUEUE_FLAG_NONE,
+                               T_WIRE_MODE_CONSUMER, name);
+    if (n < 0) return -1;
+    t_proto_msg m;
+    t_proto_header_init(&m.header, T_MSG_OPEN_QUEUE, (uint32_t)n);
+    m.payload = buf;
+    m.payload_len = (size_t)n;
+    return t_conn_send(conn, &m);
+}
+
+static int raw_send_confirm(t_conn *conn, uint64_t msg_id, const char *name) {
+    uint8_t buf[8 + 2 + T_WIRE_MAX_NAME];
+    int n = t_wire_encode_confirm(buf, sizeof(buf), msg_id, name);
+    if (n < 0) return -1;
+    t_proto_msg m;
+    t_proto_header_init(&m.header, T_MSG_CONFIRM, (uint32_t)n);
+    m.payload = buf;
+    m.payload_len = (size_t)n;
+    return t_conn_send(conn, &m);
+}
+
+T_TEST(server_push_credits_cap) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    cfg.push_credits = 2;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    int cfd = t_socket_dial_ipv4("127.0.0.1", port);
+    T_ASSERT(cfd >= 0);
+    t_conn *cons = t_conn_create(cfd, loop);
+    T_ASSERT_NOT_NULL(cons);
+    g_raw_push_n = 0;
+    t_conn_set_on_msg(cons, raw_on_push, NULL);
+    T_ASSERT_EQ(raw_send_open_consumer(cons, "jobs"), 0);
+
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(prod, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    usleep(40000);
+
+    const uint8_t x[] = "x";
+    int i;
+    for (i = 0; i < 5; i++)
+        T_ASSERT_EQ(t_client_post(prod, "jobs", x, 1, 0), 0);
+    usleep(80000);
+    T_ASSERT_EQ(g_raw_push_n, 2);
+
+    T_ASSERT_EQ(raw_send_confirm(cons, g_raw_push_ids[0], "jobs"), 0);
+    T_ASSERT_EQ(raw_send_confirm(cons, g_raw_push_ids[1], "jobs"), 0);
+    usleep(40000);
+    T_ASSERT_EQ(t_client_post(prod, "jobs", x, 1, 0), 0);
+    usleep(60000);
+    T_ASSERT_EQ(g_raw_push_n, 3);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_conn_destroy(cons);
+    t_client_destroy(prod);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_push_credits_auto_confirm) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    cfg.push_credits = 2;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    pthread_t th;
+    pthread_create(&th, NULL, loop_runner, loop);
+    usleep(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_queue(cons, "jobs", T_CLIENT_OPEN_CONSUMER), 0);
+    T_ASSERT_EQ(t_client_subscribe(cons, "jobs", on_net_msg, NULL), 0);
+    T_ASSERT_EQ(t_client_open_queue(prod, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    usleep(40000);
+    g_got = 0;
+    const uint8_t x[] = "x";
+    int i;
+    for (i = 0; i < 5; i++) {
+        T_ASSERT_EQ(t_client_post(prod, "jobs", x, 1, 0), 0);
+        usleep(40000);
+    }
+    usleep(40000);
+    T_ASSERT_EQ(g_got, 5);
+
+    t_evloop_stop(loop);
+    pthread_join(th, NULL);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
     t_server_destroy(srv);
     t_broker_destroy(b);
     t_evloop_destroy(loop);
