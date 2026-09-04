@@ -1,14 +1,8 @@
 #include "t_admin.h"
+#include "t_socket.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
 #define T_ADMIN_VERSION "0.1.0"
 #define T_ADMIN_MAX_CLIENTS 64
@@ -47,22 +41,6 @@ static void admin_accept(t_evio *io, int events, void *ud);
 static void admin_client_cb(t_evio *io, int events, void *ud);
 static void admin_remove_client(t_admin *admin, t_admin_client *c);
 
-static int set_nonblock(int fd) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags == -1) return -1;
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) return -1;
-    return 0;
-}
-
-static int find_actual_port(int fd) {
-    struct sockaddr_in addr;
-    socklen_t addrlen = sizeof(addr);
-    if (getsockname(fd, (struct sockaddr *)&addr, &addrlen) == 0) {
-        return ntohs(addr.sin_port);
-    }
-    return 0;
-}
-
 t_admin *t_admin_create(t_evloop *loop, const char *host, int port) {
     t_admin *a = (t_admin *)calloc(1, sizeof(*a));
     if (!a) return NULL;
@@ -95,40 +73,28 @@ void t_admin_destroy(t_admin *admin) {
 
 int t_admin_start(t_admin *admin) {
     if (!admin || admin->running) return -1;
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (admin->port < 0 || admin->port > 65535) return -1;
+    int fd = t_socket_create(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
-    int opt = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    if (set_nonblock(fd) != 0) {
-        close(fd);
+    t_socket_set_reuseaddr(fd);
+
+    t_sockaddr addr;
+    if (t_sockaddr_init_ipv4(&addr, admin->host, (uint16_t)admin->port) != 0) {
+        t_socket_close(fd);
+        return -1;
+    }
+    if (t_socket_bind(fd, &addr) != 0) {
+        t_socket_close(fd);
+        return -1;
+    }
+    if (t_socket_listen(fd, 16) != 0) {
+        t_socket_close(fd);
         return -1;
     }
 
-    if (admin->port < 0 || admin->port > 65535) {
-        close(fd);
-        return -1;
-    }
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)admin->port);
-    if (inet_pton(AF_INET, admin->host, &addr.sin_addr) != 1) {
-        close(fd);
-        return -1;
-    }
-
-    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-        close(fd);
-        return -1;
-    }
-    if (listen(fd, 16) != 0) {
-        close(fd);
-        return -1;
-    }
-
-    int actual = find_actual_port(fd);
+    int actual = (int)t_socket_local_port(fd);
     if (actual <= 0) {
-        close(fd);
+        t_socket_close(fd);
         return -1;
     }
     admin->listen_fd = fd;
@@ -140,7 +106,7 @@ int t_admin_start(t_admin *admin) {
     admin->listen_io.events = T_EV_READ;
 
     if (t_evloop_add(admin->loop, &admin->listen_io, T_EV_READ) != 0) {
-        close(fd);
+        t_socket_close(fd);
         admin->listen_fd = -1;
         return -1;
     }
@@ -152,7 +118,7 @@ void t_admin_stop(t_admin *admin) {
     if (!admin || !admin->running) return;
     if (admin->listen_fd >= 0) {
         t_evloop_del(admin->loop, &admin->listen_io);
-        close(admin->listen_fd);
+        t_socket_close(admin->listen_fd);
         admin->listen_fd = -1;
     }
     while (admin->client_count > 0) {
@@ -187,26 +153,15 @@ static void admin_accept(t_evio *io, int events, void *ud) {
     t_admin *admin = (t_admin *)ud;
     if (!admin) return;
     admin->in_cb++;
-    struct sockaddr_in addr;
-    socklen_t addrlen = sizeof(addr);
-    int fd;
-    do {
-        fd = accept(io->fd, (struct sockaddr *)&addr, &addrlen);
-    } while (fd < 0 && errno == EINTR);
+    int fd = t_socket_accept(io->fd, NULL);
     if (fd < 0) {
-        admin->in_cb--;
-        if (admin->free_pending) t_admin_destroy(admin);
-        return;
-    }
-    if (set_nonblock(fd) != 0) {
-        close(fd);
         admin->in_cb--;
         if (admin->free_pending) t_admin_destroy(admin);
         return;
     }
 
     if (admin->client_count >= T_ADMIN_MAX_CLIENTS) {
-        close(fd);
+        t_socket_close(fd);
         admin->in_cb--;
         if (admin->free_pending) t_admin_destroy(admin);
         return;
@@ -214,7 +169,7 @@ static void admin_accept(t_evio *io, int events, void *ud) {
 
     t_admin_client *c = (t_admin_client *)calloc(1, sizeof(*c));
     if (!c) {
-        close(fd);
+        t_socket_close(fd);
         admin->in_cb--;
         if (admin->free_pending) t_admin_destroy(admin);
         return;
@@ -231,7 +186,7 @@ static void admin_accept(t_evio *io, int events, void *ud) {
     c->resp_sent = 0;
 
     if (t_evloop_add(admin->loop, &c->io, T_EV_READ) != 0) {
-        close(fd);
+        t_socket_close(fd);
         free(c);
         admin->in_cb--;
         if (admin->free_pending) t_admin_destroy(admin);
@@ -251,7 +206,7 @@ static void admin_remove_client(t_admin *admin, t_admin_client *c) {
     c->io.callback = NULL;
     c->io.user_data = NULL;
     if (c->fd >= 0) {
-        close(c->fd);
+        t_socket_close(c->fd);
         c->fd = -1;
     }
     int found = 0;
@@ -417,9 +372,9 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
         if (c->fd < 0 || c->free_pending) goto out;
         /* Do not parse a new request while a response is still flushing. */
         if (c->resp_len > 0 && c->resp_sent < c->resp_len) goto out;
-        ssize_t r = read(c->fd, c->buf + c->len, T_ADMIN_BUF_SIZE - c->len - 1);
+        ssize_t r = t_socket_read(c->fd, c->buf + c->len, T_ADMIN_BUF_SIZE - c->len - 1);
         if (r < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) goto out;
+            if (t_socket_again() || t_socket_intr()) goto out;
             admin_remove_client(admin, c);
             goto out;
         }
@@ -458,10 +413,10 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
     }
     if ((events & T_EV_WRITE) && !c->free_pending && c->fd >= 0) {
         while (c->resp_sent < c->resp_len) {
-            ssize_t w = write(c->fd, c->resp + c->resp_sent, c->resp_len - c->resp_sent);
+            ssize_t w = t_socket_write(c->fd, c->resp + c->resp_sent, c->resp_len - c->resp_sent);
             if (w > 0) {
                 c->resp_sent += (size_t)w;
-            } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+            } else if (w < 0 && (t_socket_again() || t_socket_intr())) {
                 goto out;
             } else {
                 admin_remove_client(admin, c);

@@ -52,13 +52,17 @@ separate that library from a production message bus.
   `SIGINT`/`SIGTERM` plus `SetConsoleCtrlHandler` for Ctrl+C/Break/Close.
 - Thread pool: `t_mutex` plus POSIX pthread or Windows `CreateThread` /
   `CONDITION_VARIABLE`. In-task destroy still joins peers and detaches self.
+- Admin HTTP listen/accept/read/write go through `t_socket` (same path as
+  `t_tcp`). Bind still defaults to `127.0.0.1`.
 
 ## Remaining (priority order)
 
-### 1. Rest of Windows POSIX modules
+### 1. Windows CI
 
-Still POSIX: admin HTTP. Full Windows CI stays off until that has a
-backend.
+Library backends for mmap, sockets, evloop wakeup, WAL, raft/file dump,
+signals, thread pool, and admin HTTP are in. Tests and leftover helpers
+(`t_config` file I/O, `t_log` / `t_ratelimit` mutex) still assume POSIX.
+Full Windows CI stays off until those compile.
 
 ## Non-goals for now
 
