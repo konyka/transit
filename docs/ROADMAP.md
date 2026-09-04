@@ -50,13 +50,15 @@ separate that library from a production message bus.
   (POSIX fd or Windows HANDLE). Log rewrite still tmp+rename.
 - Shutdown signals: POSIX `sigaction` + ignore `SIGPIPE`; Windows CRT
   `SIGINT`/`SIGTERM` plus `SetConsoleCtrlHandler` for Ctrl+C/Break/Close.
+- Thread pool: `t_mutex` plus POSIX pthread or Windows `CreateThread` /
+  `CONDITION_VARIABLE`. In-task destroy still joins peers and detaches self.
 
 ## Remaining (priority order)
 
 ### 1. Rest of Windows POSIX modules
 
-Still POSIX: thread pool, admin HTTP. Full Windows CI stays off until
-those have backends.
+Still POSIX: admin HTTP. Full Windows CI stays off until that has a
+backend.
 
 ## Non-goals for now
 

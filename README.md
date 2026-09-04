@@ -139,9 +139,9 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 - **macOS**: kqueue backend (implemented, conditional via `T_HAVE_KQUEUE`)
 - **AArch64**: coroutine switch matches the x86_64 assembly path
 - **Windows**: mmap, Winsock2, IOCP wakeup, `t_conn`/`t_tcp`, durable WAL,
-  Raft log, file-backed storage dumps, and shutdown signals (`SIGINT` /
-  `SIGTERM` / console Ctrl). Full CI stays off until thread pool and
-  admin HTTP are portable.
+  Raft log, file-backed storage dumps, shutdown signals, and the thread
+  pool (`CreateThread` / `CONDITION_VARIABLE`). Full CI stays off until
+  admin HTTP is portable.
 
 CI runs Linux and macOS builds via GitHub Actions, plus Linux ASan/UBSan jobs.
 

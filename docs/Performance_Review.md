@@ -24,9 +24,9 @@ July 2026 review.
   post-compaction insertion.
 - Keep CI on currently portable Linux/macOS targets. Windows has mmap,
   Winsock2, IOCP wakeup, `t_conn`/`t_tcp`, CreateFile WAL, Raft log,
-  file-backed storage dumps, and shutdown signals. CI stays off until
-  thread pool and admin HTTP are portable. Coroutine switch is x86_64
-  and AArch64 assembly; other ISAs leave `t_coro_create` NULL.
+  file-backed storage dumps, shutdown signals, and the thread pool.
+  CI stays off until admin HTTP is portable. Coroutine switch is
+  x86_64 and AArch64 assembly; other ISAs leave `t_coro_create` NULL.
 - Wire protocol decode aliases the frame (no extra payload copy). The protocol
   server rate-limits in O(1) before broker work and caps accept fan-in.
 - Durable WAL is append-only (PUT/DEL). Default fsync every 32 records so the
