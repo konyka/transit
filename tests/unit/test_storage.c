@@ -97,7 +97,7 @@ T_TEST(storage_file_destroy_flushes) {
 
 /* Simple mmap lifecyle tests */
 T_TEST(mmap_create_close) {
-    const char *path = "/tmp/test_transit_mmap.bin";
+    const char *path = "test_transit_mmap.bin";
     t_file_unlink(path);
     t_mmap mm;
     T_ASSERT_EQ(t_mmap_create(&mm, path, 4096), 0);
@@ -110,7 +110,7 @@ T_TEST(mmap_create_close) {
 }
 
 T_TEST(mmap_persistence) {
-    const char *path = "/tmp/test_transit_mmap2.bin";
+    const char *path = "test_transit_mmap2.bin";
     t_file_unlink(path);
     t_mmap mm;
     t_mmap_create(&mm, path, 4096);

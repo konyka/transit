@@ -83,7 +83,9 @@ One portable test harness: `t_thread`, `t_socket_pair`, `t_file`,
 constructors still run; test binaries link `/OPT:NOREF` so Release
 does not strip those registrars. `t_run_all_tests` fails closed if
 none registered. Do not `raise(SIGINT)` before `t_signal_install`
-(MSVC `SIG_DFL` terminates the process). Coroutine tests assert
+(MSVC `SIG_DFL` terminates the process). mmap tests write beside
+the binary (`test_transit_mmap.bin`), not `/tmp` (absent on
+Windows runners). Coroutine tests assert
 `T_HAVE_CORO_ASM == 0` when create returns NULL.
 
 ## TDD
