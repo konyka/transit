@@ -10,6 +10,7 @@ local WAL.
 - `POST` / `t_broker_publish` on a Raft-attached leader appends a `PUT`
   command and returns success only after majority commit **and** apply.
 - `CONFIRM` / `t_broker_ack` appends an `ACK` command the same way.
+- `REJECT` / `t_broker_nack` appends a `NACK` command the same way.
 - A follower client `POST` still returns `T_ERR_AGAIN` (leader hint).
   `t_client_open_follow` redials that hint once when it names another
   client port.
@@ -81,8 +82,15 @@ u8  name[name_len]
 Apply calls `t_queue_drop` so the id is removed from pending (follower)
 or inflight (leader that already `PUSH`ed).
 
-`REJECT` / nack stays local. An unacked message is still in the
-follower pending set and can be redelivered after failover.
+`NACK` (`type = 5`) uses the same layout as `ACK`.
+
+Apply calls `t_queue_nack` so inflight returns to pending on every
+node that had consumed the id. A follower that never consumed already
+has the message pending; nack is then a no-op. `REJECT` /
+`t_broker_nack` on a Raft-attached leader waits for majority commit
+like `CONFIRM`. Without a majority the client gets `T_ERR_AGAIN` and
+the message stays inflight. Disconnect nacks stay local (session
+recovery, not a cluster mutation).
 
 ## Commit
 

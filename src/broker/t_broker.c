@@ -429,6 +429,10 @@ static void broker_on_raft(const t_raft_entry *entry, void *ud) {
         t_domain *d = broker_find_queue_domain(b, name);
         t_queue *q = d ? (t_queue *)t_domain_get_queue(d, name) : NULL;
         if (q) (void)t_queue_drop(q, cmd.msg_id);
+    } else if (cmd.type == T_RAFT_CMD_NACK) {
+        t_domain *d = broker_find_queue_domain(b, name);
+        t_queue *q = d ? (t_queue *)t_domain_get_queue(d, name) : NULL;
+        if (q) (void)t_queue_nack(q, cmd.msg_id);
     } else if (cmd.type == T_RAFT_CMD_CREATE) {
         (void)broker_create_queue_local(b, "default", name, (int)cmd.qtype,
                                         (int)cmd.qflags);
@@ -538,6 +542,30 @@ int t_broker_ack(t_broker *broker, const char *queue_name, uint64_t msg_id) {
     int n = t_raft_cmd_encode_ack(buf, sizeof(buf), &cmd);
     if (n < 0) return -1;
     int r = broker_propose(broker, T_RAFT_CMD_ACK, buf, (size_t)n);
+    t_dispatch_reap_deferred();
+    broker_reap_domains(broker);
+    if (broker_try_complete_destroy(broker)) return -1;
+    return r;
+}
+
+int t_broker_nack(t_broker *broker, const char *queue_name, uint64_t msg_id) {
+    if (!broker || broker->free_pending || !queue_name) return -1;
+    t_domain *d = broker_find_queue_domain(broker, queue_name);
+    if (!d) return -1;
+    t_queue *q = (t_queue *)t_domain_get_queue(d, queue_name);
+    if (!q) return -1;
+    if (!broker->raft) return t_queue_nack(q, msg_id);
+    if (!t_broker_is_leader(broker)) return -1;
+    t_raft_cmd cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.type = T_RAFT_CMD_NACK;
+    cmd.msg_id = msg_id;
+    cmd.name = queue_name;
+    cmd.name_len = (uint16_t)strlen(queue_name);
+    uint8_t buf[288];
+    int n = t_raft_cmd_encode_nack(buf, sizeof(buf), &cmd);
+    if (n < 0) return -1;
+    int r = broker_propose(broker, T_RAFT_CMD_NACK, buf, (size_t)n);
     t_dispatch_reap_deferred();
     broker_reap_domains(broker);
     if (broker_try_complete_destroy(broker)) return -1;

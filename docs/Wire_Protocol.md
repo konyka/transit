@@ -109,10 +109,12 @@ u8  name[name_len]
 `CONFIRM` acks a matching inflight `PUSH` on this session. Without Raft
 that is a local `t_queue_ack` (WAL `DEL` for durable queues). With Raft
 attached it proposes an `ACK` command and succeeds only after majority
-commit and apply (`docs/Raft.md`). `REJECT` stays local (`t_queue_nack`)
-and the server immediately tries to `PUSH` again. Unknown ids still
+commit and apply (`docs/Raft.md`). `REJECT` proposes `NACK` the same
+way (local `t_queue_nack` when Raft is not attached) and the server
+then tries to `PUSH` again. A Raft `REJECT` that cannot majority-commit
+returns `T_ERR_AGAIN` and keeps session inflight. Unknown ids still
 return a credit (capped at the window) and `ACK` `T_OK`. Disconnect
-nacks leftover inflight. These frames skip the per-connection token
+nacks leftover inflight locally. These frames skip the per-connection token
 bucket. Broadcast `PUSH` is not inflight — confirm only returns a
 credit. The TCP client (`t_client_dial`) sends `CONFIRM` automatically
 after a decoded `PUSH`.

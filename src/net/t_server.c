@@ -505,7 +505,16 @@ static int32_t handle_confirm(t_server_conn *sc, const t_proto_msg *msg) {
     if (inf) {
         t_queue *q = server_lookup_queue(sc->srv->broker, name);
         if (msg->header.type == T_MSG_REJECT) {
-            if (q) (void)t_queue_nack(q, inf->id);
+            if (t_broker_nack(sc->srv->broker, name, inf->id) != 0) {
+                if (t_broker_raft(sc->srv->broker)) {
+                    if (t_vec_push(&sc->inflight, inf) != 0) {
+                        free(inf->name);
+                        free(inf);
+                        return T_ERR_GENERIC;
+                    }
+                    return T_ERR_AGAIN;
+                }
+            }
         } else if (t_broker_raft(sc->srv->broker)) {
             if (t_broker_ack(sc->srv->broker, name, inf->id) != 0) {
                 if (t_vec_push(&sc->inflight, inf) != 0) {

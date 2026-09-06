@@ -39,11 +39,12 @@ int         t_broker_set_wal_sync_every(t_broker *broker, int n);
 int         t_broker_set_cluster(t_broker *broker, t_cluster *cluster);
 int         t_broker_is_leader(const t_broker *broker);
 t_cluster  *t_broker_cluster(t_broker *broker);
-/* Borrowed Raft pointer. When set, POST/ACK go through the log (fail closed). */
+/* Borrowed Raft pointer. When set, POST/ACK/NACK go through the log (fail closed). */
 typedef struct t_raft t_raft;
 int         t_broker_set_raft(t_broker *broker, t_raft *raft);
 t_raft     *t_broker_raft(t_broker *broker);
 int         t_broker_ack(t_broker *broker, const char *queue_name, uint64_t msg_id);
+int         t_broker_nack(t_broker *broker, const char *queue_name, uint64_t msg_id);
 
 int         t_broker_publish(t_broker *broker, const char *queue_name,
                               const uint8_t *data, size_t len, int priority);

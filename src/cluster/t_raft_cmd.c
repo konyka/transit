@@ -100,13 +100,14 @@ int t_raft_cmd_encode_put(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
     return (int)(p - buf);
 }
 
-int t_raft_cmd_encode_ack(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
-    if (!buf || !cmd || cmd->type != T_RAFT_CMD_ACK) return -1;
+static int encode_id_name(uint8_t *buf, size_t cap, const t_raft_cmd *cmd,
+                          uint8_t type) {
+    if (!buf || !cmd || cmd->type != type) return -1;
     if (cmd->name_len > 0 && !cmd->name) return -1;
     if (cmd->name_len > 0 && !t_wire_name_valid(cmd->name, cmd->name_len)) return -1;
     uint8_t *p = buf;
     const uint8_t *end = buf + cap;
-    if (put_u8(&p, end, T_RAFT_CMD_ACK) != 0) return -1;
+    if (put_u8(&p, end, type) != 0) return -1;
     if (put_u64(&p, end, cmd->msg_id) != 0) return -1;
     if (put_u16(&p, end, cmd->name_len) != 0) return -1;
     if (cmd->name_len) {
@@ -115,6 +116,14 @@ int t_raft_cmd_encode_ack(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
         p += cmd->name_len;
     }
     return (int)(p - buf);
+}
+
+int t_raft_cmd_encode_ack(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
+    return encode_id_name(buf, cap, cmd, T_RAFT_CMD_ACK);
+}
+
+int t_raft_cmd_encode_nack(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
+    return encode_id_name(buf, cap, cmd, T_RAFT_CMD_NACK);
 }
 
 int t_raft_cmd_encode_create(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
@@ -173,7 +182,7 @@ int t_raft_cmd_decode(const uint8_t *buf, size_t len, t_raft_cmd *out) {
             tmp.data = p;
             p += tmp.data_len;
         }
-    } else if (tmp.type == T_RAFT_CMD_ACK) {
+    } else if (tmp.type == T_RAFT_CMD_ACK || tmp.type == T_RAFT_CMD_NACK) {
         if (get_u64(&p, end, &tmp.msg_id) != 0) return -1;
         if (get_u16(&p, end, &tmp.name_len) != 0) return -1;
         if (tmp.name_len) {

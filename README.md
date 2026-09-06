@@ -129,7 +129,8 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 - Wire decode aliases the frame buffer (no payload copy). The protocol server
   applies O(1) token-bucket checks before touching the broker. Per-session
   PUSH credits (default 64) stop a slow consumer from filling the 64 MiB
-  send buffer; FIFO/priority `CONFIRM` acks inflight and `REJECT` requeues.
+  send buffer; FIFO/priority `CONFIRM` acks inflight and `REJECT` requeues
+  (Raft `NACK` when the log is attached).
 - `transit-server` and `t_server` default to loopback. Admin HTTP stays on
   `127.0.0.1`. Oversize names, trailing junk, and unknown frame types close the
   socket. Durable `OPEN` without `-d`/`[storage] datadir` fails closed (`T_ERR_IO`).

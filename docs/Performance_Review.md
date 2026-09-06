@@ -46,7 +46,7 @@ July 2026 review.
   behind the snapshot gets one `InstallSnapshot` instead of the prefix.
 - Protocol `PUSH` takes a per-session credit (`t_flowcontrol`, default 64,
   no timed refill). FIFO/priority consume into inflight; `CONFIRM` acks and
-  `REJECT` requeues. `CONFIRM`/`REJECT` skip the token bucket so
+  `REJECT` requeues (Raft `NACK` after majority). `CONFIRM`/`REJECT` skip the token bucket so
   backpressure cannot deadlock.
 
 ## Verification
