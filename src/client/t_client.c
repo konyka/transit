@@ -920,6 +920,9 @@ int t_client_post(t_client *client, const char *queue_name,
     }
     if (!open) return -1;
     if (client->net_mode) {
+        int flags = client_queue_flags(client, queue_name);
+        if (flags < 0 || (flags & T_CLIENT_OPEN_PRODUCER) == 0) return -1;
+        if (!client_queue_ready(client, queue_name)) return -1;
         size_t nlen = strlen(queue_name);
         if (nlen > T_WIRE_MAX_NAME) return -1;
         if (len > T_QUEUE_MAX_PAYLOAD) return -1;

@@ -119,6 +119,9 @@ message bus.
 - Unexpected TCP drop un-ACKs local OPENs. Re-`dial` plus
   `open_follow` must send `OPEN` again; a stale ACK would leave the
   server with no consumer.
+- TCP `t_client_post` requires an acked producer `OPEN`. A drop or
+  consumer-only session no longer increments `published` on a send
+  the server would reject.
 
 ## Remaining (priority order)
 

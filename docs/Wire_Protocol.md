@@ -75,6 +75,9 @@ u32 data_len
 u8  data[data_len]
 ```
 
+Producer mode is required. The TCP client refuses to send until that
+`OPEN` is acked (`t_client_post` returns `-1`).
+
 ### `PUSH` (server → client)
 
 ```
@@ -335,6 +338,10 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - A dropped TCP session un-ACKs local OPENs (callbacks and `JOIN`s
   stay). A later `dial` plus `open_follow` re-`OPEN`s; it must not
   no-op on the stale ACK from the dead connection.
+- TCP `t_client_post` requires that acked producer `OPEN`. A consumer
+  bit, an unacked name after a drop, or `open_queue` before the ACK
+  is `-1` and does not increment `published` (the server would have
+  answered `T_ERR_PERMISSION`). Use `post_follow` to OPEN and wait.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

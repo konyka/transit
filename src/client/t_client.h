@@ -103,6 +103,8 @@ int        t_client_reject_follow(t_client *client, const char *queue_name,
                                   int timeout_ms);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);
+/* TCP: requires an acked producer OPEN. A stale local name after a
+ * drop, or consumer-only OPEN, is -1 (does not bump published). */
 int        t_client_post(t_client *client, const char *queue_name,
                          const uint8_t *data, size_t len, int priority);
 int        t_client_join(t_client *client, const char *group,
