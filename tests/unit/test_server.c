@@ -1744,17 +1744,18 @@ T_TEST(client_subscribe_follow_exclusive) {
 }
 
 static char g_pri_got[2][16];
+static int g_pri_pri[2];
 static volatile int g_pri_n;
 
 static void on_pri_msg(const char *queue_name, const uint8_t *data, size_t len,
                        void *ud) {
     (void)queue_name;
-    (void)ud;
     int i = g_pri_n;
     if (i >= 0 && i < 2) {
         size_t n = len < sizeof(g_pri_got[0]) - 1 ? len : sizeof(g_pri_got[0]) - 1;
         memcpy(g_pri_got[i], data, n);
         g_pri_got[i][n] = '\0';
+        g_pri_pri[i] = t_client_last_push_priority((t_client *)ud);
     }
     g_pri_n++;
 }
@@ -1792,10 +1793,12 @@ T_TEST(client_priority_orders_backlog) {
     g_pri_n = 0;
     g_pri_got[0][0] = 0;
     g_pri_got[1][0] = 0;
-    T_ASSERT_EQ(t_client_subscribe_follow(cons, "pri.q", on_pri_msg, NULL, 0, 500), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(cons, "pri.q", on_pri_msg, cons, 0, 500), 0);
     T_ASSERT(wait_flag_ge(&g_pri_n, 2, 500));
     T_ASSERT_STR_EQ(g_pri_got[0], "high");
     T_ASSERT_STR_EQ(g_pri_got[1], "low");
+    T_ASSERT_EQ(g_pri_pri[0], 1);
+    T_ASSERT_EQ(g_pri_pri[1], 10);
 
     t_evloop_stop(loop);
     T_ASSERT_EQ(t_thread_join(&th), 0);

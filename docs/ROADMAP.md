@@ -98,6 +98,8 @@ message bus.
 - Last `unsubscribe` of a consumer-only open sends `CLOSE`, so
   exclusive / autodelete are released and a later consumer can
   take the backlog. A producer bit keeps the open.
+- `t_client_last_push_priority` exposes the last `PUSH` priority
+  (stub `post` included) so priority-queue consumers can see it.
 
 ## Remaining (priority order)
 

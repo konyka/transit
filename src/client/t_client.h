@@ -77,6 +77,8 @@ int        t_client_close_follow(t_client *client, const char *queue_name,
  * confirm or reject the last PUSH (fail closed: no silent ack). */
 int        t_client_set_auto_confirm(t_client *client, int on);
 uint64_t   t_client_last_push_id(const t_client *client);
+/* Priority of the last PUSH (or stub post). Valid during the callback. */
+int        t_client_last_push_priority(const t_client *client);
 /* CONFIRM / REJECT the last PUSH on `queue_name`. TCP only. A second
  * settle of the same PUSH, a stub client, or a queue mismatch is -1. */
 int        t_client_confirm(t_client *client, const char *queue_name);

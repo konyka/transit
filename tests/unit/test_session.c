@@ -133,6 +133,31 @@ T_TEST(client_subscribe_before_open) {
     t_client_destroy(c);
 }
 
+static int g_stub_pri;
+static void on_pri_stub(const char *queue_name, const uint8_t *data, size_t len,
+                        void *ud) {
+    (void)queue_name;
+    (void)data;
+    (void)len;
+    g_stub_pri = t_client_last_push_priority((t_client *)ud);
+}
+
+T_TEST(client_stub_last_push_priority) {
+    t_client *c = t_client_create("pri");
+    t_client_connect(c, "localhost", 0);
+    T_ASSERT_EQ(t_client_last_push_priority(c), 0);
+    T_ASSERT_EQ(t_client_open_queue(c, "p.q", T_CLIENT_QTYPE_PRIORITY), 0);
+    T_ASSERT_EQ(t_client_subscribe(c, "p.q", on_pri_stub, c), 0);
+    g_stub_pri = -1;
+    T_ASSERT_EQ(t_client_post(c, "p.q", (const uint8_t *)"a", 1, 7), 0);
+    T_ASSERT_EQ(g_stub_pri, 7);
+    T_ASSERT_EQ(t_client_post(c, "p.q", (const uint8_t *)"b", 1, -3), 0);
+    T_ASSERT_EQ(g_stub_pri, 0);
+    T_ASSERT_EQ(t_client_post(c, "p.q", (const uint8_t *)"c", 1, 300), 0);
+    T_ASSERT_EQ(g_stub_pri, 255);
+    t_client_destroy(c);
+}
+
 T_TEST(client_publish_stats) {
     t_client *c = t_client_create("c3");
     t_client_connect(c, "localhost", 0);

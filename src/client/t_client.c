@@ -57,6 +57,7 @@ struct t_client {
     int64_t   heartbeat_timer_id;
     int       auto_confirm;
     uint64_t  last_push_id;
+    int       last_push_priority;
     char      last_push_queue[T_WIRE_MAX_NAME + 1];
     int       push_settled;
 };
@@ -232,6 +233,7 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
         }
     }
     c->last_push_id = p.msg_id;
+    c->last_push_priority = (int)p.priority;
     if (t_wire_name_copy(c->last_push_queue, sizeof(c->last_push_queue),
                          p.name, p.name_len) != 0) {
         c->last_push_queue[0] = '\0';
@@ -463,6 +465,7 @@ static void client_clear_session(t_client *client) {
     client->queues_size = 0;
     client->queues_cap = 0;
     client->last_push_id = 0;
+    client->last_push_priority = 0;
     client->last_push_queue[0] = '\0';
     client->push_settled = 1;
 }
@@ -595,6 +598,16 @@ int t_client_set_auto_confirm(t_client *client, int on) {
 
 uint64_t t_client_last_push_id(const t_client *client) {
     return client ? client->last_push_id : 0;
+}
+
+int t_client_last_push_priority(const t_client *client) {
+    return client ? client->last_push_priority : 0;
+}
+
+static int client_clamp_pri(int priority) {
+    if (priority < 0) return 0;
+    if (priority > 255) return 255;
+    return priority;
 }
 
 static int client_settle_push(t_client *client, const char *queue_name, int reject) {
@@ -747,7 +760,7 @@ int t_client_post(t_client *client, const char *queue_name,
             if (!buf) return -1;
             heap = 1;
         }
-        uint8_t pri = (priority < 0) ? 0 : (priority > 255 ? 255 : (uint8_t)priority);
+        uint8_t pri = (uint8_t)client_clamp_pri(priority);
         int n = t_wire_encode_post(buf, need, pri, queue_name, data, (uint32_t)len);
         int rc = -1;
         if (n > 0) rc = client_send_payload(client, T_MSG_POST, buf, (size_t)n);
@@ -775,6 +788,7 @@ int t_client_post(t_client *client, const char *queue_name,
         free(snaps);
         return -1; /* no subscribers — do not silently drop */
     }
+    client->last_push_priority = client_clamp_pri(priority);
     client->posting++;
     client->published++;
     size_t delivered = 0;
