@@ -50,8 +50,11 @@ Idempotent per connection. Consumer mode subscribes that connection for
   election-timeout `T_ERR_AGAIN` as `POST`). Disconnect still proposes
   without waiting (session is already gone).
 
-Client helper: `t_client_open_queue` packs mode in the low 8 bits and
-`T_CLIENT_QFLAG_*` in the high 8 bits so they do not collide.
+Client helper: `t_client_open_queue` packs mode in the low 8 bits,
+`T_CLIENT_QFLAG_*` in bits 8–15, and `T_CLIENT_QTYPE_*` (`FIFO` /
+`PRIORITY` / `BROADCAST`) in bits 16–23 so they do not collide.
+Type is applied only at create (same as `qflags`). An unknown type
+is rejected on the client before send.
 
 ### `CLOSE_QUEUE`
 
@@ -261,7 +264,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   returns 0 only on `T_OK`. Timeout or a non-OK ACK drops the
   socket. Does not pump the evloop (same contract as `wait_ack`).
 - `t_client_open_queue(..., T_CLIENT_OPEN_PRODUCER \| T_CLIENT_OPEN_CONSUMER)`.
-  High byte: `T_CLIENT_QFLAG_DURABLE` / `EXCLUSIVE` / `AUTODELETE`.
+  Bits 8–15: `T_CLIENT_QFLAG_DURABLE` / `EXCLUSIVE` / `AUTODELETE`.
+  Bits 16–23: `T_CLIENT_QTYPE_FIFO` (default) / `PRIORITY` / `BROADCAST`.
 - `t_client_last_status()` — last decoded `ACK` status. Starts at `0`
   (same as `T_OK_CODE`); do not treat that as “an ACK arrived”.
 - `t_client_join(client, group, consumer_id, queue)` — TCP only

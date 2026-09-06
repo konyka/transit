@@ -12,6 +12,10 @@
 #define T_CLIENT_QFLAG_DURABLE     0x0100
 #define T_CLIENT_QFLAG_EXCLUSIVE   0x0200
 #define T_CLIENT_QFLAG_AUTODELETE  0x0400
+/* Queue type lives in bits 16–23 (T_QUEUE_FIFO / PRIORITY / BROADCAST). */
+#define T_CLIENT_QTYPE_FIFO        0x00000
+#define T_CLIENT_QTYPE_PRIORITY    0x10000
+#define T_CLIENT_QTYPE_BROADCAST   0x20000
 /* Default idle keepalive so the server 30s idle timeout does not drop waiters. */
 #define T_CLIENT_HEARTBEAT_DEFAULT_MS 10000
 /* How long t_client_dial waits for the AUTH ACK when a PSK is set. */

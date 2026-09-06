@@ -1660,6 +1660,165 @@ T_TEST(client_subscribe_follow_exclusive) {
     t_evloop_destroy(loop);
 }
 
+static char g_pri_got[2][16];
+static volatile int g_pri_n;
+
+static void on_pri_msg(const char *queue_name, const uint8_t *data, size_t len,
+                       void *ud) {
+    (void)queue_name;
+    (void)ud;
+    int i = g_pri_n;
+    if (i >= 0 && i < 2) {
+        size_t n = len < sizeof(g_pri_got[0]) - 1 ? len : sizeof(g_pri_got[0]) - 1;
+        memcpy(g_pri_got[i], data, n);
+        g_pri_got[i][n] = '\0';
+    }
+    g_pri_n++;
+}
+
+T_TEST(client_priority_orders_backlog) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_follow(prod, "pri.q",
+                                     T_CLIENT_OPEN_PRODUCER | T_CLIENT_QTYPE_PRIORITY,
+                                     500), 0);
+    T_ASSERT_EQ(t_client_post_follow(prod, "pri.q", (const uint8_t *)"low", 3, 10, 500), 0);
+    T_ASSERT_EQ(t_client_post_follow(prod, "pri.q", (const uint8_t *)"high", 4, 1, 500), 0);
+    t_queue *q = (t_queue *)t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                              "pri.q");
+    T_ASSERT_NOT_NULL(q);
+    T_ASSERT_EQ((int)t_queue_get_type(q), (int)T_QUEUE_PRIORITY);
+
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    g_pri_n = 0;
+    g_pri_got[0][0] = 0;
+    g_pri_got[1][0] = 0;
+    T_ASSERT_EQ(t_client_subscribe_follow(cons, "pri.q", on_pri_msg, NULL, 0, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_pri_n, 2, 500));
+    T_ASSERT_STR_EQ(g_pri_got[0], "high");
+    T_ASSERT_STR_EQ(g_pri_got[1], "low");
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+static volatile int g_bc_a;
+static volatile int g_bc_b;
+
+static void on_bc_a(const char *queue_name, const uint8_t *data, size_t len, void *ud) {
+    (void)queue_name;
+    (void)data;
+    (void)len;
+    (void)ud;
+    g_bc_a++;
+}
+
+static void on_bc_b(const char *queue_name, const uint8_t *data, size_t len, void *ud) {
+    (void)queue_name;
+    (void)data;
+    (void)len;
+    (void)ud;
+    g_bc_b++;
+}
+
+T_TEST(client_broadcast_fans_out) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *a = t_client_create("a");
+    t_client *bcli = t_client_create("b");
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(a, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(bcli, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(a, "bc.q", on_bc_a, NULL,
+                                          T_CLIENT_QTYPE_BROADCAST, 500), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(bcli, "bc.q", on_bc_b, NULL, 0, 500), 0);
+    T_ASSERT_EQ((int)t_queue_get_type(
+                    t_domain_get_queue(t_broker_get_domain(b, "default"), "bc.q")),
+                (int)T_QUEUE_BROADCAST);
+    g_bc_a = 0;
+    g_bc_b = 0;
+    T_ASSERT_EQ(t_client_open_follow(prod, "bc.q", T_CLIENT_OPEN_PRODUCER, 500), 0);
+    T_ASSERT_EQ(t_client_post_follow(prod, "bc.q", (const uint8_t *)"fan", 3, 0, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_bc_a, 1, 500));
+    T_ASSERT(wait_flag_ge(&g_bc_b, 1, 500));
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(a);
+    t_client_destroy(bcli);
+    t_client_destroy(prod);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(client_broadcast_durable_invalid) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_follow(c, "bc.q",
+                                     T_CLIENT_OPEN_PRODUCER | T_CLIENT_QTYPE_BROADCAST |
+                                         T_CLIENT_QFLAG_DURABLE,
+                                     500), -1);
+    T_ASSERT_EQ(t_client_last_status(c), (int)T_ERR_INVALID);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
 T_TEST(server_non_loopback_requires_psk) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");

@@ -97,6 +97,10 @@ T_TEST(client_queue_mgmt) {
     T_ASSERT_EQ(t_client_confirm(c, "again.q"), -1);
     T_ASSERT_EQ(t_client_reject_follow(c, "again.q", 50), -1);
     T_ASSERT_EQ(t_client_confirm_follow(c, "again.q", 50), -1);
+    T_ASSERT_EQ(t_client_open_queue(c, "pri.q", T_CLIENT_QTYPE_PRIORITY), 0);
+    T_ASSERT_EQ((int)t_client_queue_count(c), 1);
+    T_ASSERT_EQ(t_client_close_follow(c, "pri.q", 50), 0);
+    T_ASSERT_EQ(t_client_open_queue(c, "bad.q", 0x30000), -1);
     t_client_destroy(c);
 }
 

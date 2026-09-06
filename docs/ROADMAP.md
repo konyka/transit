@@ -92,6 +92,9 @@ message bus.
   can release exclusive / autodelete. `t_client_subscribe_follow`
   waits (and applies `T_CLIENT_QFLAG_*` at create). A failed wait
   drops the callback just added.
+- Client `OPEN` can create `PRIORITY` and `BROADCAST` queues
+  (`T_CLIENT_QTYPE_*` in bits 16–23). FIFO stays the default.
+  Unknown types fail before send.
 
 ## Remaining (priority order)
 

@@ -152,12 +152,14 @@ static void client_mark_queue_acked(t_client *c, const char *name) {
 }
 
 static int client_send_open(t_client *c, const char *queue_name, int flags) {
-    if (!c->net_mode) return 0;
     uint8_t mode = (uint8_t)(flags & 0xFF);
     uint8_t qflags = (uint8_t)((flags >> 8) & 0xFF);
+    uint8_t qtype = (uint8_t)((flags >> 16) & 0xFF);
     if (mode == 0) mode = T_CLIENT_OPEN_PRODUCER;
+    if (qtype > (uint8_t)T_QUEUE_BROADCAST) return -1;
+    if (!c->net_mode) return 0;
     uint8_t buf[3 + 2 + T_WIRE_MAX_NAME];
-    int n = t_wire_encode_open(buf, sizeof(buf), T_QUEUE_FIFO, qflags,
+    int n = t_wire_encode_open(buf, sizeof(buf), qtype, qflags,
                                mode, queue_name);
     if (n < 0) return -1;
     return client_send_payload(c, T_MSG_OPEN_QUEUE, buf, (size_t)n);
