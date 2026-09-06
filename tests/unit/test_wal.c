@@ -3,10 +3,17 @@
 #include "t_queue.h"
 #include "t_broker.h"
 #include "t_domain.h"
+#include "t_file.h"
+#include "t_compiler.h"
 #include <string.h>
 #include <stdio.h>
+#if T_PLATFORM_WINDOWS
+#include <direct.h>
+static void rm_dir(const char *p) { (void)_rmdir(p); }
+#else
 #include <unistd.h>
-#include <sys/stat.h>
+static void rm_dir(const char *p) { (void)rmdir(p); }
+#endif
 
 static int g_n;
 static int g_puts;
@@ -44,7 +51,7 @@ static void exclusive_nop(const t_msg *m, void *ud) {
     (void)ud;
 }
 
-static void rm(const char *p) { unlink(p); }
+static void rm(const char *p) { t_file_unlink(p); }
 
 T_TEST(wal_rejects_bad_path) {
     T_ASSERT_NULL(t_wal_open(NULL, 1));
@@ -165,7 +172,7 @@ T_TEST(broker_durable_roundtrip) {
     const char *dir = "test_transit_broker_wal";
     const char *wal = "test_transit_broker_wal/default.jobs.wal";
     rm(wal);
-    rmdir(dir);
+    rm_dir(dir);
     t_broker *b = t_broker_create("n0");
     T_ASSERT_EQ(t_broker_set_datadir(b, dir), 0);
     T_ASSERT_EQ(t_broker_set_wal_sync_every(b, 1), 0);
@@ -187,7 +194,7 @@ T_TEST(broker_durable_roundtrip) {
     T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
     t_broker_destroy(b);
     rm(wal);
-    rmdir(dir);
+    rm_dir(dir);
 }
 
 T_TEST(broker_durable_requires_datadir) {
@@ -201,16 +208,19 @@ T_TEST(broker_delete_unlinks_wal) {
     const char *dir = "test_transit_broker_wal_rm";
     const char *wal = "test_transit_broker_wal_rm/default.jobs.wal";
     rm(wal);
-    rmdir(dir);
+    rm_dir(dir);
     t_broker *b = t_broker_create("n0");
     T_ASSERT_EQ(t_broker_set_datadir(b, dir), 0);
     T_ASSERT_EQ(t_broker_create_queue(b, "default", "jobs", T_QUEUE_FIFO,
                                       T_QUEUE_FLAG_DURABLE), 0);
     T_ASSERT_EQ(t_broker_delete_queue(b, "default", "jobs"), 0);
-    struct stat st;
-    T_ASSERT(stat(wal, &st) != 0);
+    {
+        t_file f;
+        t_file_init(&f);
+        T_ASSERT(t_file_open(&f, wal, T_FILE_READ) != 0);
+    }
     t_broker_destroy(b);
-    rmdir(dir);
+    rm_dir(dir);
 }
 
 int main(void) {

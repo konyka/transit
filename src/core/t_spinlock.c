@@ -1,13 +1,16 @@
 #include "t_spinlock.h"
 #include "t_atomic.h"
- 
-#if defined(_MSC_VER)
-    // Windows path is not expected for spinlock implementation here
-#endif
+
+#if T_PLATFORM_WINDOWS
+#include <windows.h>
+#else
 #include <sched.h>
+#endif
 
 static inline void t_spin_pause(void) {
-#if defined(__i386__) || defined(__x86_64__)
+#if T_PLATFORM_WINDOWS
+    YieldProcessor();
+#elif defined(__i386__) || defined(__x86_64__)
     __builtin_ia32_pause();
 #elif defined(__aarch64__)
     __asm__ __volatile__("yield");
@@ -23,7 +26,7 @@ void t_spinlock_init(t_spinlock *s) {
 void t_spinlock_lock(t_spinlock *s) {
     int expected = 0;
     while (!t_atomic_compare_exchange_int(&s->locked, &expected, 1)) {
-        expected = 0; // reset for next CAS attempt
+        expected = 0;
         t_spin_pause();
     }
 }

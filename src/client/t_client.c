@@ -10,6 +10,7 @@
 #include "t_proto.h"
 #include "t_error.h"
 #include "t_hmac.h"
+#include "t_atomic.h"
 
 /* Minimal in-process client implementation with queue registry and subscriptions. */
 typedef struct t_client_queue_entry {
@@ -42,7 +43,8 @@ struct t_client {
     t_evloop *loop;
     t_conn   *conn;
     int       net_mode;
-    int       last_status;
+    t_atomic_int last_status;
+    t_atomic_int ack_seq;
     char      last_ack_name[T_WIRE_MAX_NAME + 1];
     uint8_t  *psk;
     size_t    psk_len;
@@ -116,11 +118,12 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     if (msg->header.type == T_MSG_ACK) {
         t_wire_ack a;
         if (t_wire_decode_ack(msg->payload, msg->payload_len, &a) == 0) {
-            c->last_status = a.status;
+            t_atomic_store_int(&c->last_status, a.status);
             c->last_ack_name[0] = '\0';
             if (a.name && a.name_len)
                 (void)t_wire_name_copy(c->last_ack_name, sizeof(c->last_ack_name),
                                        a.name, a.name_len);
+            (void)t_atomic_add_fetch_int(&c->ack_seq, 1);
         }
         return;
     }
@@ -177,7 +180,8 @@ t_client *t_client_create(const char *client_id) {
     c->loop = NULL;
     c->conn = NULL;
     c->net_mode = 0;
-    c->last_status = 0;
+    t_atomic_store_int(&c->last_status, 0);
+    t_atomic_store_int(&c->ack_seq, 0);
     c->last_ack_name[0] = '\0';
     return c;
 }
@@ -217,7 +221,7 @@ int t_client_connect(t_client *client, const char *host, uint16_t port) {
     (void)host; (void)port; /* in-process stub; use t_client_dial for TCP */
     if (!client || client->free_pending || client->net_mode) return -1;
     client->connected = 1;
-    client->last_status = 0;
+    t_atomic_store_int(&client->last_status, 0);
     client->last_ack_name[0] = '\0';
     return 0;
 }
@@ -233,7 +237,7 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
     client->conn = conn;
     client->net_mode = 1;
     client->connected = 1;
-    client->last_status = 0;
+    t_atomic_store_int(&client->last_status, 0);
     client->last_ack_name[0] = '\0';
     t_conn_set_on_msg(conn, client_on_msg, client);
     t_conn_set_on_close(conn, client_on_close, client);
@@ -270,7 +274,14 @@ int t_client_set_psk(t_client *client, const uint8_t *psk, size_t len) {
 }
 
 int t_client_last_status(const t_client *client) {
-    return client ? client->last_status : (int)T_ERR_INVALID;
+    return client ? t_atomic_load_int((t_atomic_int *)&client->last_status)
+                  : (int)T_ERR_INVALID;
+}
+
+unsigned t_client_ack_seq(const t_client *client) {
+    if (!client) return 0u;
+    int n = t_atomic_load_int((t_atomic_int *)&client->ack_seq);
+    return n > 0 ? (unsigned)n : 0u;
 }
 
 const char *t_client_last_ack_name(const t_client *client) {
@@ -433,14 +444,6 @@ int t_client_post(t_client *client, const char *queue_name,
 int t_client_subscribe(t_client *client, const char *queue_name,
                        t_client_msg_cb cb, void *ud) {
     if (!client || client->free_pending || !queue_name || !cb || !client->connected) return -1;
-    int open = 0;
-    for (size_t i = 0; i < client->queues_size; ++i) {
-        if (client->queues[i].name && strcmp(client->queues[i].name, queue_name) == 0) {
-            open = 1;
-            break;
-        }
-    }
-    if (!open) return -1;
     for (size_t i = 0; i < client->subs_count; ++i) {
         if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0 &&
             client->subs[i].cb == cb && client->subs[i].ud == ud) {

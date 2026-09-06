@@ -179,6 +179,8 @@ int t_socket_accept(int fd, t_sockaddr *peer_addr) {
         sock_close(nfd);
         return -1;
     }
+    /* Small frames must not wait on Nagle; match t_socket_dial. */
+    (void)t_socket_set_nodelay(nfd);
     if (peer_addr) {
         peer_addr->u.ipv4.family = AF_INET;
         peer_addr->u.ipv4.addr = ntohl(sa.sin_addr.s_addr);
@@ -277,4 +279,73 @@ int t_socket_dial_ipv4(const char *ip, uint16_t port) {
     }
     (void)t_socket_set_nodelay(fd);
     return fd;
+}
+
+int t_socket_pair(int fds[2]) {
+    if (!fds) return -1;
+    fds[0] = fds[1] = -1;
+#if T_PLATFORM_WINDOWS
+    {
+        SOCKET lst = INVALID_SOCKET, a = INVALID_SOCKET, b = INVALID_SOCKET;
+        struct sockaddr_in sa, peer;
+        int slen;
+        uint64_t tok, got;
+        int n;
+        if (wsa_ensure() != 0) return -1;
+        lst = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (lst == INVALID_SOCKET) return -1;
+        memset(&sa, 0, sizeof(sa));
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = 0;
+        if (bind(lst, (struct sockaddr *)&sa, sizeof(sa)) != 0) goto win_fail;
+        slen = (int)sizeof(sa);
+        if (getsockname(lst, (struct sockaddr *)&sa, &slen) != 0) goto win_fail;
+        if (listen(lst, 1) != 0) goto win_fail;
+        a = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (a == INVALID_SOCKET) goto win_fail;
+        if (connect(a, (struct sockaddr *)&sa, sizeof(sa)) != 0) goto win_fail;
+        slen = (int)sizeof(peer);
+        memset(&peer, 0, sizeof(peer));
+        b = accept(lst, (struct sockaddr *)&peer, &slen);
+        if (b == INVALID_SOCKET) goto win_fail;
+        if (peer.sin_addr.s_addr != htonl(INADDR_LOOPBACK)) goto win_fail;
+        tok = ((uint64_t)GetCurrentProcessId() << 32) ^ (uint64_t)GetTickCount64()
+              ^ (uint64_t)(uintptr_t)fds;
+        n = send(a, (const char *)&tok, (int)sizeof(tok), 0);
+        if (n != (int)sizeof(tok)) goto win_fail;
+        {
+            int got_off = 0;
+            while (got_off < (int)sizeof(got)) {
+                n = recv(b, (char *)&got + got_off, (int)sizeof(got) - got_off, 0);
+                if (n <= 0) goto win_fail;
+                got_off += n;
+            }
+        }
+        if (got != tok) goto win_fail;
+        closesocket(lst);
+        lst = INVALID_SOCKET;
+        if (t_socket_set_nonblock((int)a) != 0) goto win_fail;
+        if (t_socket_set_nonblock((int)b) != 0) goto win_fail;
+        (void)t_socket_set_nodelay((int)a);
+        (void)t_socket_set_nodelay((int)b);
+        fds[0] = (int)a;
+        fds[1] = (int)b;
+        return 0;
+    win_fail:
+        if (lst != INVALID_SOCKET) closesocket(lst);
+        if (a != INVALID_SOCKET) closesocket(a);
+        if (b != INVALID_SOCKET) closesocket(b);
+        return -1;
+    }
+#else
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) return -1;
+    if (t_socket_set_nonblock(fds[0]) != 0 || t_socket_set_nonblock(fds[1]) != 0) {
+        sock_close(fds[0]);
+        sock_close(fds[1]);
+        fds[0] = fds[1] = -1;
+        return -1;
+    }
+    return 0;
+#endif
 }

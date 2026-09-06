@@ -2,7 +2,8 @@
 #include "t_evloop.h"
 #include "t_timer.h"
 #include "t_time.h"
-#include <unistd.h>
+#include "t_socket.h"
+#include "t_thread.h"
 #include <string.h>
 
 static void timer_on_fire(void *ud) {
@@ -115,18 +116,71 @@ T_TEST(evloop_io_pipe) {
     t_evloop *loop = t_evloop_create();
     T_ASSERT_NOT_NULL(loop);
     int pfd[2];
-    T_ASSERT_EQ(pipe(pfd), 0);
+    T_ASSERT_EQ(t_socket_pair(pfd), 0);
     int done = 0;
     struct { t_evloop *loop; int *done; } ctx = { loop, &done };
     t_evio io = { .fd = pfd[0], .callback = evloop_on_read, .user_data = &ctx, .loop = loop, .events = 0 };
     T_ASSERT_EQ(t_evloop_add(loop, &io, T_EV_READ), 0);
     char c = 'x';
-    write(pfd[1], &c, 1);
+    T_ASSERT_EQ((int)t_socket_write(pfd[1], &c, 1), 1);
     t_evloop_run(loop, 1000);
     T_ASSERT_EQ(done, 1);
     t_evloop_del(loop, &io);
-    close(pfd[0]);
-    close(pfd[1]);
+    t_socket_close(pfd[0]);
+    t_socket_close(pfd[1]);
+    t_evloop_destroy(loop);
+}
+
+static void *evloop_thread_run(void *arg) {
+    t_evloop_run((t_evloop *)arg, 50);
+    return NULL;
+}
+
+static void evloop_late_read(t_evio *io, int flags, void *ud) {
+    volatile int *done = (volatile int *)ud;
+    char b;
+    (void)flags;
+    if (io && t_socket_read(io->fd, &b, 1) == 1)
+        *done = 1;
+}
+
+/* Add + write from the harness thread while poll is blocked. Fail closed:
+ * the new fd must become readable without a stale revents close. */
+T_TEST(evloop_add_while_running) {
+    t_evloop *loop = t_evloop_create();
+    T_ASSERT_NOT_NULL(loop);
+    int idle[2];
+    T_ASSERT_EQ(t_socket_pair(idle), 0);
+    t_evio idle_io = { .fd = idle[0], .callback = NULL, .user_data = NULL,
+                       .loop = loop, .events = 0 };
+    T_ASSERT_EQ(t_evloop_add(loop, &idle_io, T_EV_READ), 0);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, evloop_thread_run, loop), 0);
+    t_time_sleep_ms(20);
+
+    int pair[2];
+    T_ASSERT_EQ(t_socket_pair(pair), 0);
+    volatile int done = 0;
+    t_evio io = { .fd = pair[0], .callback = evloop_late_read, .user_data = (void *)&done,
+                  .loop = loop, .events = 0 };
+    T_ASSERT_EQ(t_evloop_add(loop, &io, T_EV_READ), 0);
+    char c = 'z';
+    T_ASSERT_EQ((int)t_socket_write(pair[1], &c, 1), 1);
+
+    int64_t start = t_time_now_ms();
+    while (!done && t_time_now_ms() - start < 500)
+        t_time_sleep_ms(5);
+    T_ASSERT_EQ((int)done, 1);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_evloop_del(loop, &io);
+    t_evloop_del(loop, &idle_io);
+    t_socket_close(pair[0]);
+    t_socket_close(pair[1]);
+    t_socket_close(idle[0]);
+    t_socket_close(idle[1]);
     t_evloop_destroy(loop);
 }
 
@@ -150,6 +204,8 @@ static void ensure_all_callbacks_referenced(void) {
     (void)evloop_timer_wrap;
     (void)evloop_on_read;
     (void)on_repeat;
+    (void)evloop_thread_run;
+    (void)evloop_late_read;
 }
 
 int main(void) {

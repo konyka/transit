@@ -27,7 +27,7 @@ t_log_level t_log_get_level(void);
 /* Core log function */
 void t_log_write(t_log_level level, const char *file, int line,
                  const char *func, const char *fmt, ...)
-                 __attribute__((format(printf, 5, 6)));
+                 T_PRINTF(5, 6);
 
 /* Convenience macros */
 #define T_LOG_TRACE(fmt, ...) \

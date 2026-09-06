@@ -57,6 +57,17 @@ T_TEST(client_create_destroy) {
     t_client_destroy(c);
 }
 
+T_TEST(client_ack_seq_starts_zero) {
+    T_ASSERT_EQ((int)t_client_ack_seq(NULL), 0);
+    t_client *c = t_client_create("ack");
+    T_ASSERT_NOT_NULL(c);
+    T_ASSERT_EQ((int)t_client_ack_seq(c), 0);
+    T_ASSERT_EQ(t_client_last_status(c), 0);
+    T_ASSERT_EQ(t_client_connect(c, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ((int)t_client_ack_seq(c), 0);
+    t_client_destroy(c);
+}
+
 T_TEST(client_connect_disconnect) {
     t_client *c = t_client_create("c1");
     T_ASSERT(!t_client_is_connected(c));
@@ -81,6 +92,17 @@ static int g_msg_received;
 static void on_msg(const char *queue_name, const uint8_t *data, size_t len, void *ud) {
     (void)queue_name; (void)data; (void)len;
     (*(int *)ud)++;
+}
+
+T_TEST(client_subscribe_before_open) {
+    t_client *c = t_client_create("c4");
+    t_client_connect(c, "localhost", 0);
+    g_msg_received = 0;
+    T_ASSERT_EQ(t_client_subscribe(c, "early.q", on_msg, &g_msg_received), 0);
+    T_ASSERT_EQ(t_client_open_queue(c, "early.q", 0), 0);
+    T_ASSERT_EQ(t_client_post(c, "early.q", (const uint8_t *)"hi", 2, 0), 0);
+    T_ASSERT_EQ(g_msg_received, 1);
+    t_client_destroy(c);
 }
 
 T_TEST(client_publish_stats) {

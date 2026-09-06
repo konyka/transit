@@ -1,5 +1,5 @@
 #include "t_ratelimit.h"
-#include <pthread.h>
+#include "t_mutex.h"
 #include <stdlib.h>
 
 struct t_ratelimit {
@@ -10,16 +10,13 @@ struct t_ratelimit {
     int      initialized;
     uint64_t total_allowed;
     uint64_t total_rejected;
-    pthread_mutex_t mu;
+    t_mutex  mu;
 };
 
 t_ratelimit *t_ratelimit_create(size_t max_tokens, double refill_rate) {
     t_ratelimit *rl = (t_ratelimit *)calloc(1, sizeof(*rl));
     if (!rl) return NULL;
-    if (pthread_mutex_init(&rl->mu, NULL) != 0) {
-        free(rl);
-        return NULL;
-    }
+    t_mutex_init(&rl->mu);
     /* Reject NaN/Inf/negative so tokens cannot become permanently unusable. */
     if (!(refill_rate >= 0.0) || refill_rate > 1e18) refill_rate = 0.0;
     rl->max_tokens = max_tokens;
@@ -31,7 +28,7 @@ t_ratelimit *t_ratelimit_create(size_t max_tokens, double refill_rate) {
 
 void t_ratelimit_destroy(t_ratelimit *rl) {
     if (!rl) return;
-    pthread_mutex_destroy(&rl->mu);
+    t_mutex_destroy(&rl->mu);
     free(rl);
 }
 
@@ -58,7 +55,7 @@ static void refill_unlocked(t_ratelimit *rl, uint64_t now_ms) {
 
 int t_ratelimit_allow(t_ratelimit *rl, uint64_t now_ms) {
     if (!rl) return 0;
-    pthread_mutex_lock(&rl->mu);
+    t_mutex_lock(&rl->mu);
     refill_unlocked(rl, now_ms);
     int ok = 0;
     if (rl->tokens >= 1.0) {
@@ -68,44 +65,44 @@ int t_ratelimit_allow(t_ratelimit *rl, uint64_t now_ms) {
     } else {
         rl->total_rejected++;
     }
-    pthread_mutex_unlock(&rl->mu);
+    t_mutex_unlock(&rl->mu);
     return ok;
 }
 
 size_t t_ratelimit_available(t_ratelimit *rl, uint64_t now_ms) {
     if (!rl) return 0;
-    pthread_mutex_lock(&rl->mu);
+    t_mutex_lock(&rl->mu);
     refill_unlocked(rl, now_ms);
     size_t n = 0;
     if (rl->tokens > 0.0) n = (size_t)rl->tokens;
-    pthread_mutex_unlock(&rl->mu);
+    t_mutex_unlock(&rl->mu);
     return n;
 }
 
 uint64_t t_ratelimit_total_allowed(const t_ratelimit *rl) {
     if (!rl) return 0;
     t_ratelimit *m = (t_ratelimit *)rl;
-    pthread_mutex_lock(&m->mu);
+    t_mutex_lock(&m->mu);
     uint64_t v = m->total_allowed;
-    pthread_mutex_unlock(&m->mu);
+    t_mutex_unlock(&m->mu);
     return v;
 }
 
 uint64_t t_ratelimit_total_rejected(const t_ratelimit *rl) {
     if (!rl) return 0;
     t_ratelimit *m = (t_ratelimit *)rl;
-    pthread_mutex_lock(&m->mu);
+    t_mutex_lock(&m->mu);
     uint64_t v = m->total_rejected;
-    pthread_mutex_unlock(&m->mu);
+    t_mutex_unlock(&m->mu);
     return v;
 }
 
 void t_ratelimit_reset(t_ratelimit *rl) {
     if (!rl) return;
-    pthread_mutex_lock(&rl->mu);
+    t_mutex_lock(&rl->mu);
     rl->tokens = (double)rl->max_tokens;
     rl->initialized = 0;
     rl->total_allowed = 0;
     rl->total_rejected = 0;
-    pthread_mutex_unlock(&rl->mu);
+    t_mutex_unlock(&rl->mu);
 }

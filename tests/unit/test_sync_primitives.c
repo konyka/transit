@@ -3,7 +3,7 @@
 #include "t_spinlock.h"
 #include "t_rwlock.h"
 #include "t_atomic.h"
-#include <pthread.h>
+#include "t_thread.h"
 
 static t_atomic_int g_counter = T_ATOMIC_INIT(0);
 static t_mutex g_test_mutex;
@@ -27,11 +27,11 @@ T_TEST(mutex_protects_counter) {
     t_atomic_int store = T_ATOMIC_INIT(0);
     g_counter = store;
     t_mutex_init(&g_test_mutex);
-    pthread_t threads[TDD_THREAD_COUNT];
+    t_thread threads[TDD_THREAD_COUNT];
     for (int i = 0; i < TDD_THREAD_COUNT; i++)
-        pthread_create(&threads[i], NULL, mutex_thread_fn, NULL);
+        T_ASSERT_EQ(t_thread_spawn(&threads[i], mutex_thread_fn, NULL), 0);
     for (int i = 0; i < TDD_THREAD_COUNT; i++)
-        pthread_join(threads[i], NULL);
+        T_ASSERT_EQ(t_thread_join(&threads[i]), 0);
     t_mutex_destroy(&g_test_mutex);
     T_ASSERT_EQ(t_atomic_load_int(&g_counter), TDD_THREAD_COUNT * TDD_ITERATIONS);
 }
@@ -50,11 +50,11 @@ T_TEST(spinlock_protects_counter) {
     t_atomic_int store = T_ATOMIC_INIT(0);
     g_counter = store;
     t_spinlock_init(&g_test_spinlock);
-    pthread_t threads[TDD_THREAD_COUNT];
+    t_thread threads[TDD_THREAD_COUNT];
     for (int i = 0; i < TDD_THREAD_COUNT; i++)
-        pthread_create(&threads[i], NULL, spinlock_thread_fn, NULL);
+        T_ASSERT_EQ(t_thread_spawn(&threads[i], spinlock_thread_fn, NULL), 0);
     for (int i = 0; i < TDD_THREAD_COUNT; i++)
-        pthread_join(threads[i], NULL);
+        T_ASSERT_EQ(t_thread_join(&threads[i]), 0);
     T_ASSERT_EQ(t_atomic_load_int(&g_counter), TDD_THREAD_COUNT * TDD_ITERATIONS);
 }
 
@@ -83,16 +83,16 @@ T_TEST(rwlock_allows_concurrent_reads) {
     t_atomic_int store = T_ATOMIC_INIT(0);
     g_counter = store;
     t_rwlock_init(&g_test_rwlock);
-    pthread_t readers[2];
-    pthread_t writers[2];
+    t_thread readers[2];
+    t_thread writers[2];
     for (int i = 0; i < 2; i++)
-        pthread_create(&readers[i], NULL, rwlock_read_thread_fn, NULL);
+        T_ASSERT_EQ(t_thread_spawn(&readers[i], rwlock_read_thread_fn, NULL), 0);
     for (int i = 0; i < 2; i++)
-        pthread_create(&writers[i], NULL, rwlock_write_thread_fn, NULL);
+        T_ASSERT_EQ(t_thread_spawn(&writers[i], rwlock_write_thread_fn, NULL), 0);
     for (int i = 0; i < 2; i++)
-        pthread_join(readers[i], NULL);
+        T_ASSERT_EQ(t_thread_join(&readers[i]), 0);
     for (int i = 0; i < 2; i++)
-        pthread_join(writers[i], NULL);
+        T_ASSERT_EQ(t_thread_join(&writers[i]), 0);
     t_rwlock_destroy(&g_test_rwlock);
     T_ASSERT_EQ(t_atomic_load_int(&g_counter), 2 * TDD_ITERATIONS);
 }

@@ -40,6 +40,20 @@
 #ifndef WIN32_LEAN_AND_MEAN
     #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef _WIN32_WINNT
+    #define _WIN32_WINNT 0x0601
+#endif
+#if defined(_MSC_VER)
+    #ifndef _CRT_SECURE_NO_WARNINGS
+    #define _CRT_SECURE_NO_WARNINGS
+    #endif
+    #ifndef _CRT_NONSTDC_NO_WARNINGS
+    #define _CRT_NONSTDC_NO_WARNINGS
+    #endif
+    #ifndef strdup
+    #define strdup _strdup
+    #endif
+#endif
 #else
     #define T_PLATFORM_WINDOWS 0
 #endif
@@ -121,8 +135,19 @@
     #define T_FORCE_INLINE inline
 #endif
 
-/* Branch prediction hints */
-#define T_PREFETCH(addr) __builtin_prefetch(addr)
+#if T_COMPILER_GCC || T_COMPILER_CLANG
+    #define T_PRINTF(f, a) __attribute__((format(printf, f, a)))
+    #define T_THREAD_LOCAL __thread
+    #define T_PREFETCH(addr) __builtin_prefetch(addr)
+#elif T_COMPILER_MSVC
+    #define T_PRINTF(f, a)
+    #define T_THREAD_LOCAL __declspec(thread)
+    #define T_PREFETCH(addr) ((void)(addr))
+#else
+    #define T_PRINTF(f, a)
+    #define T_THREAD_LOCAL
+    #define T_PREFETCH(addr) ((void)(addr))
+#endif
 
 /* Compile-time assertion */
 #if T_C11

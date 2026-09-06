@@ -3,9 +3,8 @@
 #include "t_atomic.h"
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
+#include "t_thread.h"
 #include <stdint.h>
-#include <sched.h>
 
 #define STRESS_ITERS 50000
 #define NUM_THREADS 2
@@ -35,7 +34,7 @@ static void *consumer_fn(void *arg) {
         } else if (t_atomic_load_int(ctx->done)) {
             break;
         } else {
-            sched_yield();
+            t_thread_yield();
         }
     }
     t_atomic_fetch_add_int(ctx->total, local);
@@ -70,19 +69,19 @@ T_TEST(mpmc_mpmc_concurrent) {
     thread_ctx pctx = { &q, &total, &done, STRESS_ITERS };
     thread_ctx cctx = { &q, &total, &done, 0 };
 
-    pthread_t prod[NUM_THREADS], cons[NUM_THREADS];
+    t_thread prod[NUM_THREADS], cons[NUM_THREADS];
     for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_create(&cons[i], NULL, consumer_fn, &cctx);
+        T_ASSERT_EQ(t_thread_spawn(&cons[i], consumer_fn, &cctx), 0);
     }
     for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_create(&prod[i], NULL, producer_fn, &pctx);
+        T_ASSERT_EQ(t_thread_spawn(&prod[i], producer_fn, &pctx), 0);
     }
     for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_join(prod[i], NULL);
+        T_ASSERT_EQ(t_thread_join(&prod[i]), 0);
     }
     t_atomic_store_int(&done, 1);
     for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_join(cons[i], NULL);
+        T_ASSERT_EQ(t_thread_join(&cons[i]), 0);
     }
 
     void *val;

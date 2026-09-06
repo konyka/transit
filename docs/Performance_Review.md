@@ -22,12 +22,19 @@ July 2026 review.
   strategy that avoids per-update heap deletion.
 - Add unit coverage for map replacement, removal, tombstone compaction, and
   post-compaction insertion.
-- Keep CI on currently portable Linux/macOS targets. Windows has mmap,
-  Winsock2, IOCP wakeup, `t_conn`/`t_tcp`, CreateFile WAL, Raft log,
-  file-backed storage dumps, shutdown signals, the thread pool, and
-  admin HTTP. CI stays off until tests and leftover helpers compile
-  without POSIX. Coroutine switch is x86_64 and AArch64 assembly;
-  other ISAs leave `t_coro_create` NULL.
+- Keep CI on Linux, macOS, and Windows (VS 2022 x64). Leftover POSIX
+  helpers (`t_config`, `t_log`, `t_ratelimit`, `t_flowcontrol`) now use
+  `t_file` / `t_mutex`. Tests use `t_thread` and `t_socket_pair`.
+  Windows evloop is WSAPoll readiness (O(n) in registered fds, default
+  cap 1024) so `t_conn` keeps the same recv/send path as epoll. Coroutine
+  SysV assembly is not used on Windows; `t_coro_create` returns NULL.
+- Client ACK status/seq are `t_atomic_int`. Tests poll `ack_seq` from
+  the harness thread; a new seq is the fail-closed signal that an ACK
+  arrived. No extra copy on the I/O path.
+- Windows WSAPoll snapshots the fd table under `t_mutex` and waits
+  without the lock. The hot path is still one `recv`/`send` per
+  readiness event; the lock is O(n) copy of registered fds, not per
+  byte.
 - Wire protocol decode aliases the frame (no extra payload copy). The protocol
   server rate-limits in O(1) before broker work and caps accept fan-in.
 - Durable WAL is append-only (PUT/DEL). Default fsync every 32 records so the

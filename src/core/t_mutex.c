@@ -20,7 +20,7 @@ void t_mutex_destroy(t_mutex *m) {
 #if !T_PLATFORM_WINDOWS
     pthread_mutex_destroy(m);
 #else
-    // No destroy needed for SRWLOCK
+    (void)m;
 #endif
 }
 

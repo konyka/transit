@@ -3,13 +3,29 @@
 
 #include <stddef.h>
 
-/* Cross-compiler constructor support for automatic registration.
-   On MSVC this expands to nothing and tests can be registered manually
-   using T_TEST_REGISTER. */
-#if defined(_MSC_VER)
+/* Cross-compiler constructor support for automatic registration. */
+#if defined(_MSC_VER) && !defined(__clang__)
 #define T_CONSTRUCTOR
+#define T_TEST(name) \
+    static void test_##name(void); \
+    static void register_test_##name(void) { \
+        t_register_test(#name, test_##name, __FILE__, __LINE__); \
+    } \
+    static int register_test_##name##_crt(void) { \
+        register_test_##name(); \
+        return 0; \
+    } \
+    __pragma(section(".CRT$XCU", read)) \
+    __declspec(allocate(".CRT$XCU")) static int (*register_test_##name##_ptr)(void) = register_test_##name##_crt; \
+    static void test_##name(void)
 #else
 #define T_CONSTRUCTOR __attribute__((constructor))
+#define T_TEST(name) \
+    static void test_##name(void); \
+    static void T_CONSTRUCTOR register_test_##name(void) { \
+        t_register_test(#name, test_##name, __FILE__, __LINE__); \
+    } \
+    static void test_##name(void)
 #endif
 
 /* Test function signature */
@@ -61,14 +77,6 @@ int           t_suite_run(t_test_suite *suite);  /* Returns 0 if all pass */
 
 #define T_ASSERT_TRUE(expr)  T_ASSERT(expr)
 #define T_ASSERT_FALSE(expr) T_ASSERT(!(expr))
-
-/* Test registration macro */
-#define T_TEST(name) \
-    static void test_##name(void); \
-    static void T_CONSTRUCTOR register_test_##name(void) { \
-        t_register_test(#name, test_##name, __FILE__, __LINE__); \
-    } \
-    static void test_##name(void)
 
 /* For MSVC compatibility, also provide a manual registration approach */
 #define T_TEST_REGISTER(suite, name) \

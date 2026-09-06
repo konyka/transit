@@ -1,7 +1,7 @@
 #include "t_flowcontrol.h"
 #include "t_atomic.h"
 #include "t_time.h"
-#include <pthread.h>
+#include "t_mutex.h"
 #include <stdlib.h>
 #include <limits.h>
 
@@ -27,7 +27,7 @@ struct t_flowcontrol {
     t_atomic_int total_released;
     t_atomic_int total_rejected;
     int       blocked;
-    pthread_mutex_t mu;
+    t_mutex   mu;
 };
 
 static void fc_maybe_refill_unlocked(t_flowcontrol *fc) {
@@ -52,10 +52,7 @@ static void fc_maybe_refill_unlocked(t_flowcontrol *fc) {
 t_flowcontrol *t_fc_create(size_t max_credits, int64_t refill_interval_ms) {
     t_flowcontrol *fc = (t_flowcontrol *)calloc(1, sizeof(*fc));
     if (!fc) return NULL;
-    if (pthread_mutex_init(&fc->mu, NULL) != 0) {
-        free(fc);
-        return NULL;
-    }
+    t_mutex_init(&fc->mu);
     fc->max_credits = max_credits;
     fc->credits = max_credits;
     fc->refill_interval_ms = refill_interval_ms;
@@ -65,40 +62,40 @@ t_flowcontrol *t_fc_create(size_t max_credits, int64_t refill_interval_ms) {
 
 void t_fc_destroy(t_flowcontrol *fc) {
     if (!fc) return;
-    pthread_mutex_destroy(&fc->mu);
+    t_mutex_destroy(&fc->mu);
     free(fc);
 }
 
 int t_fc_acquire(t_flowcontrol *fc, size_t count) {
     if (!fc) return -1;
-    pthread_mutex_lock(&fc->mu);
+    t_mutex_lock(&fc->mu);
     fc_maybe_refill_unlocked(fc);
     if (count == 0) {
-        pthread_mutex_unlock(&fc->mu);
+        t_mutex_unlock(&fc->mu);
         return 0; /* no-op: do not clear blocked */
     }
     /* Impossible request: reject without latching blocked forever. */
     if (count > fc->max_credits) {
         fc_add_stat(&fc->total_rejected, count);
-        pthread_mutex_unlock(&fc->mu);
+        t_mutex_unlock(&fc->mu);
         return -1;
     }
     if (fc->credits >= count) {
         fc->credits -= count;
         fc->blocked = 0;
         fc_add_stat(&fc->total_acquired, count);
-        pthread_mutex_unlock(&fc->mu);
+        t_mutex_unlock(&fc->mu);
         return 0;
     }
     fc->blocked = 1;
     fc_add_stat(&fc->total_rejected, count);
-    pthread_mutex_unlock(&fc->mu);
+    t_mutex_unlock(&fc->mu);
     return -1;
 }
 
 void t_fc_release(t_flowcontrol *fc, size_t count) {
     if (!fc) return;
-    pthread_mutex_lock(&fc->mu);
+    t_mutex_lock(&fc->mu);
     if (fc->credits >= fc->max_credits) {
         fc->credits = fc->max_credits;
     } else if (count >= fc->max_credits - fc->credits) {
@@ -108,25 +105,25 @@ void t_fc_release(t_flowcontrol *fc, size_t count) {
     }
     if (fc->credits > 0) fc->blocked = 0;
     fc_add_stat(&fc->total_released, count);
-    pthread_mutex_unlock(&fc->mu);
+    t_mutex_unlock(&fc->mu);
 }
 
 void t_fc_refill(t_flowcontrol *fc) {
     if (!fc) return;
-    pthread_mutex_lock(&fc->mu);
+    t_mutex_lock(&fc->mu);
     fc->credits = fc->max_credits;
     fc->blocked = 0;
     fc->last_refill_ms = t_time_now_ms();
-    pthread_mutex_unlock(&fc->mu);
+    t_mutex_unlock(&fc->mu);
 }
 
 size_t t_fc_available(const t_flowcontrol *fc) {
     if (!fc) return 0;
     t_flowcontrol *m = (t_flowcontrol *)fc;
-    pthread_mutex_lock(&m->mu);
+    t_mutex_lock(&m->mu);
     fc_maybe_refill_unlocked(m);
     size_t credits = m->credits;
-    pthread_mutex_unlock(&m->mu);
+    t_mutex_unlock(&m->mu);
     return credits;
 }
 
@@ -137,10 +134,10 @@ size_t t_fc_max(const t_flowcontrol *fc) {
 int t_fc_is_blocked(const t_flowcontrol *fc) {
     if (!fc) return 1;
     t_flowcontrol *m = (t_flowcontrol *)fc;
-    pthread_mutex_lock(&m->mu);
+    t_mutex_lock(&m->mu);
     fc_maybe_refill_unlocked(m);
     int blocked = m->blocked;
-    pthread_mutex_unlock(&m->mu);
+    t_mutex_unlock(&m->mu);
     return blocked;
 }
 

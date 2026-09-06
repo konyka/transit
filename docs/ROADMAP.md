@@ -6,66 +6,30 @@ separate that library from a production message bus.
 
 ## Implemented in this change
 
-- Typed wire payloads (`OPEN_QUEUE`, `POST`, `PUSH`, `ACK`, `CLOSE_QUEUE`,
-  `CONFIRM`/`REJECT`, `HEARTBEAT`) on top of the 16-byte CRC32C frame.
-- Protocol server (`t_server`): accept, session, per-connection token bucket,
-  max-connection cap, idle timeout, default bind `127.0.0.1`.
-- Network client (`t_client_dial`) that speaks the same protocol. The original
-  `t_client_connect` in-process stub is unchanged.
-- `transit-server` now listens on the client port and starts the broker.
-- Durable queues: append-only WAL (`{datadir}/{domain}.{queue}.wal`), PUT
-  before enqueue, DEL after push deliver or pull ack. Default fsync every 32
-  records. Fail closed without a datadir. `DURABLE+BROADCAST` is rejected.
-- Exclusive queues refuse a second consumer (`T_ERR_BUSY`). Autodelete drops
-  the queue when the last network session closes it.
-- Raft RPCs (`RequestVote` / `AppendEntries`) as `T_MSG_CLUSTER` payloads,
-  persistent raft log (`t_raft_open_log`), and leader-only publish when a
-  cluster is attached to the broker. The client port still closes `CLUSTER`
-  frames.
-- Cluster peer transport (`t_peer`): loopback-default listen (port 4223,
-  or ephemeral), election timeouts, short-lived `T_MSG_CLUSTER` dials,
-  and follower `POST` ACK names of the form `host_port` (colon is not a
-  valid queue-name character). `transit-server -C` / `[cluster] port=` is
-  opt-in.
-- Client AUTH: first frame is `T_MSG_AUTH` with HMAC-SHA256 of a pre-shared
-  key over `transit.auth.v1`. Wrong or missing MAC closes the connection.
-  Binding off loopback without a PSK fails closed. TLS is deferred.
-- Per-session PUSH credits (`t_flowcontrol`): default 64 outstanding
-  `PUSH` frames. `CONFIRM`/`REJECT` return a credit and are not
-  rate-limited. The TCP client auto-sends `CONFIRM` after each `PUSH`.
-- Network FIFO/priority delivery is pull-inflight: `PUSH` carries the
-  queue `msg_id`, `CONFIRM` maps to `t_queue_ack`, `REJECT` to
-  `t_queue_nack`. Disconnect nacks leftover inflight so another consumer
-  can take the message. Broadcast still uses fire-and-forget push.
-- Coroutine context switch: x86_64 and AArch64 assembly (same 6/12
-  callee-saved GPR frame). Other ISAs return NULL from `t_coro_create`.
-- Windows backends for `t_mmap` (CreateFileMapping) and `t_socket`
-  (Winsock2). Mapping HANDLEs live in `os_file`/`os_map`, not `int fd`.
-- Event-loop wakeup: POSIX still uses a pipe; IOCP posts
-  `PostQueuedCompletionStatus`. `t_conn`/`t_tcp` go through `t_socket`
-  and `t_mutex` instead of `fcntl`/`close`/`pthread_mutex`.
-- Durable WAL file I/O: POSIX `open`/`fsync` or Windows `CreateFile` /
-  `FlushFileBuffers`. `t_broker_set_datadir` uses `CreateDirectoryA`.
-- Raft log and file-backed storage dump go through internal `t_file`
-  (POSIX fd or Windows HANDLE). Log rewrite still tmp+rename.
-- Shutdown signals: POSIX `sigaction` + ignore `SIGPIPE`; Windows CRT
-  `SIGINT`/`SIGTERM` plus `SetConsoleCtrlHandler` for Ctrl+C/Break/Close.
-- Thread pool: `t_mutex` plus POSIX pthread or Windows `CreateThread` /
-  `CONDITION_VARIABLE`. In-task destroy still joins peers and detaches self.
-- Admin HTTP listen/accept/read/write go through `t_socket` (same path as
-  `t_tcp`). Bind still defaults to `127.0.0.1`.
+- Windows leftovers that blocked CI: `t_config` reads through `t_file`,
+  `t_log` / `t_ratelimit` / `t_flowcontrol` use `t_mutex`, and tests speak
+  `t_thread` + `t_socket_pair` instead of POSIX `pthread` / `socketpair`.
+- Portable `t_thread` (CreateThread / pthread) for tests and benches.
+- `t_socket_pair`: AF_UNIX on POSIX; loopback TCP plus a self-token on
+  Windows so a stolen accept is rejected. Both ends non-blocking.
+- Windows evloop is WSAPoll readiness (same `T_EV_READ`/`WRITE` contract
+  as epoll/kqueue). Wakeup is a loopback pair. Incomplete IOCP completions
+  are not used for socket I/O.
+- Coroutine SysV assembly is not compiled on Windows; `t_coro_create`
+  returns NULL (`T_HAVE_CORO_ASM == 0`).
+- GitHub Actions `windows-latest` (VS 2022 x64) builds and runs ctest.
+- `t_client_ack_seq`: tests wait for a decoded `ACK` instead of treating
+  `last_status == 0` as success. That was the exclusive-consumer /
+  autodelete flake on WSAPoll (OPEN had not been processed yet).
 
 ## Remaining (priority order)
 
-### 1. Windows CI
-
-Library backends for mmap, sockets, evloop wakeup, WAL, raft/file dump,
-signals, thread pool, and admin HTTP are in. Tests and leftover helpers
-(`t_config` file I/O, `t_log` / `t_ratelimit` mutex) still assume POSIX.
-Full Windows CI stays off until those compile.
+None for the current library surface. TLS is still deferred (PSK AUTH
+covers the loopback-default client port).
 
 ## Non-goals for now
 
 - New languages / client SDKs
 - Compression
 - Cross-datacenter WAN mesh
+- TLS on the client or peer port

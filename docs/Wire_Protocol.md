@@ -177,9 +177,17 @@ configured. Admin HTTP already binds `127.0.0.1`.
   If `t_client_set_psk` was called, the first frame is `T_MSG_AUTH`.
 - `t_client_open_queue(..., T_CLIENT_OPEN_PRODUCER \| T_CLIENT_OPEN_CONSUMER)`.
   High byte: `T_CLIENT_QFLAG_DURABLE` / `EXCLUSIVE` / `AUTODELETE`.
-- `t_client_last_status()` — last decoded `ACK` status.
+- `t_client_last_status()` — last decoded `ACK` status. Starts at `0`
+  (same as `T_OK_CODE`); do not treat that as “an ACK arrived”.
+- `t_client_ack_seq()` — monotonic count of decoded `ACK` frames. Wait
+  for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`, then read
+  `last_status`. Status and the name are published before the sequence
+  increment (seq_cst), so a new seq is a happens-before for those fields.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
   follower `POST` `T_ERR_AGAIN`).
+- `t_client_subscribe` may be called before `open_queue`. On a dialed
+  client it sends `OPEN` as consumer so a `PUSH` cannot arrive before
+  the callback is registered.
 - After each `PUSH`, the dialed client sends `CONFIRM` so the server
   credit window can refill.
 

@@ -53,6 +53,21 @@ jobs:
         run: ctest -L benchmark --output-on-failure
         continue-on-error: true
 
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_EXAMPLES=ON
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Test
+        working-directory: build
+        run: ctest -C Release --output-on-failure -j
+
   sanitize:
     runs-on: ubuntu-latest
     strategy:

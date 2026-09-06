@@ -9,7 +9,7 @@ Reimplements Bloomberg's [BlazingMQ](https://github.com/bloomberg/blazingmq) fea
 ```
 src/
 ├── core/        compiler, atomics, time, mutex, spinlock, rwlock, error, log,
-│                version, signal, config, graceful shutdown
+│                version, signal, config, thread, graceful shutdown
 ├── memory/      tiered pool, slab allocator, refcount buffer, arena
 ├── collections/ vec, map, list, SPSC ringbuf, Vyukov MPMC, priority queue
 ├── event/       epoll / kqueue / IOCP backends (vtable), min-heap timer
@@ -49,7 +49,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 ## Test Results
 
-40 test executables (35 unit + 2 integration + 3 benchmark), 100% pass rate
+41 test executables (36 unit + 2 integration + 3 benchmark), 100% pass rate
 (regular + ASan + UBSan clean):
 
 | Test | Description |
@@ -86,6 +86,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_storage | In-memory/file storage + mmap |
 | test_wal | Durable WAL put/del, replay, exclusive, broker datadir |
 | test_sync_primitives | Thread synchronization primitives |
+| test_thread | Portable spawn/join/yield |
 | test_test_framework | Self-built test framework |
 | test_threadpool | Work-stealing thread pool |
 | test_ttl | Message TTL with heap+map expiry |
@@ -138,12 +139,14 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 - **Linux**: epoll backend (primary, fully tested)
 - **macOS**: kqueue backend (implemented, conditional via `T_HAVE_KQUEUE`)
 - **AArch64**: coroutine switch matches the x86_64 assembly path
-- **Windows**: mmap, Winsock2, IOCP wakeup, `t_conn`/`t_tcp`, durable WAL,
-  Raft log, file-backed storage dumps, shutdown signals, the thread pool,
-  and admin HTTP (`t_socket`). Full CI stays off until tests and leftover
-  helpers compile without POSIX.
+- **Windows**: mmap, Winsock2, WSAPoll readiness, `t_conn`/`t_tcp`, durable
+  WAL, Raft log, file-backed storage dumps, shutdown signals, the thread
+  pool, admin HTTP, and leftover helpers (`t_config` / `t_log` /
+  `t_ratelimit` / `t_flowcontrol`). Coroutine create returns NULL (SysV
+  assembly is the wrong ABI).
 
-CI runs Linux and macOS builds via GitHub Actions, plus Linux ASan/UBSan jobs.
+CI runs Linux, macOS, and Windows (VS 2022 x64) via GitHub Actions, plus
+Linux ASan/UBSan jobs. See [docs/Windows_CI.md](docs/Windows_CI.md).
 
 ## Quick Start
 
@@ -177,7 +180,8 @@ int main(void) {
 In-process (no TCP) still works via `t_broker_publish` / `t_broker_subscribe`
 or the stub `t_client_connect`.
 
-See [docs/Wire_Protocol.md](docs/Wire_Protocol.md) and
+See [docs/Wire_Protocol.md](docs/Wire_Protocol.md),
+[docs/Windows_CI.md](docs/Windows_CI.md), and
 [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Project Stats

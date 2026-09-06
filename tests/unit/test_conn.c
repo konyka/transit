@@ -2,11 +2,10 @@
 #include "t_conn.h"
 #include "t_proto.h"
 #include "t_evloop.h"
+#include "t_socket.h"
+#include "t_thread.h"
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <pthread.h>
 
 static size_t g_recv_count;
 static char g_last_payload[256];
@@ -34,7 +33,7 @@ static void *loop_fn(void *arg) {
 
 T_TEST(conn_multi_send_append) {
     int fds[2];
-    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
     t_evloop *loop = t_evloop_create();
     t_conn *client = t_conn_create(fds[0], loop);
     t_conn *server = t_conn_create(fds[1], loop);
@@ -56,9 +55,9 @@ T_TEST(conn_multi_send_append) {
 
     T_ASSERT_EQ(t_conn_msgs_sent(client), (size_t)2);
 
-    pthread_t t;
-    pthread_create(&t, NULL, loop_fn, loop);
-    pthread_join(t, NULL);
+    t_thread t;
+    T_ASSERT_EQ(t_thread_spawn(&t, loop_fn, loop), 0);
+    T_ASSERT_EQ(t_thread_join(&t), 0);
 
     T_ASSERT_EQ(g_recv_count, (size_t)2);
 
@@ -69,7 +68,7 @@ T_TEST(conn_multi_send_append) {
 
 T_TEST(conn_send_empty_payload) {
     int fds[2];
-    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
     t_evloop *loop = t_evloop_create();
     t_conn *client = t_conn_create(fds[0], loop);
     t_conn *server = t_conn_create(fds[1], loop);
@@ -84,9 +83,9 @@ T_TEST(conn_send_empty_payload) {
     t_conn_send(client, &m);
     T_ASSERT_EQ(t_conn_msgs_sent(client), (size_t)1);
 
-    pthread_t t;
-    pthread_create(&t, NULL, loop_fn, loop);
-    pthread_join(t, NULL);
+    t_thread t;
+    T_ASSERT_EQ(t_thread_spawn(&t, loop_fn, loop), 0);
+    T_ASSERT_EQ(t_thread_join(&t), 0);
 
     T_ASSERT_EQ(g_recv_count, (size_t)1);
 
@@ -97,7 +96,7 @@ T_TEST(conn_send_empty_payload) {
 
 T_TEST(conn_create_destroy_no_evloop) {
     int fds[2];
-    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
     t_conn *a = t_conn_create(fds[0], NULL);
     t_conn *b = t_conn_create(fds[1], NULL);
     T_ASSERT_NOT_NULL(a);
@@ -110,7 +109,7 @@ T_TEST(conn_create_destroy_no_evloop) {
 
 T_TEST(conn_bytes_sent_once) {
     int fds[2];
-    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
     t_evloop *loop = t_evloop_create();
     t_conn *client = t_conn_create(fds[0], loop);
     t_conn *server = t_conn_create(fds[1], loop);
@@ -128,9 +127,9 @@ T_TEST(conn_bytes_sent_once) {
     /* Before flush, bytes_sent should still be 0 (counted on write). */
     T_ASSERT_EQ(t_conn_bytes_sent(client), (size_t)0);
 
-    pthread_t t;
-    pthread_create(&t, NULL, loop_fn, loop);
-    pthread_join(t, NULL);
+    t_thread t;
+    T_ASSERT_EQ(t_thread_spawn(&t, loop_fn, loop), 0);
+    T_ASSERT_EQ(t_thread_join(&t), 0);
 
     T_ASSERT_EQ(g_recv_count, (size_t)1);
     T_ASSERT_EQ(t_conn_bytes_sent(client), queued);

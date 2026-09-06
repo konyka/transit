@@ -3,9 +3,25 @@
  */
 
 #include "t_slab.h"
+#include "t_compiler.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#if T_PLATFORM_WINDOWS
+#include <malloc.h>
+static int t_memalign(void **p, size_t align, size_t n) {
+    void *m = _aligned_malloc(n, align);
+    if (!m) return -1;
+    *p = m;
+    return 0;
+}
+static void t_memalign_free(void *p) { if (p) _aligned_free(p); }
+#else
+static int t_memalign(void **p, size_t align, size_t n) {
+    return posix_memalign(p, align, n);
+}
+static void t_memalign_free(void *p) { free(p); }
+#endif
 
 typedef struct t_slab_page {
     void *mem;           /* raw memory for objects */
@@ -32,11 +48,11 @@ static t_slab_page *t_slab_new_page(t_slab *slab) {
     if (cap == 0) cap = 1;
     void *mem = NULL;
     /* Fail closed: malloc may break the slab alignment contract. */
-    if (posix_memalign(&mem, slab->alignment, cap * obj) != 0 || !mem)
+    if (t_memalign(&mem, slab->alignment, cap * obj) != 0 || !mem)
         return NULL;
     t_slab_page *page = (t_slab_page *)malloc(sizeof(t_slab_page));
     if (!page) {
-        free(mem);
+        t_memalign_free(mem);
         return NULL;
     }
     page->mem = mem;
@@ -87,7 +103,7 @@ void t_slab_destroy(t_slab *slab) {
     t_slab_page *p = slab->pages;
     while (p) {
         t_slab_page *next = p->next;
-        if (p->mem) free(p->mem);
+        if (p->mem) t_memalign_free(p->mem);
         free(p);
         p = next;
     }

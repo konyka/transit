@@ -8,6 +8,7 @@
 #include "t_time.h"
 #include "t_atomic.h"
 #include "t_mutex.h"
+#include "t_thread.h"
 #include "t_spinlock.h"
 #include "t_rwlock.h"
 #include "t_pool.h"

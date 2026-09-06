@@ -3,10 +3,7 @@
 #include "t_tcp.h"
 #include "t_evloop.h"
 #include "t_time.h"
-#include <unistd.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 
 T_TEST(socket_create_close) {
     int fd = t_socket_create(AF_INET, SOCK_STREAM, 0);
@@ -65,9 +62,24 @@ T_TEST(tcp_server_echo_basic) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(socket_pair_echo) {
+    int fds[2];
+    char buf[8];
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
+    T_ASSERT(fds[0] >= 0);
+    T_ASSERT(fds[1] >= 0);
+    T_ASSERT_EQ(t_socket_set_block(fds[0]), 0);
+    T_ASSERT_EQ(t_socket_set_block(fds[1]), 0);
+    T_ASSERT_EQ((int)t_socket_write(fds[0], "hi", 2), 2);
+    T_ASSERT_EQ((int)t_socket_read(fds[1], buf, 2), 2);
+    T_ASSERT(buf[0] == 'h' && buf[1] == 'i');
+    t_socket_close(fds[0]);
+    t_socket_close(fds[1]);
+}
+
 T_TEST(tcp_conn_create_destroy) {
     int fds[2];
-    socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
     t_evloop *loop = t_evloop_create();
     t_tcp_conn *conn = t_tcp_conn_create(fds[0], loop);
     T_ASSERT_NOT_NULL(conn);

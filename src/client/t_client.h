@@ -27,6 +27,9 @@ int        t_client_dial(t_client *client, t_evloop *loop, const char *host, uin
 int        t_client_set_psk(t_client *client, const uint8_t *psk, size_t len);
 int        t_client_disconnect(t_client *client);
 int        t_client_last_status(const t_client *client);
+/* Monotonic count of decoded ACK frames. 0 until the first ACK arrives.
+ * Wait for this to change; do not treat last_status==0 as "ACK received". */
+unsigned   t_client_ack_seq(const t_client *client);
 const char *t_client_last_ack_name(const t_client *client);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);

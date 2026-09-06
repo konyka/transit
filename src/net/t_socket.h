@@ -52,5 +52,9 @@ uint16_t t_sockaddr_port(const t_sockaddr *addr);
 uint16_t t_socket_local_port(int fd);
 /* Blocking IPv4 connect; returns a non-blocking fd, or -1. */
 int t_socket_dial_ipv4(const char *ip, uint16_t port);
+/* Connected stream pair. POSIX: AF_UNIX socketpair. Windows: loopback TCP
+ * with a self-token so a stolen accept cannot be returned. Both ends
+ * are non-blocking. fds[0] and fds[1] are -1 on failure. */
+int t_socket_pair(int fds[2]);
 
 #endif /* T_SOCKET_H */

@@ -1,13 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <pthread.h>
 
 #include "t_conn.h"
 #include "t_proto.h"
 #include "t_evloop.h"
+#include "t_socket.h"
+#include "t_thread.h"
+#include "t_time.h"
 #include "t_test.h"
 
 static size_t g_msgs_recv;
@@ -36,7 +36,7 @@ static void *loop_fn(void *arg) {
 
 T_TEST(conn_create_destroy) {
     int fds[2];
-    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
     t_evloop *loop = t_evloop_create();
     t_conn *a = t_conn_create(fds[0], loop);
     t_conn *b = t_conn_create(fds[1], loop);
@@ -51,7 +51,7 @@ T_TEST(conn_create_destroy) {
 
 T_TEST(conn_send_receive) {
     int fds[2];
-    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
     t_evloop *loop = t_evloop_create();
     t_conn *client = t_conn_create(fds[0], loop);
     t_conn *server = t_conn_create(fds[1], loop);
@@ -66,12 +66,12 @@ T_TEST(conn_send_receive) {
     memcpy(msg.payload, payload, plen);
     msg.payload_len = plen;
 
-    pthread_t t;
-    pthread_create(&t, NULL, loop_fn, loop);
-    usleep(10000);
+    t_thread t;
+    T_ASSERT_EQ(t_thread_spawn(&t, loop_fn, loop), 0);
+    t_time_sleep_us(10000);
     t_conn_send(client, &msg);
     free(msg.payload);
-    pthread_join(t, NULL);
+    T_ASSERT_EQ(t_thread_join(&t), 0);
 
     T_ASSERT_EQ(g_msgs_recv, (size_t)1);
     T_ASSERT(strcmp(g_last_payload, payload) == 0);
@@ -82,7 +82,7 @@ T_TEST(conn_send_receive) {
 
 T_TEST(conn_stats) {
     int fds[2];
-    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    T_ASSERT_EQ(t_socket_pair(fds), 0);
 
     t_evloop *loop1 = t_evloop_create();
     t_conn *c1 = t_conn_create(fds[0], loop1);
@@ -95,23 +95,23 @@ T_TEST(conn_stats) {
     m1.payload = (uint8_t *)malloc(plen1);
     memcpy(m1.payload, "aaa", plen1);
     m1.payload_len = plen1;
-    pthread_t t1;
-    pthread_create(&t1, NULL, loop_fn, loop1);
-    usleep(10000);
+    t_thread t1;
+    T_ASSERT_EQ(t_thread_spawn(&t1, loop_fn, loop1), 0);
+    t_time_sleep_us(10000);
     t_conn_send(c1, &m1);
     free(m1.payload);
-    pthread_join(t1, NULL);
+    T_ASSERT_EQ(t_thread_join(&t1), 0);
     T_ASSERT_EQ(g_msgs_recv, (size_t)1);
 
     t_conn_destroy(c1);
     t_conn_destroy(s1);
     t_evloop_destroy(loop1);
 
-    close(fds[0]);
-    close(fds[1]);
+    t_socket_close(fds[0]);
+    t_socket_close(fds[1]);
 
     int fds2[2];
-    T_ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, fds2), 0);
+    T_ASSERT_EQ(t_socket_pair(fds2), 0);
     t_evloop *loop2 = t_evloop_create();
     t_conn *c2 = t_conn_create(fds2[0], loop2);
     t_conn *s2 = t_conn_create(fds2[1], loop2);
@@ -123,12 +123,12 @@ T_TEST(conn_stats) {
     m2.payload = (uint8_t *)malloc(plen2);
     memcpy(m2.payload, "bbb", plen2);
     m2.payload_len = plen2;
-    pthread_t t2;
-    pthread_create(&t2, NULL, loop_fn, loop2);
-    usleep(10000);
+    t_thread t2;
+    T_ASSERT_EQ(t_thread_spawn(&t2, loop_fn, loop2), 0);
+    t_time_sleep_us(10000);
     t_conn_send(c2, &m2);
     free(m2.payload);
-    pthread_join(t2, NULL);
+    T_ASSERT_EQ(t_thread_join(&t2), 0);
     T_ASSERT_EQ(g_msgs_recv, (size_t)1);
 
     t_conn_destroy(c2);

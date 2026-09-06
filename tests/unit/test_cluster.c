@@ -4,8 +4,8 @@
 #include "t_raft.h"
 #include "t_wire.h"
 #include "t_broker.h"
+#include "t_file.h"
 #include <string.h>
-#include <unistd.h>
 
 T_TEST(node_create_destroy) {
     t_node *n = t_node_create(42, "127.0.0.1", 8080);
@@ -252,7 +252,7 @@ T_TEST(raft_rpc_stale_candidate_denied) {
 
 T_TEST(raft_log_survives_reopen) {
     const char *path = "test_transit_raft.log";
-    unlink(path);
+    t_file_unlink(path);
     t_raft_config cfg = {1, 150, 50};
     t_raft *r = t_raft_create(&cfg);
     T_ASSERT_EQ(t_raft_open_log(r, path, 1), 0);
@@ -270,7 +270,7 @@ T_TEST(raft_log_survives_reopen) {
     T_ASSERT_NOT_NULL(e);
     T_ASSERT_MEM_EQ(e->data, data, 1);
     t_raft_destroy(r);
-    unlink(path);
+    t_file_unlink(path);
 }
 
 T_TEST(broker_leader_only_publish) {

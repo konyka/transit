@@ -2,9 +2,10 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <pthread.h>
 #include "t_time.h"
 #include "t_test.h"
+#include "t_thread.h"
+#include "t_mpmc.h"
 
 #define MAP_CAP 131101
 #define MAP_N   100000
@@ -26,16 +27,24 @@ static void bench_map(void){
 
 static void bench_vec_push(void){ int *data = NULL; size_t cap = 1024; size_t len = 0; data = malloc(cap * sizeof(int)); uint64_t t0 = t_time_now_ms(); for(size_t i=0;i<VEC_N;++i){ if(len==cap){ cap*=2; data = (int*)realloc(data, cap*sizeof(int)); } data[len++] = (int)i; } uint64_t t1 = t_time_now_ms(); uint64_t dt = t1 - t0; if(dt==0) dt=1; uint64_t qps = (VEC_N * 1000) / dt; printf("[bench_collections_vec_push] iterations=%zu time_ms=%lu ops/sec=%lu\n", (size_t)VEC_N, (unsigned long)dt, (unsigned long)qps); free(data); }
 
-typedef struct{ int *buf; size_t cap; size_t head; size_t tail; pthread_mutex_t m; pthread_cond_t not_empty; pthread_cond_t not_full; } mp_queue_t;
+static void* prod(void* arg){ t_mpmc* q = (t_mpmc*)arg; for(int i=0;i<1000000;++i){ while(!t_mpmc_push(q, (void*)(uintptr_t)(i+1))) t_thread_yield(); } return NULL; }
+static void* cons(void* arg){ t_mpmc* q = (t_mpmc*)arg; int got = 0; while(got < 1000000){ void *x; if(t_mpmc_pop(q, &x)) got++; else t_thread_yield(); } return NULL; }
 
-static mp_queue_t* mpq_create(size_t cap){ mp_queue_t* q = (mp_queue_t*)malloc(sizeof(mp_queue_t)); q->buf = (int*)malloc(cap*sizeof(int)); q->cap = cap; q->head = 0; q->tail = 0; pthread_mutex_init(&q->m, NULL); pthread_cond_init(&q->not_empty, NULL); pthread_cond_init(&q->not_full, NULL); return q; }
-static void mpq_free(mp_queue_t* q){ if(!q) return; free(q->buf); pthread_mutex_destroy(&q->m); pthread_cond_destroy(&q->not_empty); pthread_cond_destroy(&q->not_full); free(q); }
-static void mpq_push(mp_queue_t* q, int v){ pthread_mutex_lock(&q->m); while((q->tail - q->head) >= q->cap) pthread_cond_wait(&q->not_full, &q->m); q->buf[q->tail % q->cap] = v; q->tail++; pthread_cond_signal(&q->not_empty); pthread_mutex_unlock(&q->m); }
-static int mpq_pop(mp_queue_t* q){ pthread_mutex_lock(&q->m); while(q->tail == q->head) pthread_cond_wait(&q->not_empty, &q->m); int v = q->buf[q->head % q->cap]; q->head++; pthread_cond_signal(&q->not_full); pthread_mutex_unlock(&q->m); return v; }
-
-static void* prod(void* arg){ mp_queue_t* q = (mp_queue_t*)arg; for(int i=0;i<1000000;++i) mpq_push(q, i); return NULL; }
-static void* cons(void* arg){ mp_queue_t* q = (mp_queue_t*)arg; for(int i=0;i<1000000;++i){ int x = mpq_pop(q); (void)x; } return NULL; }
-
-static void bench_mpmc_queue(void){ mp_queue_t* q = mpq_create(1024*1024); pthread_t pth, cth; uint64_t t0 = t_time_now_ms(); pthread_create(&pth, NULL, prod, q); pthread_create(&cth, NULL, cons, q); pthread_join(pth, NULL); pthread_join(cth, NULL); uint64_t t1 = t_time_now_ms(); mpq_free(q); uint64_t dt = t1 - t0; if(dt==0) dt=1; uint64_t qps = (1000000ULL * 1000) / dt; printf("[bench_collections_mpmc] iterations=%d time_ms=%lu ops/sec=%lu\n", 1000000, (unsigned long)dt, (unsigned long)qps); }
+static void bench_mpmc_queue(void){
+    t_mpmc q;
+    t_thread pth, cth;
+    uint64_t t0, t1, dt, qps;
+    if (t_mpmc_init(&q, 1024*1024) != 0) return;
+    t0 = t_time_now_ms();
+    t_thread_spawn(&pth, prod, &q);
+    t_thread_spawn(&cth, cons, &q);
+    t_thread_join(&pth);
+    t_thread_join(&cth);
+    t1 = t_time_now_ms();
+    t_mpmc_destroy(&q);
+    dt = t1 - t0; if(dt==0) dt=1;
+    qps = (1000000ULL * 1000) / dt;
+    printf("[bench_collections_mpmc] iterations=%d time_ms=%lu ops/sec=%lu\n", 1000000, (unsigned long)dt, (unsigned long)qps);
+}
 
 int main(void){ bench_map(); bench_vec_push(); bench_mpmc_queue(); return 0; }

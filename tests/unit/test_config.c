@@ -1,12 +1,10 @@
 #include "t_test.h"
 #include "t_config.h"
+#include "t_file.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 
 /* Helper to build a C string with length */
 static void run_parse_string(t_config *cfg, const char *s) {
@@ -82,17 +80,25 @@ T_TEST(config_section_iteration) {
 
 T_TEST(config_parse_file) {
     t_config *cfg = t_config_create();
-    char tmpl[] = "/tmp/test_configXXXXXX";
-    int fd = mkstemp(tmpl);
-    T_ASSERT(fd != -1);
+    const char *path = "test_transit_config.ini";
     const char *content = "[srv]\nhost=127.0.0.1\nport=1234\n";
-    write(fd, content, strlen(content));
-    close(fd);
-    int r = t_config_parse_file(cfg, tmpl);
+    t_file f;
+    t_file_unlink(path);
+    t_file_init(&f);
+    T_ASSERT_EQ(t_file_open(&f, path, T_FILE_WRITE | T_FILE_CREAT | T_FILE_TRUNC), 0);
+    T_ASSERT_EQ(t_file_write(&f, content, strlen(content)), 0);
+    t_file_close(&f);
+    int r = t_config_parse_file(cfg, path);
     T_ASSERT_EQ(r, 0);
     T_ASSERT(strcmp(t_config_get(cfg, "srv", "host"), "127.0.0.1") == 0);
     T_ASSERT_EQ(t_config_get_int(cfg, "srv", "port", 0), 1234);
-    unlink(tmpl);
+    t_file_unlink(path);
+    t_config_destroy(cfg);
+}
+
+T_TEST(config_parse_file_missing_fails_closed) {
+    t_config *cfg = t_config_create();
+    T_ASSERT_EQ(t_config_parse_file(cfg, "test_transit_config_missing.ini"), -1);
     t_config_destroy(cfg);
 }
 

@@ -7,9 +7,7 @@
 #include <limits.h>
 #include <float.h>
 #include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
+#include "t_file.h"
 
 /* Internal simple data structures: sections containing key/value pairs */
 typedef struct {
@@ -176,32 +174,26 @@ static void cfg_clear(t_config *cfg) {
 
 /* Parse file by reading it into memory and delegating to string parser */
 int t_config_parse_file(t_config *cfg, const char *path) {
+    t_file f;
+    uint64_t sz = 0;
+    char *data;
+    int res;
     if (!cfg || !path) return -1;
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return -1;
-    struct stat st;
-    if (fstat(fd, &st) != 0 || st.st_size < 0) { close(fd); return -1; }
-    size_t total = (size_t)st.st_size;
-    if (total > SIZE_MAX - 1) { close(fd); return -1; }
+    t_file_init(&f);
+    if (t_file_open(&f, path, T_FILE_READ) != 0) return -1;
+    if (t_file_size(&f, &sz) != 0) { t_file_close(&f); return -1; }
     /* Cap config files to keep parse memory bounded. */
-    if (total > 16 * 1024 * 1024) { close(fd); return -1; }
-    char *data = (char *)malloc(total + 1);
-    if (!data) { close(fd); return -1; }
-    size_t off = 0;
-    while (off < total) {
-        ssize_t r = read(fd, data + off, total - off);
-        if (r < 0) {
-            if (errno == EINTR) continue;
-            free(data);
-            close(fd);
-            return -1;
-        }
-        if (r == 0) { free(data); close(fd); return -1; }
-        off += (size_t)r;
+    if (sz > 16ull * 1024ull * 1024ull) { t_file_close(&f); return -1; }
+    data = (char *)malloc((size_t)sz + 1);
+    if (!data) { t_file_close(&f); return -1; }
+    if (sz > 0 && t_file_read(&f, data, (size_t)sz) != 0) {
+        free(data);
+        t_file_close(&f);
+        return -1;
     }
-    close(fd);
-    data[off] = '\0';
-    int res = t_config_parse_string(cfg, data, off);
+    t_file_close(&f);
+    data[sz] = '\0';
+    res = t_config_parse_string(cfg, data, (size_t)sz);
     free(data);
     return res;
 }

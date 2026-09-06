@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 
-#if defined(T_ARCH_X64) || defined(T_ARCH_ARM64)
+#if T_HAVE_CORO_ASM
 extern void t_coro_switch(void **from_sp, void **to_sp);
 extern void t_coro_trampoline(void);
 #else
@@ -13,7 +13,7 @@ static void t_coro_switch(void **from_sp, void **to_sp) {
 }
 #endif
 
-static __thread t_coro *g_current_coro = NULL;
+static T_THREAD_LOCAL t_coro *g_current_coro = NULL;
 
 struct t_coro {
     t_coro_fn    fn;
@@ -35,7 +35,7 @@ void t_coro_wrapper(t_coro *coro) {
 static void *coro_init_stack(void *stack, size_t stack_size, t_coro *coro) {
     char *base = (char *)stack;
     char *top = (char *)((uintptr_t)(base + stack_size) & ~(uintptr_t)15);
-#if defined(T_ARCH_X64)
+#if T_HAVE_CORO_ASM && defined(T_ARCH_X64)
     /* retaddr + 6 callee-saved GPRs (rbx, rbp, r12-r15). */
     if (top < base + 8 + 6 * 8) return NULL;
     top -= 8;
@@ -49,7 +49,7 @@ static void *coro_init_stack(void *stack, size_t stack_size, t_coro *coro) {
     regs[4] = NULL;
     regs[5] = (void *)coro; /* rbx */
     return top;
-#elif defined(T_ARCH_ARM64)
+#elif T_HAVE_CORO_ASM && defined(T_ARCH_ARM64)
     /* 6 stp pairs: x19-x28, x29/x30. x19 holds coro; x30 is trampoline. */
     if (top < base + 96) return NULL;
     top -= 96;
@@ -76,7 +76,7 @@ static void *coro_init_stack(void *stack, size_t stack_size, t_coro *coro) {
 
 t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
     if (!fn || stack_size < 256) return NULL;
-#if !defined(T_ARCH_X64) && !defined(T_ARCH_ARM64)
+#if !T_HAVE_CORO_ASM
     return NULL;
 #endif
     t_coro *coro = (t_coro *)calloc(1, sizeof(t_coro));

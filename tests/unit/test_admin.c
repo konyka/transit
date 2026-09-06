@@ -1,14 +1,12 @@
 #include "t_test.h"
 #include "t_evloop.h"
 #include "t_admin.h"
+#include "t_socket.h"
+#include "t_thread.h"
+#include "t_time.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <pthread.h>
 
 static void timer_stop(void *ud) {
     t_evloop_stop((t_evloop *)ud);
@@ -53,31 +51,21 @@ T_TEST(admin_stats_endpoint) {
     int port = t_admin_port(admin);
     T_ASSERT(port > 0);
 
-    pthread_t t;
-    pthread_create(&t, NULL, loop_runner, loop);
-    usleep(20000);
+    t_thread t;
+    T_ASSERT_EQ(t_thread_spawn(&t, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
 
-    int s = socket(AF_INET, SOCK_STREAM, 0);
+    int s = t_socket_dial_ipv4("127.0.0.1", (uint16_t)port);
     T_ASSERT(s >= 0);
-    struct sockaddr_in sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons((uint16_t)port);
-    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
-    int connected = 0;
-    for (int i = 0; i < 50 && !connected; i++) {
-        if (connect(s, (struct sockaddr *)&sa, sizeof(sa)) == 0) connected = 1;
-        else usleep(10000);
-    }
-    T_ASSERT(connected);
+    T_ASSERT_EQ(t_socket_set_block(s), 0);
 
     const char *req = "GET /stats HTTP/1.1\r\nHost: localhost\r\n\r\n";
-    T_ASSERT_EQ(write(s, req, strlen(req)), (ssize_t)strlen(req));
+    T_ASSERT_EQ((int)t_socket_write(s, req, strlen(req)), (int)strlen(req));
 
     char buf[4096];
     size_t total = 0;
     ssize_t n;
-    while ((n = read(s, buf + total, sizeof(buf) - total - 1)) > 0) {
+    while ((n = t_socket_read(s, buf + total, sizeof(buf) - total - 1)) > 0) {
         total += (size_t)n;
         if (total >= sizeof(buf) - 1) break;
         if (memchr(buf, '}', total)) break;
@@ -85,9 +73,9 @@ T_TEST(admin_stats_endpoint) {
     buf[total] = '\0';
     T_ASSERT(strstr(buf, "transit") != NULL);
     T_ASSERT(strstr(buf, "version") != NULL);
-    close(s);
+    t_socket_close(s);
 
-    pthread_join(t, NULL);
+    T_ASSERT_EQ(t_thread_join(&t), 0);
     t_admin_stop(admin);
     t_admin_destroy(admin);
     t_evloop_destroy(loop);

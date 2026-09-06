@@ -9,6 +9,7 @@
 #include "t_storage.h"
 #include "t_coro.h"
 #include "t_tpool.h"
+#include "t_atomic.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -34,8 +35,7 @@ static void coro_inc_fn(void *arg) {
 }
 
 static void tpool_inc_fn(void *arg) {
-    int *p = (int *)arg;
-    __sync_add_and_fetch(p, 1);
+    t_atomic_fetch_add_int((t_atomic_int *)arg, 1);
 }
 
 T_TEST(integration_broker_broadcast) {
@@ -157,24 +157,27 @@ T_TEST(integration_proto_storage) {
 T_TEST(integration_coroutine_threadpool) {
     int coro_count = 0;
     t_coro *c = t_coro_create(coro_inc_fn, &coro_count, 8192);
-    T_ASSERT_NOT_NULL(c);
-
-    t_coro_resume(c);
-    T_ASSERT_EQ(coro_count, 1);
-    t_coro_resume(c);
-    T_ASSERT_EQ(coro_count, 2);
-    t_coro_resume(c);
-    T_ASSERT_EQ(coro_count, 3);
+    if (!c) {
+        T_ASSERT_EQ((int)T_HAVE_CORO_ASM, 0);
+    } else {
+        T_ASSERT_EQ((int)T_HAVE_CORO_ASM, 1);
+        t_coro_resume(c);
+        T_ASSERT_EQ(coro_count, 1);
+        t_coro_resume(c);
+        T_ASSERT_EQ(coro_count, 2);
+        t_coro_resume(c);
+        T_ASSERT_EQ(coro_count, 3);
+    }
 
     t_tpool *tp = t_tpool_create(2);
     T_ASSERT_NOT_NULL(tp);
 
-    int task_count = 0;
+    t_atomic_int task_count = T_ATOMIC_INIT(0);
     for (int i = 0; i < 4; i++) {
         t_tpool_submit(tp, tpool_inc_fn, (void *)&task_count);
     }
     t_tpool_wait(tp);
-    T_ASSERT_EQ(__sync_add_and_fetch(&task_count, 0), 4);
+    T_ASSERT_EQ(t_atomic_load_int(&task_count), 4);
 
     t_tpool_destroy(tp);
     t_coro_destroy(c);

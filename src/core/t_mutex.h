@@ -6,9 +6,11 @@
 #if T_PLATFORM_WINDOWS
     #include <windows.h>
     typedef SRWLOCK t_mutex;
+    #define T_MUTEX_INIT SRWLOCK_INIT
 #else
     #include <pthread.h>
     typedef pthread_mutex_t t_mutex;
+    #define T_MUTEX_INIT PTHREAD_MUTEX_INITIALIZER
 #endif
 
 void t_mutex_init(t_mutex *m);

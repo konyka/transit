@@ -2,6 +2,7 @@
 #include "t_time.h"
 #include "t_shutdown.h"
 #include "t_compiler.h"
+#include "t_socket.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -167,7 +168,10 @@ static int evloop_process_timers(t_evloop *loop) {
 
 static void evloop_close_wakeup(t_evloop *loop) {
     if (!loop) return;
-#if !T_PLATFORM_WINDOWS
+#if T_PLATFORM_WINDOWS
+    if (loop->wakeup_fds[0] >= 0) t_socket_close(loop->wakeup_fds[0]);
+    if (loop->wakeup_fds[1] >= 0) t_socket_close(loop->wakeup_fds[1]);
+#else
     if (loop->wakeup_fds[0] >= 0) close(loop->wakeup_fds[0]);
     if (loop->wakeup_fds[1] >= 0) close(loop->wakeup_fds[1]);
 #endif
@@ -178,7 +182,12 @@ t_evloop *t_evloop_create(void) {
     t_evloop *loop = (t_evloop *)calloc(1, sizeof(t_evloop));
     if (!loop) return NULL;
     loop->wakeup_fds[0] = loop->wakeup_fds[1] = -1;
-#if !T_PLATFORM_WINDOWS
+#if T_PLATFORM_WINDOWS
+    if (t_socket_pair(loop->wakeup_fds) != 0) {
+        free(loop);
+        return NULL;
+    }
+#else
     if (pipe(loop->wakeup_fds) != 0) {
         free(loop);
         return NULL;
@@ -215,14 +224,12 @@ t_evloop *t_evloop_create(void) {
         free(loop);
         return NULL;
     }
-#if !T_PLATFORM_WINDOWS
     if (loop->backend->add(loop, &loop->wakeup_io, T_EV_READ) != 0) {
         loop->backend->destroy(loop);
         evloop_close_wakeup(loop);
         free(loop);
         return NULL;
     }
-#endif
 
     /* Pre-size defer list so poll-batch frees rarely hit realloc OOM. */
     loop->deferred_free_cap = 256;

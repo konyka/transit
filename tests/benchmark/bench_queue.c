@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <pthread.h>
+#include "t_thread.h"
 #include <stdbool.h>
 #include <string.h>
 #include "t_time.h"
@@ -72,10 +72,10 @@ static void bench_broadcast(void){
     int *buf3 = (int*)malloc(per * sizeof(int));
     for(size_t i=0; i<per; ++i){ buf0[i] = (int)i; buf1[i] = (int)i; buf2[i] = (int)i; buf3[i] = (int)i; }
     vec4_t vbuf[4] = { {buf0, per}, {buf1, per}, {buf2, per}, {buf3, per} };
-    pthread_t th[4];
+    t_thread th[4];
     uint64_t t0 = t_time_now_ms();
-    for(int i=0; i<4; ++i) pthread_create(&th[i], NULL, consumer, &vbuf[i]);
-    for(int i=0; i<4; ++i) pthread_join(th[i], NULL);
+    for(int i=0; i<4; ++i) t_thread_spawn(&th[i], consumer, &vbuf[i]);
+    for(int i=0; i<4; ++i) t_thread_join(&th[i]);
     uint64_t t1 = t_time_now_ms();
     uint64_t dt = t1 - t0; if(dt == 0) dt = 1;
     uint64_t ops = BENCH_ITERS; uint64_t qps = (ops * 1000) / dt;

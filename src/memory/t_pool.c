@@ -4,10 +4,25 @@
  */
 
 #include "t_pool.h"
+#include "t_compiler.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-/* no extra system headers required beyond stdlib and string */
+#if T_PLATFORM_WINDOWS
+#include <malloc.h>
+static int t_memalign(void **p, size_t align, size_t n) {
+    void *m = _aligned_malloc(n, align);
+    if (!m) return -1;
+    *p = m;
+    return 0;
+}
+static void t_memalign_free(void *p) { if (p) _aligned_free(p); }
+#else
+static int t_memalign(void **p, size_t align, size_t n) {
+    return posix_memalign(p, align, n);
+}
+static void t_memalign_free(void *p) { free(p); }
+#endif
 
 typedef struct t_pool_chunk {
     void *mem;
@@ -87,7 +102,7 @@ void t_pool_destroy(t_pool *pool) {
         while (c) {
             t_pool_chunk *next = c->next;
             if (c->mem) {
-                free(c->mem);
+                t_memalign_free(c->mem);
             }
             free(c);
             c = next;
@@ -110,13 +125,13 @@ static void t_pool_allocate_chunk_for_class(t_pool_class *cls, size_t pool_chunk
 
     void *mem = NULL;
     /* Fail closed: malloc may break T_POOL_MIN_ALIGN (16). */
-    if (posix_memalign(&mem, T_POOL_MIN_ALIGN, chunk_bytes) != 0 || !mem)
+    if (t_memalign(&mem, T_POOL_MIN_ALIGN, chunk_bytes) != 0 || !mem)
         return;
 
     /* Create chunk record */
     t_pool_chunk *chunk = (t_pool_chunk *)malloc(sizeof(t_pool_chunk));
     if (!chunk) {
-        free(mem);
+        t_memalign_free(mem);
         return;
     }
     chunk->mem = mem;
@@ -141,7 +156,7 @@ void *t_pool_alloc(t_pool *pool, size_t size) {
     if (idx < 0) {
         /* Large allocation: require pool alignment; no unaligned malloc. */
         void *ptr = NULL;
-        if (posix_memalign(&ptr, T_POOL_MIN_ALIGN, size) != 0)
+        if (t_memalign(&ptr, T_POOL_MIN_ALIGN, size) != 0)
             return NULL;
         return ptr;
     }
@@ -174,7 +189,7 @@ void t_pool_free(t_pool *pool, void *ptr, size_t size) {
         /* Large allocation (or unknown) – free directly.
          * Ignore caller size so a mismatched size cannot poison a freelist. */
         (void)size;
-        free(ptr);
+        t_memalign_free(ptr);
         return;
     }
     t_pool_class *cls = &pool->classes[idx];

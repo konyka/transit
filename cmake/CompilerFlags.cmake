@@ -10,6 +10,7 @@ message(STATUS "Configuring compiler flags for platform: ${CMAKE_SYSTEM_NAME}")
 if(MSVC)
     # MSVC flags
     add_compile_options(/W4 /WX)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)
     # Use C11 if available, otherwise C99
     if(CMAKE_C_STANDARD LESS 11)
         set(CMAKE_C_STANDARD 11)
@@ -17,7 +18,10 @@ if(MSVC)
     endif()
 else()
     # GCC / Clang flags
-    add_compile_options(-Wall -Wextra -Werror -fPIC)
+    add_compile_options(-Wall -Wextra -Werror)
+    if(NOT T_PLATFORM_WINDOWS)
+        add_compile_options(-fPIC)
+    endif()
     # CMake 3.16 does not know C23 dialect flags for newer compilers. Keep the
     # build system on C11 while source remains C99-C23 compatible.
     include(CheckCCompilerFlag)
@@ -74,4 +78,5 @@ if(T_PLATFORM_MACOS)
 endif()
 if(T_PLATFORM_WINDOWS)
     add_compile_definitions(T_PLATFORM_WINDOWS=1)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)
 endif()

@@ -1,6 +1,16 @@
 #include "t_test.h"
 #include "t_coro.h"
 
+static t_coro *require_coro(t_coro_fn fn, void *arg) {
+    t_coro *c = t_coro_create(fn, arg, T_CORO_DEFAULT_STACK);
+    if (!c) {
+        T_ASSERT_EQ((int)T_HAVE_CORO_ASM, 0);
+        return NULL;
+    }
+    T_ASSERT_EQ((int)T_HAVE_CORO_ASM, 1);
+    return c;
+}
+
 static void simple_coro_fn(void *arg) {
     int *p = (int *)arg;
     *p = 1;
@@ -11,15 +21,16 @@ static void simple_coro_fn(void *arg) {
 }
 
 T_TEST(coro_create_destroy) {
-    t_coro *c = t_coro_create(simple_coro_fn, NULL, T_CORO_DEFAULT_STACK);
-    T_ASSERT_NOT_NULL(c);
+    t_coro *c = require_coro(simple_coro_fn, NULL);
+    if (!c) return;
     T_ASSERT_EQ(t_coro_get_state(c), T_CORO_READY);
     t_coro_destroy(c);
 }
 
 T_TEST(coro_basic_resume_yield) {
     int val = 0;
-    t_coro *c = t_coro_create(simple_coro_fn, &val, T_CORO_DEFAULT_STACK);
+    t_coro *c = require_coro(simple_coro_fn, &val);
+    if (!c) return;
     T_ASSERT_EQ(t_coro_get_state(c), T_CORO_READY);
 
     t_coro_resume(c);
@@ -44,7 +55,8 @@ static void no_yield_coro_fn(void *arg) {
 
 T_TEST(coro_no_yield) {
     int val = 0;
-    t_coro *c = t_coro_create(no_yield_coro_fn, &val, T_CORO_DEFAULT_STACK);
+    t_coro *c = require_coro(no_yield_coro_fn, &val);
+    if (!c) return;
     t_coro_resume(c);
     T_ASSERT_EQ(val, 42);
     T_ASSERT_EQ(t_coro_get_state(c), T_CORO_DEAD);
@@ -60,8 +72,13 @@ static void add_coro_fn(void *arg) {
 
 T_TEST(coro_multiple) {
     int v1 = 0, v2 = 0;
-    t_coro *c1 = t_coro_create(add_coro_fn, &v1, T_CORO_DEFAULT_STACK);
-    t_coro *c2 = t_coro_create(add_coro_fn, &v2, T_CORO_DEFAULT_STACK);
+    t_coro *c1 = require_coro(add_coro_fn, &v1);
+    t_coro *c2 = require_coro(add_coro_fn, &v2);
+    if (!c1 || !c2) {
+        if (c1) t_coro_destroy(c1);
+        if (c2) t_coro_destroy(c2);
+        return;
+    }
 
     t_coro_resume(c1);
     t_coro_resume(c2);
@@ -90,7 +107,8 @@ static void arg_check_fn(void *arg) {
 T_TEST(coro_current_and_arg) {
     int secret = 999;
     g_arg_result = NULL;
-    t_coro *c = t_coro_create(arg_check_fn, &secret, T_CORO_DEFAULT_STACK);
+    t_coro *c = require_coro(arg_check_fn, &secret);
+    if (!c) return;
     t_coro_resume(c);
     T_ASSERT_NOT_NULL(g_arg_result);
     T_ASSERT_EQ(*(int *)g_arg_result, 999);
@@ -107,7 +125,8 @@ static void deep_yield_fn(void *arg) {
 
 T_TEST(coro_deep_yield) {
     int val = -1;
-    t_coro *c = t_coro_create(deep_yield_fn, &val, T_CORO_DEFAULT_STACK);
+    t_coro *c = require_coro(deep_yield_fn, &val);
+    if (!c) return;
     for (int i = 0; i < 5; i++) {
         t_coro_resume(c);
         T_ASSERT_EQ(val, i);
@@ -119,7 +138,8 @@ T_TEST(coro_deep_yield) {
 
 T_TEST(coro_resume_dead_returns_error) {
     int val = 0;
-    t_coro *c = t_coro_create(no_yield_coro_fn, &val, T_CORO_DEFAULT_STACK);
+    t_coro *c = require_coro(no_yield_coro_fn, &val);
+    if (!c) return;
     t_coro_resume(c);
     T_ASSERT_EQ(t_coro_get_state(c), T_CORO_DEAD);
     T_ASSERT_EQ(t_coro_resume(c), -1);

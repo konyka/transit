@@ -3,7 +3,7 @@
 #include "t_crc32c.h"
 #include <string.h>
 #include <stdlib.h>
-#include <arpa/inet.h>
+#include "t_endian.h"
 
 T_TEST(crc32c_empty) {
     uint32_t crc = t_crc32c("", 0);

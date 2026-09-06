@@ -1,8 +1,8 @@
 #include "t_test.h"
 #include "t_storage.h"
 #include "t_mmap.h"
+#include "t_file.h"
 #include <string.h>
-#include <unistd.h>
 
 /* Basic in-memory storage tests */
 T_TEST(storage_mem_create_destroy) {
@@ -80,7 +80,7 @@ T_TEST(storage_mem_reject_oversized) {
 
 T_TEST(storage_file_destroy_flushes) {
     const char *path = "test_transit_storage_destroy.bin";
-    unlink(path);
+    t_file_unlink(path);
     t_storage *s = t_storage_create(T_STORAGE_FILE, path);
     T_ASSERT_NOT_NULL(s);
     T_ASSERT_EQ(t_storage_put(s, 7, "persist", 7), 0);
@@ -92,13 +92,13 @@ T_TEST(storage_file_destroy_flushes) {
     T_ASSERT_EQ((int)len, 7);
     T_ASSERT(memcmp(data, "persist", 7) == 0);
     t_storage_destroy(s2);
-    unlink(path);
+    t_file_unlink(path);
 }
 
 /* Simple mmap lifecyle tests */
 T_TEST(mmap_create_close) {
     const char *path = "/tmp/test_transit_mmap.bin";
-    unlink(path);
+    t_file_unlink(path);
     t_mmap mm;
     T_ASSERT_EQ(t_mmap_create(&mm, path, 4096), 0);
     T_ASSERT_NOT_NULL(t_mmap_data(&mm));
@@ -106,12 +106,12 @@ T_TEST(mmap_create_close) {
     memset(t_mmap_data(&mm), 0xAA, 4096);
     t_mmap_sync(&mm);
     t_mmap_close(&mm);
-    unlink(path);
+    t_file_unlink(path);
 }
 
 T_TEST(mmap_persistence) {
     const char *path = "/tmp/test_transit_mmap2.bin";
-    unlink(path);
+    t_file_unlink(path);
     t_mmap mm;
     t_mmap_create(&mm, path, 4096);
     uint32_t *vals = (uint32_t *)t_mmap_data(&mm);
@@ -124,7 +124,7 @@ T_TEST(mmap_persistence) {
     uint32_t *vals2 = (uint32_t *)t_mmap_data(&mm2);
     T_ASSERT_EQ((int)vals2[0], (int)0xDEADBEEF);
     t_mmap_close(&mm2);
-    unlink(path);
+    t_file_unlink(path);
 }
 
 int main(void) {

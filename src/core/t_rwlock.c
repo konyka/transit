@@ -18,6 +18,8 @@ void t_rwlock_init(t_rwlock *rw) {
 void t_rwlock_destroy(t_rwlock *rw) {
 #if !T_PLATFORM_WINDOWS
     pthread_rwlock_destroy(rw);
+#else
+    (void)rw;
 #endif
 }
 
