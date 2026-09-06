@@ -36,10 +36,13 @@ Idempotent per connection. Consumer mode subscribes that connection for
 `qflags` are applied only at create:
 
 - `T_QUEUE_FLAG_DURABLE` requires a broker datadir (`transit-server -d` or
-  `[storage] datadir=`). Missing datadir returns `T_ERR_IO`. Combined with
-  `BROADCAST` returns `T_ERR_INVALID`. WAL path is
+  `[storage] datadir=`) when Raft is not attached. Missing datadir returns
+  `T_ERR_IO`. Combined with `BROADCAST` returns `T_ERR_INVALID`. WAL path is
   `{datadir}/{domain}.{queue}.wal` (file mode `0600`, cap 256 MiB, default
-  fsync every 32 records).
+  fsync every 32 records). With Raft, create is a log `CREATE` (no per-queue
+  WAL).
+- A Raft follower `OPEN` of a missing queue returns `T_ERR_AGAIN`. The
+  leader waits for majority apply before ACKing create.
 - `T_QUEUE_FLAG_EXCLUSIVE` refuses a second consumer with `T_ERR_BUSY`.
 - `T_QUEUE_FLAG_AUTODELETE` deletes the queue when the last network session
   closes it (or disconnects).

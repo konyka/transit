@@ -28,6 +28,7 @@ typedef struct t_broker {
     int wal_sync_every;
     t_cluster *cluster;
     t_raft *raft;
+    int applying;
 } t_broker;
 
 static int broker_any_delivering(const t_broker *broker) {
@@ -304,8 +305,8 @@ static int broker_wal_path(char *out, size_t cap, const char *dir,
     return 0;
 }
 
-int t_broker_create_queue(t_broker *broker, const char *domain_name,
-                          const char *queue_name, int type, int flags) {
+static int broker_create_queue_local(t_broker *broker, const char *domain_name,
+                                     const char *queue_name, int type, int flags) {
     if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
     broker_reap_domains(broker);
     if (broker_try_complete_destroy(broker)) return -1;
@@ -339,11 +340,12 @@ int t_broker_create_queue(t_broker *broker, const char *domain_name,
     return 0;
 }
 
-int t_broker_delete_queue(t_broker *broker, const char *domain_name,
-                          const char *queue_name) {
+static int broker_delete_queue_local(t_broker *broker, const char *domain_name,
+                                     const char *queue_name) {
     if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
     t_domain *d = t_broker_get_domain(broker, domain_name);
     if (!d) return -1;
+    if (broker->applying && !t_domain_get_queue(d, queue_name)) return 0;
     char walpath[1024];
     walpath[0] = 0;
     t_queue *q = (t_queue *)t_domain_get_queue(d, queue_name);
@@ -359,6 +361,32 @@ int t_broker_delete_queue(t_broker *broker, const char *domain_name,
     return r;
 }
 
+static int broker_propose_named(t_broker *broker, uint8_t type, uint8_t qtype,
+                                uint8_t qflags, const char *queue_name);
+
+int t_broker_create_queue(t_broker *broker, const char *domain_name,
+                          const char *queue_name, int type, int flags) {
+    if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
+    if (broker->raft && !broker->applying) {
+        t_domain *owner = broker_find_queue_domain(broker, queue_name);
+        if (owner && t_domain_get_queue(owner, queue_name)) return 0;
+        if (!t_broker_is_leader(broker)) return -1;
+        return broker_propose_named(broker, T_RAFT_CMD_CREATE, (uint8_t)type,
+                                    (uint8_t)flags, queue_name);
+    }
+    return broker_create_queue_local(broker, domain_name, queue_name, type, flags);
+}
+
+int t_broker_delete_queue(t_broker *broker, const char *domain_name,
+                          const char *queue_name) {
+    if (!broker || broker->free_pending || !domain_name || !queue_name) return -1;
+    if (broker->raft && !broker->applying) {
+        if (!t_broker_is_leader(broker)) return -1;
+        return broker_propose_named(broker, T_RAFT_CMD_DELETE, 0, 0, queue_name);
+    }
+    return broker_delete_queue_local(broker, domain_name, queue_name);
+}
+
 static int broker_ensure_queue(t_broker *broker, const char *name,
                                int qtype, int qflags) {
     t_domain *d = broker_find_queue_domain(broker, name);
@@ -369,27 +397,36 @@ static int broker_ensure_queue(t_broker *broker, const char *name,
 static void broker_on_raft(const t_raft_entry *entry, void *ud) {
     t_broker *b = (t_broker *)ud;
     if (!b || !entry || !entry->data) return;
+    b->applying++;
     t_raft_cmd cmd;
-    if (t_raft_cmd_decode(entry->data, entry->data_len, &cmd) != 0) return;
+    if (t_raft_cmd_decode(entry->data, entry->data_len, &cmd) != 0) {
+        b->applying--;
+        return;
+    }
     char name[T_WIRE_MAX_NAME + 1];
-    if (t_wire_name_copy(name, sizeof(name), cmd.name, cmd.name_len) != 0)
+    if (t_wire_name_copy(name, sizeof(name), cmd.name, cmd.name_len) != 0) {
+        b->applying--;
         return;
+    }
     if (cmd.type == T_RAFT_CMD_PUT) {
-        if (broker_ensure_queue(b, name, (int)cmd.qtype, (int)cmd.qflags) != 0)
-            return;
+        if (broker_ensure_queue(b, name, (int)cmd.qtype, (int)cmd.qflags) == 0) {
+            t_domain *d = broker_find_queue_domain(b, name);
+            t_queue *q = d ? (t_queue *)t_domain_get_queue(d, name) : NULL;
+            if (q)
+                (void)t_queue_restore(q, cmd.msg_id, cmd.data, cmd.data_len,
+                                      (int)cmd.priority);
+        }
+    } else if (cmd.type == T_RAFT_CMD_ACK) {
         t_domain *d = broker_find_queue_domain(b, name);
         t_queue *q = d ? (t_queue *)t_domain_get_queue(d, name) : NULL;
-        if (!q) return;
-        (void)t_queue_restore(q, cmd.msg_id, cmd.data, cmd.data_len,
-                              (int)cmd.priority);
-        return;
+        if (q) (void)t_queue_drop(q, cmd.msg_id);
+    } else if (cmd.type == T_RAFT_CMD_CREATE) {
+        (void)broker_create_queue_local(b, "default", name, (int)cmd.qtype,
+                                        (int)cmd.qflags);
+    } else if (cmd.type == T_RAFT_CMD_DELETE) {
+        (void)broker_delete_queue_local(b, "default", name);
     }
-    if (cmd.type == T_RAFT_CMD_ACK) {
-        t_domain *d = broker_find_queue_domain(b, name);
-        t_queue *q = d ? (t_queue *)t_domain_get_queue(d, name) : NULL;
-        if (!q) return;
-        (void)t_queue_drop(q, cmd.msg_id);
-    }
+    b->applying--;
 }
 
 static int broker_propose(t_broker *broker, uint8_t type,
@@ -403,6 +440,25 @@ static int broker_propose(t_broker *broker, uint8_t type,
     if (rc == -2) return -1;
     if (t_raft_last_applied(r) < idx) return -1;
     return 0;
+}
+
+static int broker_propose_named(t_broker *broker, uint8_t type, uint8_t qtype,
+                                uint8_t qflags, const char *queue_name) {
+    t_raft_cmd cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.type = type;
+    cmd.qtype = qtype;
+    cmd.qflags = qflags;
+    cmd.name = queue_name;
+    cmd.name_len = (uint16_t)strlen(queue_name);
+    uint8_t buf[288];
+    int n = -1;
+    if (type == T_RAFT_CMD_CREATE)
+        n = t_raft_cmd_encode_create(buf, sizeof(buf), &cmd);
+    else if (type == T_RAFT_CMD_DELETE)
+        n = t_raft_cmd_encode_delete(buf, sizeof(buf), &cmd);
+    if (n < 0) return -1;
+    return broker_propose(broker, type, buf, (size_t)n);
 }
 
 static int broker_propose_put(t_broker *broker, t_queue *q, const char *queue_name,

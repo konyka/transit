@@ -8,6 +8,7 @@
 #include "t_version.h"
 #include "t_log.h"
 #include "t_cluster.h"
+#include "t_node.h"
 #include "t_raft.h"
 #include "t_peer.h"
 #include "t_hmac.h"
@@ -24,13 +25,34 @@ static t_config *g_config;
 static t_cluster *g_cluster;
 static t_raft   *g_raft;
 static t_peer   *g_peer;
+static uint64_t  g_node_id = 1;
+static char      g_node_id_buf[32];
+static char      g_leader_buf[80];
 
 static void on_stats(t_admin_stats *stats, void *ud) {
     (void)ud;
     stats->version = t_version();
-    stats->node_id = "transit-0";
-    stats->cluster_role = "leader";
-    stats->cluster_leader = "transit-0";
+    snprintf(g_node_id_buf, sizeof(g_node_id_buf), "%llu",
+             (unsigned long long)g_node_id);
+    stats->node_id = g_node_id_buf;
+    if (!g_raft) {
+        stats->cluster_role = "standalone";
+        stats->cluster_leader = "";
+        stats->cluster_nodes = 0;
+        return;
+    }
+    t_nrole role = t_raft_state(g_raft);
+    stats->cluster_role = (role == T_NODE_LEADER) ? "leader" :
+                          (role == T_NODE_CANDIDATE) ? "candidate" : "follower";
+    stats->cluster_nodes = g_cluster ? t_cluster_node_count(g_cluster) : 0;
+    t_node *lead = g_cluster ? t_cluster_get_leader(g_cluster) : NULL;
+    if (lead) {
+        snprintf(g_leader_buf, sizeof(g_leader_buf), "%s_%u",
+                 t_node_host(lead), (unsigned)t_node_port(lead));
+        stats->cluster_leader = g_leader_buf;
+    } else {
+        stats->cluster_leader = "";
+    }
 }
 
 static void usage(const char *prog) {
@@ -42,6 +64,7 @@ static void usage(const char *prog) {
     fprintf(stderr, "  -a <port>   Admin stats port (default: 8222)\n");
     fprintf(stderr, "  -d <dir>    Durable WAL directory (mkdir 0700)\n");
     fprintf(stderr, "  -C <port>   Cluster peer port (opt-in; default bind 127.0.0.1)\n");
+    fprintf(stderr, "  -n <id>     Cluster node id (default 1)\n");
     fprintf(stderr, "  -k <psk>    Client AUTH pre-shared key (required off loopback)\n");
     fprintf(stderr, "  -v          Print version and exit\n");
     fprintf(stderr, "  --help      Show this help\n");
@@ -54,6 +77,8 @@ int main(int argc, char **argv) {
     int client_port = 4222;
     int admin_port = 8222;
     int cluster_port = -1;
+    int cluster_id = 0;
+    const char *cluster_peers = NULL;
     const char *psk = NULL;
     int push_credits = -1;
 
@@ -70,6 +95,8 @@ int main(int argc, char **argv) {
             datadir = argv[++i];
         } else if (strcmp(argv[i], "-C") == 0 && i + 1 < argc) {
             cluster_port = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            cluster_id = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-k") == 0 && i + 1 < argc) {
             psk = argv[++i];
         } else if (strcmp(argv[i], "-v") == 0) {
@@ -101,6 +128,10 @@ int main(int argc, char **argv) {
         if (dd && dd[0]) datadir = dd;
         int kp = t_config_get_int(g_config, "cluster", "port", -1);
         if (cluster_port < 0 && kp >= 0) cluster_port = kp;
+        int kid = t_config_get_int(g_config, "cluster", "id", 0);
+        if (cluster_id <= 0 && kid > 0) cluster_id = kid;
+        const char *kppeers = t_config_get(g_config, "cluster", "peers");
+        if (kppeers && kppeers[0] && !cluster_peers) cluster_peers = kppeers;
         const char *ak = t_config_get(g_config, "auth", "psk");
         if (ak && ak[0] && !psk) psk = ak;
         int pc = t_config_get_int(g_config, "server", "push_credits", -1);
@@ -179,10 +210,37 @@ int main(int argc, char **argv) {
             t_config_destroy(g_config);
             return 1;
         }
-        g_cluster = t_cluster_create(1);
+        if (cluster_id <= 0) cluster_id = 1;
+        g_node_id = (uint64_t)cluster_id;
+        t_cluster_peer_spec peers[T_CLUSTER_PEERS_MAX];
+        size_t npeers = 0;
+        if (cluster_peers &&
+            t_cluster_parse_peers(cluster_peers, peers, T_CLUSTER_PEERS_MAX,
+                                  &npeers) != 0) {
+            fprintf(stderr, "Invalid [cluster] peers= (id@host:port,...)\n");
+            t_server_destroy(g_server);
+            t_broker_destroy(g_broker);
+            t_evloop_destroy(g_loop);
+            t_config_destroy(g_config);
+            return 1;
+        }
+        for (size_t i = 0; i < npeers; i++) {
+            if (peers[i].id == g_node_id && cluster_port != 0 &&
+                (int)peers[i].port != cluster_port) {
+                fprintf(stderr, "Cluster id %llu port %u does not match -C/%s %d\n",
+                        (unsigned long long)g_node_id, (unsigned)peers[i].port,
+                        "[cluster] port=", cluster_port);
+                t_server_destroy(g_server);
+                t_broker_destroy(g_broker);
+                t_evloop_destroy(g_loop);
+                t_config_destroy(g_config);
+                return 1;
+            }
+        }
+        g_cluster = t_cluster_create(g_node_id);
         t_raft_config rcfg;
         memset(&rcfg, 0, sizeof(rcfg));
-        rcfg.node_id = 1;
+        rcfg.node_id = g_node_id;
         rcfg.election_timeout_ms = 150;
         rcfg.heartbeat_interval_ms = 50;
         g_raft = t_raft_create(&rcfg);
@@ -217,8 +275,17 @@ int main(int argc, char **argv) {
             t_config_destroy(g_config);
             return 1;
         }
-        if (t_cluster_add_node(g_cluster, 1, t_peer_host(g_peer),
-                               t_peer_port(g_peer)) != 0 ||
+        int members_ok = 1;
+        for (size_t i = 0; i < npeers && members_ok; i++) {
+            if (peers[i].id == g_node_id) continue;
+            if (t_cluster_add_node(g_cluster, peers[i].id, peers[i].host,
+                                   peers[i].port) != 0)
+                members_ok = 0;
+        }
+        if (t_cluster_add_node(g_cluster, g_node_id, t_peer_host(g_peer),
+                               t_peer_port(g_peer)) != 0)
+            members_ok = 0;
+        if (!members_ok ||
             t_broker_set_cluster(g_broker, g_cluster) != 0 ||
             t_broker_set_raft(g_broker, g_raft) != 0 ||
             t_raft_apply_entries(g_raft) != 0 ||

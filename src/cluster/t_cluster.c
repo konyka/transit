@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
+#include <limits.h>
 
 struct t_cluster {
     uint64_t self_id;
@@ -134,4 +136,74 @@ void t_cluster_foreach(t_cluster *cluster, t_cluster_node_fn fn, void *ud) {
     void *v;
     while (t_map_iter_next(&it, &k, &v))
         fn((t_node *)v, ud);
+}
+
+static int peer_host_char(unsigned char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+           (c >= '0' && c <= '9') || c == '.' || c == '-';
+}
+
+int t_cluster_parse_peers(const char *list, t_cluster_peer_spec *out,
+                          size_t cap, size_t *n) {
+    if (!n) return -1;
+    *n = 0;
+    if (!list || !list[0]) return 0;
+    if (cap > 0 && !out) return -1;
+    size_t len = strlen(list);
+    if (list[0] == ',' || list[len - 1] == ',') return -1;
+    const char *p = list;
+    while (*p) {
+        if (*n >= cap) return -1;
+        if (*p < '1' || *p > '9') return -1;
+        uint64_t id = 0;
+        while (*p >= '0' && *p <= '9') {
+            if (id > (UINT64_MAX - (uint64_t)(*p - '0')) / 10) return -1;
+            id = id * 10 + (uint64_t)(*p - '0');
+            p++;
+        }
+        if (id == 0 || *p != '@') return -1;
+        p++;
+        const char *h0 = p;
+        while (*p && *p != ':' && *p != ',') {
+            if (!peer_host_char((unsigned char)*p)) return -1;
+            p++;
+        }
+        size_t hlen = (size_t)(p - h0);
+        if (hlen == 0 || hlen > T_CLUSTER_PEER_HOST_MAX) return -1;
+        if (*p != ':') return -1;
+        p++;
+        if (*p < '1' || *p > '9') return -1;
+        unsigned long port = 0;
+        while (*p >= '0' && *p <= '9') {
+            port = port * 10 + (unsigned long)(*p - '0');
+            if (port > 65535ul) return -1;
+            p++;
+        }
+        if (port < 1 || port > 65535ul) return -1;
+        if (*p && *p != ',') return -1;
+        for (size_t i = 0; i < *n; i++) {
+            if (out[i].id == id) return -1;
+        }
+        out[*n].id = id;
+        memcpy(out[*n].host, h0, hlen);
+        out[*n].host[hlen] = '\0';
+        out[*n].port = (uint16_t)port;
+        (*n)++;
+        if (*p == ',') p++;
+    }
+    return 0;
+}
+
+int t_cluster_add_peers(t_cluster *cluster, const t_cluster_peer_spec *peers,
+                        size_t n) {
+    if (!cluster) return -1;
+    if (n > 0 && !peers) return -1;
+    for (size_t i = 0; i < n; i++) {
+        if (peers[i].id == 0 || !peers[i].host[0] || peers[i].port == 0)
+            return -1;
+        if (t_cluster_add_node(cluster, peers[i].id, peers[i].host,
+                               peers[i].port) != 0)
+            return -1;
+    }
+    return 0;
 }

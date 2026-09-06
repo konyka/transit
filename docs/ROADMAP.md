@@ -36,7 +36,11 @@ message bus.
 - Raft queue log: clustered `POST` / `CONFIRM` append `PUT` / `ACK`
   commands, majority-commit (Figure 8), and apply on every node via
   `t_queue_restore` / `t_queue_drop`. The Raft log is the WAL when
-  `t_broker_set_raft` is set. See `docs/Raft.md`.
+  `t_broker_set_raft` is set. `OPEN` / delete append `CREATE` / `DELETE`.
+  See `docs/Raft.md`.
+- Static cluster membership: `transit-server -n` / `[cluster] id=` and
+  `[cluster] peers=id@host:port,...`. Admin `/stats` reports the live
+  Raft role and leader hint.
 
 ## Remaining (priority order)
 

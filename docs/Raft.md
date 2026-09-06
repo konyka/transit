@@ -43,6 +43,30 @@ u8  data[data_len]
 `msg_id` is the Raft log index so every node restores the same id
 (`t_queue_restore`). Apply creates the queue if it is missing.
 
+`CREATE` (`type = 3`):
+
+```
+u8  type
+u8  qtype
+u8  qflags
+u16 name_len
+u8  name[name_len]
+```
+
+Leader `OPEN` of a missing queue proposes `CREATE` and waits for majority
+apply. Followers refuse `OPEN` of an unknown queue with `T_ERR_AGAIN`.
+
+`DELETE` (`type = 4`):
+
+```
+u8  type
+u16 name_len
+u8  name[name_len]
+```
+
+`t_broker_delete_queue` (including autodelete) proposes `DELETE` when Raft
+is attached.
+
 `ACK` (`type = 2`):
 
 ```
@@ -85,3 +109,11 @@ entries through the broker apply callback (`last_applied` starts at 0).
 
 `transit-server -C` with `-d` stores `datadir/raft.log` and applies it
 before campaigning.
+
+## Membership
+
+Static list only (no joint consensus). `transit-server -n <id>` /
+`[cluster] id=` and `[cluster] peers=id@host:port,...`. Self is always
+added with the bound peer address. A listed self port must match `-C` /
+`[cluster] port=` when that port is non-zero. Junk, duplicates, id `0`,
+or port `0` fail startup. Empty `peers` is a single-node majority.

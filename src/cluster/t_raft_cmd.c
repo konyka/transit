@@ -117,6 +117,36 @@ int t_raft_cmd_encode_ack(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
     return (int)(p - buf);
 }
 
+int t_raft_cmd_encode_create(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
+    if (!buf || !cmd || cmd->type != T_RAFT_CMD_CREATE) return -1;
+    if (cmd->name_len == 0 || !cmd->name) return -1;
+    if (!t_wire_name_valid(cmd->name, cmd->name_len)) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (put_u8(&p, end, T_RAFT_CMD_CREATE) != 0) return -1;
+    if (put_u8(&p, end, cmd->qtype) != 0) return -1;
+    if (put_u8(&p, end, cmd->qflags) != 0) return -1;
+    if (put_u16(&p, end, cmd->name_len) != 0) return -1;
+    if ((size_t)(end - p) < cmd->name_len) return -1;
+    memcpy(p, cmd->name, cmd->name_len);
+    p += cmd->name_len;
+    return (int)(p - buf);
+}
+
+int t_raft_cmd_encode_delete(uint8_t *buf, size_t cap, const t_raft_cmd *cmd) {
+    if (!buf || !cmd || cmd->type != T_RAFT_CMD_DELETE) return -1;
+    if (cmd->name_len == 0 || !cmd->name) return -1;
+    if (!t_wire_name_valid(cmd->name, cmd->name_len)) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (put_u8(&p, end, T_RAFT_CMD_DELETE) != 0) return -1;
+    if (put_u16(&p, end, cmd->name_len) != 0) return -1;
+    if ((size_t)(end - p) < cmd->name_len) return -1;
+    memcpy(p, cmd->name, cmd->name_len);
+    p += cmd->name_len;
+    return (int)(p - buf);
+}
+
 int t_raft_cmd_decode(const uint8_t *buf, size_t len, t_raft_cmd *out) {
     if (!buf || len == 0 || !out) return -1;
     const uint8_t *p = buf;
@@ -152,6 +182,20 @@ int t_raft_cmd_decode(const uint8_t *buf, size_t len, t_raft_cmd *out) {
             if (!t_wire_name_valid(tmp.name, tmp.name_len)) return -1;
             p += tmp.name_len;
         }
+    } else if (tmp.type == T_RAFT_CMD_CREATE) {
+        if (get_u8(&p, end, &tmp.qtype) != 0) return -1;
+        if (get_u8(&p, end, &tmp.qflags) != 0) return -1;
+        if (get_u16(&p, end, &tmp.name_len) != 0) return -1;
+        if (tmp.name_len == 0 || (size_t)(end - p) < tmp.name_len) return -1;
+        tmp.name = (const char *)p;
+        if (!t_wire_name_valid(tmp.name, tmp.name_len)) return -1;
+        p += tmp.name_len;
+    } else if (tmp.type == T_RAFT_CMD_DELETE) {
+        if (get_u16(&p, end, &tmp.name_len) != 0) return -1;
+        if (tmp.name_len == 0 || (size_t)(end - p) < tmp.name_len) return -1;
+        tmp.name = (const char *)p;
+        if (!t_wire_name_valid(tmp.name, tmp.name_len)) return -1;
+        p += tmp.name_len;
     } else {
         return -1;
     }

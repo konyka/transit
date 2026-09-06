@@ -400,7 +400,10 @@ static int32_t handle_open(t_server_conn *sc, const t_proto_msg *msg) {
     if ((o.qflags & T_QUEUE_FLAG_DURABLE) && o.qtype == (uint8_t)T_QUEUE_BROADCAST)
         return T_ERR_INVALID;
     if (!queue_exists(b, name)) {
+        if (t_broker_raft(b) && !t_broker_is_leader(b))
+            return T_ERR_AGAIN;
         if (t_broker_create_queue(b, "default", name, (int)o.qtype, (int)o.qflags) != 0) {
+            if (t_broker_raft(b)) return T_ERR_AGAIN;
             if (o.qflags & T_QUEUE_FLAG_DURABLE) return T_ERR_IO;
             return T_ERR_GENERIC;
         }
