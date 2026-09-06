@@ -120,7 +120,13 @@ return a credit (capped at the window) and `ACK` `T_OK`. Disconnect
 nacks leftover inflight locally. These frames skip the per-connection token
 bucket. Broadcast `PUSH` is not inflight — confirm only returns a
 credit. The TCP client (`t_client_dial`) sends `CONFIRM` automatically
-after a decoded `PUSH`.
+after a decoded `PUSH` unless `t_client_set_auto_confirm(client, 0)`.
+`t_client_reject` / `t_client_confirm` settle the last `PUSH` on that
+queue; a second settle is `-1`. `t_client_reject_follow` /
+`t_client_confirm_follow` wait for the ACK. `T_ERR_AGAIN` with a
+different client-port hint redials once and then returns `-1` (a new
+session must wait for redelivery; rejecting the old id would be
+unknown-id `T_OK`).
 
 ### `HEARTBEAT` / `NOP`
 
@@ -183,10 +189,13 @@ cluster peer port is never used as a hint. `t_client_parse_leader_hint`
 and `t_client_redial_leader` follow a valid hint; the new session must
 `OPEN` again. A same-peer hint (already dialed host/port) is not
 followed: that is retry-later, not a redirect. `t_client_open_follow`,
-`t_client_join_follow`, `t_client_post_follow`, and
-`t_client_close_follow` wait with
+`t_client_join_follow`, `t_client_post_follow`,
+`t_client_close_follow`, `t_client_confirm_follow`, and
+`t_client_reject_follow` wait with
 `t_client_wait_ack` and redial at most once per call. A second
 `open_follow` on an already-acked queue returns immediately.
+`confirm_follow` / `reject_follow` do not resend the old `msg_id`
+after a redial.
 A Raft-attached leader `POST`/`CONFIRM`/`REJECT`/`OPEN` of a missing
 queue, or last-`OPEN` `CLOSE` of an `AUTODELETE` queue, appends first
 and ACKs only after majority apply (the evloop is not blocked).
@@ -256,7 +265,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_join(client, group, consumer_id, queue)` — TCP only
   (`t_client_connect` stub returns -1). Wait on `ack_seq` like `OPEN`.
 - `t_client_ack_seq()` — monotonic count of decoded `ACK` frames. Wait
-  for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`/`JOIN`, then read
+  for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`/`JOIN`/
+  `CONFIRM`/`REJECT`, then read
   `last_status`. Status and the name are published before the sequence
   increment (seq_cst), so a new seq is a happens-before for those fields.
 - `t_client_heartbeat` — one `HEARTBEAT`. TCP only. The ACK is ignored
@@ -278,13 +288,21 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   different client-port hint, redial once, `OPEN` with the saved flags,
   and `CLOSE` again. Send failure keeps the local open (fail closed).
   Stub closes locally.
+- `t_client_set_auto_confirm` — `1` (default) sends `CONFIRM` after
+  each `PUSH` callback. `0` leaves the last `PUSH` unsettled.
+- `t_client_last_push_id` — `msg_id` of the last decoded `PUSH`.
+- `t_client_confirm` / `t_client_reject` — settle that `PUSH` on
+  `queue`. TCP only. Stub returns `-1`.
+- `t_client_confirm_follow` / `t_client_reject_follow` — settle then
+  wait. A different client-port hint redials once and returns `-1`.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
   follower `POST` `T_ERR_AGAIN`).
 - `t_client_subscribe` may be called before `open_queue`. On a dialed
   client it sends `OPEN` as consumer so a `PUSH` cannot arrive before
   the callback is registered.
 - After each `PUSH`, the dialed client sends `CONFIRM` so the server
-  credit window can refill.
+  credit window can refill, unless auto-confirm is off or the callback
+  already settled the `PUSH`.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

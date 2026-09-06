@@ -81,6 +81,11 @@ message bus.
 - `t_client_close_follow` waits for the `CLOSE` ACK (needed for
   clustered `AUTODELETE`). A send failure no longer pretends success.
   `T_ERR_AGAIN` with a different client-port hint redials once.
+- `t_client_reject` / `t_client_confirm` settle the last `PUSH`.
+  Auto-confirm stays the default; `set_auto_confirm(0)` is fail-closed
+  (no silent ack). `reject_follow` / `confirm_follow` wait for the
+  clustered `NACK`/`ACK` apply. A redirect redials once and returns
+  `-1` so the old `msg_id` is not settled as unknown-id `T_OK`.
 
 ## Remaining (priority order)
 

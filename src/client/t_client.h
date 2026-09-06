@@ -69,6 +69,21 @@ int        t_client_post_follow(t_client *client, const char *queue_name,
  * redial once, OPEN with the saved flags, and CLOSE again. */
 int        t_client_close_follow(t_client *client, const char *queue_name,
                                  int timeout_ms);
+/* Default 1: send CONFIRM after each PUSH callback. 0 = caller must
+ * confirm or reject the last PUSH (fail closed: no silent ack). */
+int        t_client_set_auto_confirm(t_client *client, int on);
+uint64_t   t_client_last_push_id(const t_client *client);
+/* CONFIRM / REJECT the last PUSH on `queue_name`. TCP only. A second
+ * settle of the same PUSH, a stub client, or a queue mismatch is -1. */
+int        t_client_confirm(t_client *client, const char *queue_name);
+int        t_client_reject(t_client *client, const char *queue_name);
+/* CONFIRM/REJECT then wait. On T_ERR_AGAIN with a different client-port
+ * hint, redial once and return -1 (a new session must wait for redelivery;
+ * REJECT of the old id would ACK T_OK for an unknown id). */
+int        t_client_confirm_follow(t_client *client, const char *queue_name,
+                                   int timeout_ms);
+int        t_client_reject_follow(t_client *client, const char *queue_name,
+                                  int timeout_ms);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,

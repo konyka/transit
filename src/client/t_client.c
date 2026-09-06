@@ -55,6 +55,10 @@ struct t_client {
     uint16_t  dial_port;
     int       heartbeat_ms;
     int64_t   heartbeat_timer_id;
+    int       auto_confirm;
+    uint64_t  last_push_id;
+    char      last_push_queue[T_WIRE_MAX_NAME + 1];
+    int       push_settled;
 };
 
 typedef struct t_cb_snap {
@@ -225,6 +229,14 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
             }
         }
     }
+    c->last_push_id = p.msg_id;
+    if (t_wire_name_copy(c->last_push_queue, sizeof(c->last_push_queue),
+                         p.name, p.name_len) != 0) {
+        c->last_push_queue[0] = '\0';
+        free(snaps);
+        return;
+    }
+    c->push_settled = 0;
     c->posting++;
     for (size_t i = 0; i < snap_n; ++i) {
         snaps[i].cb(name, p.data, p.data_len, snaps[i].ud);
@@ -233,12 +245,9 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     }
     c->posting--;
     free(snaps);
-    if (c->net_mode && c->conn && !c->free_pending) {
-        uint8_t cbuf[8 + 2 + T_WIRE_MAX_NAME];
-        int cn = t_wire_encode_confirm(cbuf, sizeof(cbuf), p.msg_id, name);
-        if (cn > 0)
-            (void)client_send_payload(c, T_MSG_CONFIRM, cbuf, (size_t)cn);
-    }
+    if (c->net_mode && c->conn && !c->free_pending &&
+        c->auto_confirm && !c->push_settled)
+        (void)t_client_confirm(c, name);
     if (c->posting == 0 && c->free_pending) t_client_destroy(c);
 }
 
@@ -263,6 +272,8 @@ t_client *t_client_create(const char *client_id) {
     c->last_ack_name[0] = '\0';
     c->heartbeat_ms = T_CLIENT_HEARTBEAT_DEFAULT_MS;
     c->heartbeat_timer_id = -1;
+    c->auto_confirm = 1;
+    c->push_settled = 1;
     return c;
 }
 
@@ -449,6 +460,9 @@ static void client_clear_session(t_client *client) {
     client->queues = NULL;
     client->queues_size = 0;
     client->queues_cap = 0;
+    client->last_push_id = 0;
+    client->last_push_queue[0] = '\0';
+    client->push_settled = 1;
 }
 
 int t_client_redial_leader(t_client *client) {
@@ -569,6 +583,71 @@ int t_client_close_follow(t_client *client, const char *queue_name,
     seq = t_client_ack_seq(client);
     if (t_client_close_queue(client, queue_name) != 0) return -1;
     return client_wait_status(client, seq, timeout_ms) == 0 ? 0 : -1;
+}
+
+int t_client_set_auto_confirm(t_client *client, int on) {
+    if (!client || (on != 0 && on != 1)) return -1;
+    client->auto_confirm = on;
+    return 0;
+}
+
+uint64_t t_client_last_push_id(const t_client *client) {
+    return client ? client->last_push_id : 0;
+}
+
+static int client_settle_push(t_client *client, const char *queue_name, int reject) {
+    if (!client || client->free_pending || !queue_name) return -1;
+    if (!client->connected || !client->net_mode || !client->conn) return -1;
+    if (client->push_settled || client->last_push_id == 0) return -1;
+    if (!client->last_push_queue[0] ||
+        strcmp(client->last_push_queue, queue_name) != 0)
+        return -1;
+    uint8_t buf[8 + 2 + T_WIRE_MAX_NAME];
+    int n = t_wire_encode_confirm(buf, sizeof(buf), client->last_push_id,
+                                  queue_name);
+    if (n < 0) return -1;
+    t_msg_type type = reject ? T_MSG_REJECT : T_MSG_CONFIRM;
+    if (client_send_payload(client, type, buf, (size_t)n) != 0) return -1;
+    client->push_settled = 1;
+    return 0;
+}
+
+int t_client_confirm(t_client *client, const char *queue_name) {
+    return client_settle_push(client, queue_name, 0);
+}
+
+int t_client_reject(t_client *client, const char *queue_name) {
+    return client_settle_push(client, queue_name, 1);
+}
+
+static int client_settle_follow(t_client *client, const char *queue_name,
+                                int reject, int timeout_ms) {
+    if (!client || !queue_name || timeout_ms < 0) return -1;
+    if (!client->connected) return -1;
+    if (!client->net_mode)
+        return reject ? t_client_reject(client, queue_name)
+                      : t_client_confirm(client, queue_name);
+    unsigned seq = t_client_ack_seq(client);
+    if (reject) {
+        if (t_client_reject(client, queue_name) != 0) return -1;
+    } else if (t_client_confirm(client, queue_name) != 0) {
+        return -1;
+    }
+    int wr = client_wait_status(client, seq, timeout_ms);
+    if (wr <= 0) return wr;
+    if (t_client_redial_leader(client) != 0) return -1;
+    /* Old msg_id on a new session is unknown-id T_OK — do not settle it. */
+    return -1;
+}
+
+int t_client_confirm_follow(t_client *client, const char *queue_name,
+                            int timeout_ms) {
+    return client_settle_follow(client, queue_name, 0, timeout_ms);
+}
+
+int t_client_reject_follow(t_client *client, const char *queue_name,
+                           int timeout_ms) {
+    return client_settle_follow(client, queue_name, 1, timeout_ms);
 }
 
 int t_client_disconnect(t_client *client) {

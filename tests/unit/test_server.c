@@ -1333,6 +1333,214 @@ T_TEST(client_raft_autodelete_close_follow_acks) {
     t_evloop_destroy(loop);
 }
 
+static volatile int g_reject_once;
+static volatile int g_reject_rc;
+
+static void on_net_reject_once(const char *queue_name, const uint8_t *data,
+                               size_t len, void *ud) {
+    on_net_msg(queue_name, data, len, NULL);
+    if (g_reject_once) {
+        g_reject_once = 0;
+        g_reject_rc = t_client_reject((t_client *)ud, queue_name);
+    }
+}
+
+T_TEST(client_reject_requeues) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    cfg.push_credits = 1;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_follow(cons, "jobs", T_CLIENT_OPEN_CONSUMER, 500), 0);
+    g_got = 0;
+    g_reject_once = 1;
+    g_reject_rc = -2;
+    T_ASSERT_EQ(t_client_subscribe(cons, "jobs", on_net_reject_once, cons), 0);
+    T_ASSERT_EQ(t_client_open_follow(prod, "jobs", T_CLIENT_OPEN_PRODUCER, 500), 0);
+    T_ASSERT_EQ(t_client_post_follow(prod, "jobs", (const uint8_t *)"r", 1, 0, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 2, 500));
+    T_ASSERT_EQ(g_got, 2);
+    T_ASSERT_EQ(g_reject_rc, 0);
+    t_queue *q = (t_queue *)t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                              "jobs");
+    T_ASSERT_NOT_NULL(q);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 0);
+    T_ASSERT_EQ(t_queue_has_inflight(q), 0);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(client_confirm_follow_acks) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_set_auto_confirm(cons, 0), 0);
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_follow(cons, "jobs", T_CLIENT_OPEN_CONSUMER, 500), 0);
+    g_got = 0;
+    T_ASSERT_EQ(t_client_subscribe(cons, "jobs", on_net_msg, NULL), 0);
+    T_ASSERT_EQ(t_client_open_follow(prod, "jobs", T_CLIENT_OPEN_PRODUCER, 500), 0);
+    T_ASSERT_EQ(t_client_post_follow(prod, "jobs", (const uint8_t *)"ack", 3, 0, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 1, 500));
+    T_ASSERT(t_client_last_push_id(cons) != 0);
+    T_ASSERT_EQ(t_client_confirm_follow(cons, "jobs", 500), 0);
+    T_ASSERT_EQ(t_client_confirm_follow(cons, "jobs", 50), -1);
+    t_queue *q = (t_queue *)t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                              "jobs");
+    T_ASSERT_NOT_NULL(q);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 0);
+    T_ASSERT_EQ(t_queue_has_inflight(q), 0);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(client_raft_reject_follow_expires) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_cluster *cl = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(cl, 1), 0);
+    t_raft_config rcfg = {1, 40, 15};
+    t_raft *r = t_raft_create(&rcfg);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    t_raft_set_replicate_cb(r, raft_noop_repl, NULL);
+    T_ASSERT_EQ(t_broker_set_cluster(b, cl), 0);
+    T_ASSERT_EQ(t_broker_start(b), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "jobs", 0, 0), 0);
+    T_ASSERT_EQ(t_broker_publish(b, "jobs", (const uint8_t *)"r", 1, 0), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b, r), 0);
+
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_set_auto_confirm(c, 0), 0);
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    g_got = 0;
+    T_ASSERT_EQ(t_client_subscribe(c, "jobs", on_net_msg, NULL), 0);
+    T_ASSERT_EQ(t_client_open_follow(c, "jobs", T_CLIENT_OPEN_CONSUMER, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 1, 500));
+    T_ASSERT_EQ(t_client_reject_follow(c, "jobs", 400), -1);
+    t_queue *q = (t_queue *)t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                              "jobs");
+    T_ASSERT_NOT_NULL(q);
+    T_ASSERT_EQ(t_queue_has_inflight(q), 1);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_raft_destroy(r);
+    t_cluster_destroy(cl);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(client_raft_reject_follow_acks) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_cluster *cl = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(cl, 1), 0);
+    t_raft_config rcfg = {1, 200, 50};
+    t_raft *r = t_raft_create(&rcfg);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    raft_late_ctx cx = {loop, r, 2, 0};
+    t_raft_set_replicate_cb(r, raft_late_repl, &cx);
+    T_ASSERT_EQ(t_broker_set_cluster(b, cl), 0);
+    T_ASSERT_EQ(t_broker_start(b), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "jobs", 0, 0), 0);
+    T_ASSERT_EQ(t_broker_publish(b, "jobs", (const uint8_t *)"r", 1, 0), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b, r), 0);
+
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_set_auto_confirm(c, 0), 0);
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    g_got = 0;
+    T_ASSERT_EQ(t_client_subscribe(c, "jobs", on_net_msg, NULL), 0);
+    T_ASSERT_EQ(t_client_open_follow(c, "jobs", T_CLIENT_OPEN_CONSUMER, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 1, 500));
+    T_ASSERT_EQ(t_client_reject_follow(c, "jobs", 150), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 2, 500));
+    T_ASSERT_EQ(g_got, 2);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_raft_destroy(r);
+    t_cluster_destroy(cl);
+    t_evloop_destroy(loop);
+}
+
 T_TEST(server_non_loopback_requires_psk) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");

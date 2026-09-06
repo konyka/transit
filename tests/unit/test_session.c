@@ -89,6 +89,14 @@ T_TEST(client_queue_mgmt) {
     T_ASSERT_EQ(t_client_close_follow(c, "again.q", 50), 0);
     T_ASSERT_EQ((int)t_client_queue_count(c), 0);
     T_ASSERT_EQ(t_client_close_follow(c, "missing.q", 50), -1);
+    T_ASSERT_EQ(t_client_set_auto_confirm(c, 0), 0);
+    T_ASSERT_EQ(t_client_set_auto_confirm(c, 1), 0);
+    T_ASSERT_EQ(t_client_set_auto_confirm(c, -1), -1);
+    T_ASSERT_EQ((int)t_client_last_push_id(c), 0);
+    T_ASSERT_EQ(t_client_reject(c, "again.q"), -1);
+    T_ASSERT_EQ(t_client_confirm(c, "again.q"), -1);
+    T_ASSERT_EQ(t_client_reject_follow(c, "again.q", 50), -1);
+    T_ASSERT_EQ(t_client_confirm_follow(c, "again.q", 50), -1);
     t_client_destroy(c);
 }
 
