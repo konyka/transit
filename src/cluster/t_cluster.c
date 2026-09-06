@@ -180,6 +180,17 @@ int t_cluster_parse_peers(const char *list, t_cluster_peer_spec *out,
             p++;
         }
         if (port < 1 || port > 65535ul) return -1;
+        unsigned long client_port = 0;
+        if (*p == '/') {
+            p++;
+            if (*p < '1' || *p > '9') return -1;
+            while (*p >= '0' && *p <= '9') {
+                client_port = client_port * 10 + (unsigned long)(*p - '0');
+                if (client_port > 65535ul) return -1;
+                p++;
+            }
+            if (client_port < 1 || client_port > 65535ul) return -1;
+        }
         if (*p && *p != ',') return -1;
         for (size_t i = 0; i < *n; i++) {
             if (out[i].id == id) return -1;
@@ -188,6 +199,7 @@ int t_cluster_parse_peers(const char *list, t_cluster_peer_spec *out,
         memcpy(out[*n].host, h0, hlen);
         out[*n].host[hlen] = '\0';
         out[*n].port = (uint16_t)port;
+        out[*n].client_port = (uint16_t)client_port;
         (*n)++;
         if (*p == ',') p++;
     }
@@ -204,6 +216,11 @@ int t_cluster_add_peers(t_cluster *cluster, const t_cluster_peer_spec *peers,
         if (t_cluster_add_node(cluster, peers[i].id, peers[i].host,
                                peers[i].port) != 0)
             return -1;
+        if (peers[i].client_port) {
+            t_node *n = t_cluster_get_node(cluster, peers[i].id);
+            if (!n || t_node_set_client_port(n, peers[i].client_port) != 0)
+                return -1;
+        }
     }
     return 0;
 }

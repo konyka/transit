@@ -292,27 +292,67 @@ const char *t_client_last_ack_name(const t_client *client) {
     return client ? client->last_ack_name : NULL;
 }
 
+int t_client_parse_leader_hint(const char *name, char *host, size_t host_cap,
+                               uint16_t *port) {
+    if (!name || !host || host_cap == 0 || !port) return -1;
+    const char *us = strrchr(name, '_');
+    if (!us || us == name || us[1] == '\0') return -1;
+    size_t hlen = (size_t)(us - name);
+    if (hlen >= host_cap) return -1;
+    if (us[1] < '1' || us[1] > '9') return -1;
+    unsigned long p = 0;
+    const char *d = us + 1;
+    while (*d >= '0' && *d <= '9') {
+        p = p * 10 + (unsigned long)(*d - '0');
+        if (p > 65535ul) return -1;
+        d++;
+    }
+    if (*d != '\0' || p < 1 || p > 65535ul) return -1;
+    memcpy(host, name, hlen);
+    host[hlen] = '\0';
+    *port = (uint16_t)p;
+    return 0;
+}
+
+int t_client_leader_hint(const t_client *client, char *host, size_t host_cap,
+                         uint16_t *port) {
+    if (!client) return -1;
+    return t_client_parse_leader_hint(client->last_ack_name, host, host_cap, port);
+}
+
+static void client_clear_session(t_client *client) {
+    for (size_t i = 0; i < client->subs_count; ++i)
+        free(client->subs[i].queue);
+    free(client->subs);
+    client->subs = NULL;
+    client->subs_count = 0;
+    client->subs_cap = 0;
+    for (size_t i = 0; i < client->queues_size; ++i)
+        free(client->queues[i].name);
+    free(client->queues);
+    client->queues = NULL;
+    client->queues_size = 0;
+    client->queues_cap = 0;
+}
+
+int t_client_redial_leader(t_client *client) {
+    if (!client || client->free_pending || !client->net_mode || !client->loop)
+        return -1;
+    char host[T_WIRE_MAX_NAME + 1];
+    uint16_t port = 0;
+    if (t_client_leader_hint(client, host, sizeof(host), &port) != 0)
+        return -1;
+    client_drop_conn(client);
+    client_clear_session(client);
+    return t_client_dial(client, client->loop, host, port);
+}
+
 int t_client_disconnect(t_client *client) {
     if (!client || client->free_pending) return -1;
     client_drop_conn(client);
     client->net_mode = 0;
     client->connected = 0;
-    /* Drop all subscriptions so reconnect cannot revive stale callbacks. */
-    for (size_t i = 0; i < client->subs_count; ++i) {
-        free(client->subs[i].queue);
-    }
-    free(client->subs);
-    client->subs = NULL;
-    client->subs_count = 0;
-    client->subs_cap = 0;
-    /* Drop opened queues; reconnect must open_queue again. */
-    for (size_t i = 0; i < client->queues_size; ++i) {
-        free(client->queues[i].name);
-    }
-    free(client->queues);
-    client->queues = NULL;
-    client->queues_size = 0;
-    client->queues_cap = 0;
+    client_clear_session(client);
     return 0;
 }
 

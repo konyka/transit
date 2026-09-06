@@ -12,6 +12,7 @@
 #include "t_raft.h"
 #include "t_peer.h"
 #include "t_hmac.h"
+#include "t_time.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,10 +29,24 @@ static t_peer   *g_peer;
 static uint64_t  g_node_id = 1;
 static char      g_node_id_buf[32];
 static char      g_leader_buf[80];
+static int64_t   g_start_ms;
 
 static void on_stats(t_admin_stats *stats, void *ud) {
     (void)ud;
     stats->version = t_version();
+    if (g_server) {
+        stats->connections = t_server_conn_count(g_server);
+        stats->messages_in = t_server_msgs_in(g_server);
+    }
+    if (g_broker) {
+        stats->queues = t_broker_total_queues(g_broker);
+        stats->messages_out = t_broker_total_delivered(g_broker);
+    }
+    if (g_start_ms > 0) {
+        int64_t now = t_time_now_ms();
+        if (now >= g_start_ms)
+            stats->uptime_ms = (size_t)(now - g_start_ms);
+    }
     snprintf(g_node_id_buf, sizeof(g_node_id_buf), "%llu",
              (unsigned long long)g_node_id);
     stats->node_id = g_node_id_buf;
@@ -46,9 +61,10 @@ static void on_stats(t_admin_stats *stats, void *ud) {
                           (role == T_NODE_CANDIDATE) ? "candidate" : "follower";
     stats->cluster_nodes = g_cluster ? t_cluster_node_count(g_cluster) : 0;
     t_node *lead = g_cluster ? t_cluster_get_leader(g_cluster) : NULL;
-    if (lead) {
+    uint16_t cport = lead ? t_node_client_port(lead) : 0;
+    if (lead && t_node_host(lead) && cport != 0) {
         snprintf(g_leader_buf, sizeof(g_leader_buf), "%s_%u",
-                 t_node_host(lead), (unsigned)t_node_port(lead));
+                 t_node_host(lead), (unsigned)cport);
         stats->cluster_leader = g_leader_buf;
     } else {
         stats->cluster_leader = "";
@@ -217,7 +233,7 @@ int main(int argc, char **argv) {
         if (cluster_peers &&
             t_cluster_parse_peers(cluster_peers, peers, T_CLUSTER_PEERS_MAX,
                                   &npeers) != 0) {
-            fprintf(stderr, "Invalid [cluster] peers= (id@host:port,...)\n");
+            fprintf(stderr, "Invalid [cluster] peers= (id@host:peer[/client],...)\n");
             t_server_destroy(g_server);
             t_broker_destroy(g_broker);
             t_evloop_destroy(g_loop);
@@ -230,6 +246,18 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Cluster id %llu port %u does not match -C/%s %d\n",
                         (unsigned long long)g_node_id, (unsigned)peers[i].port,
                         "[cluster] port=", cluster_port);
+                t_server_destroy(g_server);
+                t_broker_destroy(g_broker);
+                t_evloop_destroy(g_loop);
+                t_config_destroy(g_config);
+                return 1;
+            }
+            if (peers[i].id == g_node_id && peers[i].client_port != 0 &&
+                peers[i].client_port != t_server_port(g_server)) {
+                fprintf(stderr, "Cluster id %llu client port %u does not match listen %u\n",
+                        (unsigned long long)g_node_id,
+                        (unsigned)peers[i].client_port,
+                        (unsigned)t_server_port(g_server));
                 t_server_destroy(g_server);
                 t_broker_destroy(g_broker);
                 t_evloop_destroy(g_loop);
@@ -281,9 +309,16 @@ int main(int argc, char **argv) {
             if (t_cluster_add_node(g_cluster, peers[i].id, peers[i].host,
                                    peers[i].port) != 0)
                 members_ok = 0;
+            else if (peers[i].client_port &&
+                     t_node_set_client_port(t_cluster_get_node(g_cluster, peers[i].id),
+                                            peers[i].client_port) != 0)
+                members_ok = 0;
         }
         if (t_cluster_add_node(g_cluster, g_node_id, t_peer_host(g_peer),
                                t_peer_port(g_peer)) != 0)
+            members_ok = 0;
+        else if (t_node_set_client_port(t_cluster_get_node(g_cluster, g_node_id),
+                                        t_server_port(g_server)) != 0)
             members_ok = 0;
         if (!members_ok ||
             t_broker_set_cluster(g_broker, g_cluster) != 0 ||
@@ -313,6 +348,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    g_start_ms = t_time_now_ms();
     fprintf(stdout, "transit %s ready on %s:%u\n",
             t_version(), t_server_host(g_server), (unsigned)t_server_port(g_server));
     fflush(stdout);

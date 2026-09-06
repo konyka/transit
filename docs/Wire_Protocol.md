@@ -159,12 +159,15 @@ Handle with `t_raft_rpc`. Durable term/vote/`commit_index`/entries:
 `t_raft_open_log` (header v2). Queue `PUT`/`ACK` command layouts are in
 `docs/Raft.md`.
 
-Follower `POST` on the client port returns `T_ERR_AGAIN` when a cluster is
-attached and this node is not leader. The ACK name is `host_port` of the
-current leader cluster node (underscore because `:` is not a valid name
-character). Empty name if no leader is known. A Raft-attached leader
-`POST`/`CONFIRM` also returns `T_ERR_AGAIN` if the command is not yet
-majority-committed.
+Follower `OPEN` / `POST` / `JOIN` on the client port return `T_ERR_AGAIN`
+when a cluster is attached and this node is not leader. The ACK name is
+`host_clientport` of the current leader (underscore because `:` is not a
+valid name character). Empty name if the leader is unknown or its client
+listen port was not configured (`id@host:peer` without `/client`). The
+cluster peer port is never used as a hint. `t_client_parse_leader_hint`
+and `t_client_redial_leader` follow a valid hint; the new session must
+`OPEN` again. A Raft-attached leader `POST`/`CONFIRM` also returns
+`T_ERR_AGAIN` if the command is not yet majority-committed.
 
 ## Server safety switches
 

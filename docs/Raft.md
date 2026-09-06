@@ -113,7 +113,12 @@ before campaigning.
 ## Membership
 
 Static list only (no joint consensus). `transit-server -n <id>` /
-`[cluster] id=` and `[cluster] peers=id@host:port,...`. Self is always
-added with the bound peer address. A listed self port must match `-C` /
-`[cluster] port=` when that port is non-zero. Junk, duplicates, id `0`,
-or port `0` fail startup. Empty `peers` is a single-node majority.
+`[cluster] id=` and `[cluster] peers=id@host:peer[/client],...`.
+`peer` is the Raft listen port. Optional `/client` is the client-port
+hint used in `T_ERR_AGAIN` ACKs (underscore form `host_client`). Without
+`/client` the hint is omitted — the peer port is never advertised as a
+client address. Self is always added with the bound peer address and the
+local client listen port. A listed self peer port must match `-C` /
+`[cluster] port=` when that port is non-zero; a listed self client port
+must match the client listen port. Junk, duplicates, id `0`, or port `0`
+fail startup. Empty `peers` is a single-node majority.

@@ -399,9 +399,9 @@ static int32_t handle_open(t_server_conn *sc, const t_proto_msg *msg) {
         return T_ERR_CLOSED;
     if ((o.qflags & T_QUEUE_FLAG_DURABLE) && o.qtype == (uint8_t)T_QUEUE_BROADCAST)
         return T_ERR_INVALID;
+    if (!t_broker_is_leader(b))
+        return T_ERR_AGAIN;
     if (!queue_exists(b, name)) {
-        if (t_broker_raft(b) && !t_broker_is_leader(b))
-            return T_ERR_AGAIN;
         if (t_broker_create_queue(b, "default", name, (int)o.qtype, (int)o.qflags) != 0) {
             if (t_broker_raft(b)) return T_ERR_AGAIN;
             if (o.qflags & T_QUEUE_FLAG_DURABLE) return T_ERR_IO;
@@ -566,6 +566,8 @@ static int32_t handle_join(t_server_conn *sc, const t_proto_msg *msg) {
         return T_ERR_INVALID;
     if (!t_broker_is_running(sc->srv->broker))
         return T_ERR_CLOSED;
+    if (!t_broker_is_leader(sc->srv->broker))
+        return T_ERR_AGAIN;
 
     char *prev = (char *)t_map_get(&sc->joined, queue);
     if (prev) {
@@ -693,25 +695,25 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     if (!close_conn && status != T_OK_CODE) {
         const char *nm = NULL;
         char namebuf[T_WIRE_MAX_NAME + 1];
-        if (msg->header.type == T_MSG_OPEN_QUEUE) {
+        if (status == T_ERR_AGAIN) {
+            t_cluster *cl = t_broker_cluster(sc->srv->broker);
+            t_node *ld = cl ? t_cluster_get_leader(cl) : NULL;
+            uint16_t cport = ld ? t_node_client_port(ld) : 0;
+            if (ld && t_node_host(ld) && cport != 0) {
+                int hn = snprintf(namebuf, sizeof(namebuf), "%s_%u",
+                                  t_node_host(ld), (unsigned)cport);
+                if (hn > 0 && (size_t)hn < sizeof(namebuf) &&
+                    t_wire_name_valid(namebuf, (size_t)hn))
+                    nm = namebuf;
+            }
+        } else if (msg->header.type == T_MSG_OPEN_QUEUE) {
             t_wire_open o;
             if (t_wire_decode_open(msg->payload, msg->payload_len, &o) == 0 &&
                 t_wire_name_copy(namebuf, sizeof(namebuf), o.name, o.name_len) == 0)
                 nm = namebuf;
         } else if (msg->header.type == T_MSG_POST) {
             t_wire_post p;
-            if (status == T_ERR_AGAIN) {
-                t_cluster *cl = t_broker_cluster(sc->srv->broker);
-                t_node *ld = cl ? t_cluster_get_leader(cl) : NULL;
-                if (ld && t_node_host(ld)) {
-                    int hn = snprintf(namebuf, sizeof(namebuf), "%s_%u",
-                                      t_node_host(ld), (unsigned)t_node_port(ld));
-                    if (hn > 0 && (size_t)hn < sizeof(namebuf) &&
-                        t_wire_name_valid(namebuf, (size_t)hn))
-                        nm = namebuf;
-                }
-            }
-            if (!nm && t_wire_decode_post(msg->payload, msg->payload_len, &p) == 0 &&
+            if (t_wire_decode_post(msg->payload, msg->payload_len, &p) == 0 &&
                 t_wire_name_copy(namebuf, sizeof(namebuf), p.name, p.name_len) == 0)
                 nm = namebuf;
         } else if (msg->header.type == T_MSG_JOIN) {

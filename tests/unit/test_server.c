@@ -364,7 +364,64 @@ T_TEST(server_autodelete_on_last_close) {
     t_evloop_destroy(loop);
 }
 
-T_TEST(server_follower_post_redirect_hint) {
+T_TEST(client_parse_leader_hint) {
+    char host[64];
+    uint16_t port = 0;
+    T_ASSERT_EQ(t_client_parse_leader_hint("127.0.0.1_9999", host, sizeof(host), &port), 0);
+    T_ASSERT_STR_EQ(host, "127.0.0.1");
+    T_ASSERT_EQ((int)port, 9999);
+    T_ASSERT_EQ(t_client_parse_leader_hint("jobs", host, sizeof(host), &port), -1);
+    T_ASSERT_EQ(t_client_parse_leader_hint("127.0.0.1_", host, sizeof(host), &port), -1);
+    T_ASSERT_EQ(t_client_parse_leader_hint("_9999", host, sizeof(host), &port), -1);
+    T_ASSERT_EQ(t_client_parse_leader_hint("127.0.0.1_0", host, sizeof(host), &port), -1);
+    T_ASSERT_EQ(t_client_parse_leader_hint("127.0.0.1_65536", host, sizeof(host), &port), -1);
+    T_ASSERT_EQ(t_client_parse_leader_hint(NULL, host, sizeof(host), &port), -1);
+}
+
+T_TEST(server_follower_open_redirect_hint) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_cluster *cl = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 1, "127.0.0.1", 4222), 0);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 2, "127.0.0.1", 9999), 0);
+    T_ASSERT_EQ(t_node_set_client_port(t_cluster_get_node(cl, 2), 5555), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(cl, 2), 0);
+    T_ASSERT_EQ(t_broker_set_cluster(b, cl), 0);
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    unsigned seq = t_client_ack_seq(c);
+    T_ASSERT_EQ(t_client_open_queue(c, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    T_ASSERT(wait_ack_status(c, seq, (int)T_ERR_AGAIN, 500));
+    T_ASSERT_STR_EQ(t_client_last_ack_name(c), "127.0.0.1_5555");
+    char host[64];
+    uint16_t hint = 0;
+    T_ASSERT_EQ(t_client_leader_hint(c, host, sizeof(host), &hint), 0);
+    T_ASSERT_STR_EQ(host, "127.0.0.1");
+    T_ASSERT_EQ((int)hint, 5555);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_cluster_destroy(cl);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_follower_no_client_port_no_hint) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");
     t_cluster *cl = t_cluster_create(1);
@@ -389,11 +446,13 @@ T_TEST(server_follower_post_redirect_hint) {
     T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
     unsigned seq = t_client_ack_seq(c);
     T_ASSERT_EQ(t_client_open_queue(c, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
-    T_ASSERT(wait_ack_status(c, seq, 0, 500));
-    seq = t_client_ack_seq(c);
-    T_ASSERT_EQ(t_client_post(c, "jobs", (const uint8_t *)"x", 1, 0), 0);
     T_ASSERT(wait_ack_status(c, seq, (int)T_ERR_AGAIN, 500));
-    T_ASSERT_STR_EQ(t_client_last_ack_name(c), "127.0.0.1_9999");
+    T_ASSERT_STR_EQ(t_client_last_ack_name(c), "");
+    char host[64];
+    uint16_t hint = 99;
+    T_ASSERT_EQ(t_client_leader_hint(c, host, sizeof(host), &hint), -1);
+    T_ASSERT_EQ(t_client_redial_leader(c), -1);
+    T_ASSERT_EQ(t_client_is_connected(c), 1);
 
     t_evloop_stop(loop);
     T_ASSERT_EQ(t_thread_join(&th), 0);
@@ -401,6 +460,70 @@ T_TEST(server_follower_post_redirect_hint) {
     t_server_destroy(srv);
     t_broker_destroy(b);
     t_cluster_destroy(cl);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(client_redial_leader_then_post) {
+    t_evloop *loop = t_evloop_create();
+
+    t_broker *lb = t_broker_create("lead");
+    t_cluster *lcl = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_add_node(lcl, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(lcl, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(lcl, 1), 0);
+    T_ASSERT_EQ(t_broker_set_cluster(lb, lcl), 0);
+    t_broker_start(lb);
+    t_server_config lcfg;
+    t_server_config_init(&lcfg);
+    lcfg.port = 0;
+    lcfg.idle_timeout_ms = 0;
+    t_server *ls = t_server_create(loop, lb, &lcfg);
+    t_server_start(ls);
+    uint16_t lport = t_server_port(ls);
+    T_ASSERT_EQ(t_node_set_client_port(t_cluster_get_node(lcl, 1), lport), 0);
+
+    t_broker *fb = t_broker_create("foll");
+    t_cluster *fcl = t_cluster_create(2);
+    T_ASSERT_EQ(t_cluster_add_node(fcl, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(fcl, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_node_set_client_port(t_cluster_get_node(fcl, 1), lport), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(fcl, 1), 0);
+    T_ASSERT_EQ(t_broker_set_cluster(fb, fcl), 0);
+    t_broker_start(fb);
+    t_server_config fcfg;
+    t_server_config_init(&fcfg);
+    fcfg.port = 0;
+    fcfg.idle_timeout_ms = 0;
+    t_server *fs = t_server_create(loop, fb, &fcfg);
+    t_server_start(fs);
+    uint16_t fport = t_server_port(fs);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", fport), 0);
+    unsigned seq = t_client_ack_seq(c);
+    T_ASSERT_EQ(t_client_open_queue(c, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    T_ASSERT(wait_ack_status(c, seq, (int)T_ERR_AGAIN, 500));
+    T_ASSERT_EQ(t_client_redial_leader(c), 0);
+    seq = t_client_ack_seq(c);
+    T_ASSERT_EQ(t_client_open_queue(c, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    T_ASSERT(wait_ack_status(c, seq, 0, 500));
+    seq = t_client_ack_seq(c);
+    T_ASSERT_EQ(t_client_post(c, "jobs", (const uint8_t *)"x", 1, 0), 0);
+    T_ASSERT(wait_ack_status(c, seq, 0, 500));
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c);
+    t_server_destroy(fs);
+    t_server_destroy(ls);
+    t_broker_destroy(fb);
+    t_broker_destroy(lb);
+    t_cluster_destroy(fcl);
+    t_cluster_destroy(lcl);
     t_evloop_destroy(loop);
 }
 

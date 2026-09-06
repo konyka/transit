@@ -17,6 +17,9 @@ void        t_node_destroy(t_node *node);
 uint64_t    t_node_id(const t_node *node);
 const char *t_node_host(const t_node *node);
 uint16_t    t_node_port(const t_node *node);
+/* Client listen port for redirect hints. 0 = unknown (do not advertise). */
+uint16_t    t_node_client_port(const t_node *node);
+int         t_node_set_client_port(t_node *node, uint16_t port);
 t_nrole     t_node_get_role(const t_node *node);
 int         t_node_is_leader(const t_node *node);
 void        t_node_set_role(t_node *node, t_nrole role);

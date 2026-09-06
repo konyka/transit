@@ -31,6 +31,13 @@ int        t_client_last_status(const t_client *client);
  * Wait for this to change; do not treat last_status==0 as "ACK received". */
 unsigned   t_client_ack_seq(const t_client *client);
 const char *t_client_last_ack_name(const t_client *client);
+/* Parse ACK name `host_port` (last `_` splits IPv4/hostname from port). */
+int        t_client_parse_leader_hint(const char *name, char *host, size_t host_cap,
+                                      uint16_t *port);
+int        t_client_leader_hint(const t_client *client, char *host, size_t host_cap,
+                                uint16_t *port);
+/* Drop the current session and dial the last leader hint. Re-OPEN after. */
+int        t_client_redial_leader(t_client *client);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,

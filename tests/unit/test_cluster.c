@@ -16,6 +16,9 @@ T_TEST(node_create_destroy) {
     T_ASSERT_EQ((int)t_node_id(n), 42);
     T_ASSERT(strcmp(t_node_host(n), "127.0.0.1") == 0);
     T_ASSERT_EQ((int)t_node_port(n), 8080);
+    T_ASSERT_EQ((int)t_node_client_port(n), 0);
+    T_ASSERT_EQ(t_node_set_client_port(n, 4222), 0);
+    T_ASSERT_EQ((int)t_node_client_port(n), 4222);
     T_ASSERT_EQ((int)t_node_get_role(n), T_NODE_FOLLOWER);
     T_ASSERT(t_node_is_alive(n));
     T_ASSERT_EQ((int)t_node_term(n), 0);
@@ -287,8 +290,16 @@ T_TEST(cluster_parse_peers) {
     T_ASSERT_EQ((int)n, 2);
     T_ASSERT_EQ((int)p[0].id, 1);
     T_ASSERT_EQ((int)p[0].port, 4223);
+    T_ASSERT_EQ((int)p[0].client_port, 0);
     T_ASSERT_STR_EQ(p[0].host, "127.0.0.1");
     T_ASSERT_EQ((int)p[1].id, 2);
+    T_ASSERT_EQ(t_cluster_parse_peers("1@127.0.0.1:4223/4222,2@127.0.0.1:4224/4225", p, 4, &n), 0);
+    T_ASSERT_EQ((int)n, 2);
+    T_ASSERT_EQ((int)p[0].port, 4223);
+    T_ASSERT_EQ((int)p[0].client_port, 4222);
+    T_ASSERT_EQ((int)p[1].client_port, 4225);
+    T_ASSERT_EQ(t_cluster_parse_peers("1@127.0.0.1:4223/", p, 4, &n), -1);
+    T_ASSERT_EQ(t_cluster_parse_peers("1@127.0.0.1:4223/0", p, 4, &n), -1);
     T_ASSERT_EQ(t_cluster_parse_peers("1@127.0.0.1:4223,", p, 4, &n), -1);
     T_ASSERT_EQ(t_cluster_parse_peers("0@127.0.0.1:1", p, 4, &n), -1);
     T_ASSERT_EQ(t_cluster_parse_peers("1@127.0.0.1:0", p, 4, &n), -1);
@@ -300,6 +311,11 @@ T_TEST(cluster_parse_peers) {
     T_ASSERT_EQ(t_cluster_add_peers(c, p, n), 0);
     T_ASSERT_EQ((int)t_cluster_node_count(c), 2);
     T_ASSERT_EQ(t_cluster_add_peers(c, p, n), -1);
+    t_cluster_destroy(c);
+    c = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_parse_peers("1@127.0.0.1:9/4222", p, 4, &n), 0);
+    T_ASSERT_EQ(t_cluster_add_peers(c, p, n), 0);
+    T_ASSERT_EQ((int)t_node_client_port(t_cluster_get_node(c, 1)), 4222);
     t_cluster_destroy(c);
 }
 

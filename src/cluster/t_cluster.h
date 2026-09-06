@@ -21,7 +21,7 @@ size_t     t_cluster_alive_count(const t_cluster *cluster);
 typedef void (*t_cluster_node_fn)(t_node *node, void *ud);
 void       t_cluster_foreach(t_cluster *cluster, t_cluster_node_fn fn, void *ud);
 
-/* Static membership: "id@host:port,id@host:port". Fail closed on junk. */
+/* Static membership: "id@host:peer[/client],...". Fail closed on junk. */
 #define T_CLUSTER_PEER_HOST_MAX 63
 #define T_CLUSTER_PEERS_MAX     64
 
@@ -29,6 +29,7 @@ typedef struct t_cluster_peer_spec {
     uint64_t id;
     char     host[T_CLUSTER_PEER_HOST_MAX + 1];
     uint16_t port;
+    uint16_t client_port; /* 0 = unknown; do not use as a client hint */
 } t_cluster_peer_spec;
 
 int t_cluster_parse_peers(const char *list, t_cluster_peer_spec *out,

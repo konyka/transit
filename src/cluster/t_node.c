@@ -8,6 +8,7 @@ struct t_node {
     uint64_t id;
     char *host;
     uint16_t port;
+    uint16_t client_port;
     t_nrole role;
     int alive;
     uint64_t term;
@@ -48,6 +49,16 @@ const char *t_node_host(const t_node *node) {
 
 uint16_t t_node_port(const t_node *node) {
     return node ? node->port : 0;
+}
+
+uint16_t t_node_client_port(const t_node *node) {
+    return node ? node->client_port : 0;
+}
+
+int t_node_set_client_port(t_node *node, uint16_t port) {
+    if (!node) return -1;
+    node->client_port = port;
+    return 0;
 }
 
 t_nrole t_node_get_role(const t_node *node) {

@@ -105,7 +105,8 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 ./build/examples/transit-server   # Integrated server (config+admin+broker+evloop)
                                   # -d <dir> or [storage] datadir= for durable queues
                                   # -C <port> or [cluster] port= for peer listen
-                                  # -n <id> / [cluster] id= and peers=id@host:port,...
+                                  # -n <id> / [cluster] id= and
+                                  # peers=id@host:peer[/client],...
                                   # -k <psk> or [auth] psk= for client AUTH
 ```
 
