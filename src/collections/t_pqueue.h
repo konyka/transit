@@ -20,6 +20,7 @@ typedef struct t_pqueue {
 int     t_pqueue_init(t_pqueue *pq, size_t capacity);
 void    t_pqueue_destroy(t_pqueue *pq);
 int     t_pqueue_push(t_pqueue *pq, int64_t priority, void *data);
+int     t_pqueue_remove(t_pqueue *pq, void *data);
 int     t_pqueue_pop(t_pqueue *pq, t_pq_entry *out);
 int     t_pqueue_peek(const t_pqueue *pq, t_pq_entry *out);
 size_t  t_pqueue_len(const t_pqueue *pq);

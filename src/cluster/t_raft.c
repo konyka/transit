@@ -9,9 +9,10 @@
 #include <stdint.h>
 #include <limits.h>
 
-#define T_RAFT_HDR 24
+#define T_RAFT_HDR_V1 24
+#define T_RAFT_HDR_V2 32
 #define T_RAFT_REC 25
-#define T_RAFT_VER 1
+#define T_RAFT_VER 2
 
 /* Internal raft representation (opaque to users) */
 struct t_raft {
@@ -26,6 +27,8 @@ struct t_raft {
     size_t log_count;
     t_raft_apply_cb apply_cb;
     void *apply_ud;
+    t_raft_replicate_cb replicate_cb;
+    void *replicate_ud;
     int applying; /* nest count while apply_cb runs */
     int free_pending;
     char *log_path;
@@ -75,12 +78,13 @@ static uint64_t read_le64(const uint8_t *p) {
 
 static int raft_sync_meta(t_raft *r) {
     if (!r || !t_file_is_open(&r->logf)) return 0;
-    uint8_t hdr[T_RAFT_HDR];
+    uint8_t hdr[T_RAFT_HDR_V2];
     memset(hdr, 0, sizeof(hdr));
     hdr[0] = 'T'; hdr[1] = 'R'; hdr[2] = 'F'; hdr[3] = 'T';
     hdr[4] = T_RAFT_VER;
     write_le64(hdr + 8, r->current_term);
     write_le64(hdr + 16, r->voted_for);
+    write_le64(hdr + 24, r->commit_index);
     if (t_file_seek(&r->logf, 0, SEEK_SET) != 0) return -1;
     if (t_file_write(&r->logf, hdr, sizeof(hdr)) != 0) return -1;
     if (t_file_sync(&r->logf) != 0) return -1;
@@ -303,7 +307,10 @@ int t_raft_advance_commit(t_raft *raft, uint64_t commit_idx) {
     if (commit_idx > raft->log_count) commit_idx = raft->log_count;
     /* commit_index must be monotonic — never retreat past last_applied. */
     if (commit_idx < raft->commit_index) return -1;
-    raft->commit_index = commit_idx;
+    if (commit_idx != raft->commit_index) {
+        raft->commit_index = commit_idx;
+        if (raft_sync_meta(raft) != 0) return -1;
+    }
     return 0;
 }
 
@@ -335,6 +342,44 @@ void t_raft_set_apply_cb(t_raft *raft, t_raft_apply_cb cb, void *ud) {
     if (!raft) return;
     raft->apply_cb = cb;
     raft->apply_ud = ud;
+}
+
+void t_raft_set_replicate_cb(t_raft *raft, t_raft_replicate_cb cb, void *ud) {
+    if (!raft) return;
+    raft->replicate_cb = cb;
+    raft->replicate_ud = ud;
+}
+
+int t_raft_replicate(t_raft *raft, uint64_t index) {
+    if (!raft || !raft->replicate_cb) return 0;
+    return raft->replicate_cb(raft, index, raft->replicate_ud);
+}
+
+int t_raft_majority_commit(t_raft *raft, const uint64_t *matches, size_t nmatches,
+                           size_t cluster_n) {
+    if (!raft) return -1;
+    if (nmatches > 0 && !matches) return -1;
+    if (cluster_n == 0) cluster_n = 1;
+    size_t quorum = cluster_n / 2 + 1;
+    uint64_t last = raft_last_index(raft);
+    uint64_t best = raft->commit_index;
+    for (uint64_t idx = last; idx > raft->commit_index; idx--) {
+        const t_raft_entry *e = t_raft_get_entry(raft, idx);
+        if (!e || e->term != raft->current_term) continue;
+        size_t votes = 1;
+        for (size_t i = 0; i < nmatches; i++) {
+            if (matches[i] >= idx) votes++;
+        }
+        if (votes >= quorum) {
+            best = idx;
+            break;
+        }
+    }
+    if (best != raft->commit_index) {
+        raft->commit_index = best;
+        if (raft_sync_meta(raft) != 0) return -1;
+    }
+    return t_raft_apply_entries(raft);
 }
 
 size_t t_raft_applied_count(const t_raft *raft) {
@@ -429,14 +474,22 @@ int t_raft_open_log(t_raft *raft, const char *path, int sync_every) {
         if (raft_sync_meta(raft) != 0) return -1;
         return 0;
     }
-    if (sz < T_RAFT_HDR) return -1;
-    uint8_t hdr[T_RAFT_HDR];
+    if (sz < T_RAFT_HDR_V1) return -1;
+    uint8_t hdr[T_RAFT_HDR_V2];
     if (t_file_seek(&raft->logf, 0, SEEK_SET) != 0) return -1;
-    if (t_file_read(&raft->logf, hdr, sizeof(hdr)) != 0) return -1;
-    if (hdr[0] != 'T' || hdr[1] != 'R' || hdr[2] != 'F' || hdr[3] != 'T' || hdr[4] != T_RAFT_VER)
+    if (t_file_read(&raft->logf, hdr, T_RAFT_HDR_V1) != 0) return -1;
+    if (hdr[0] != 'T' || hdr[1] != 'R' || hdr[2] != 'F' || hdr[3] != 'T')
         return -1;
+    uint8_t ver = hdr[4];
+    if (ver != 1 && ver != T_RAFT_VER) return -1;
     raft->current_term = read_le64(hdr + 8);
     raft->voted_for = read_le64(hdr + 16);
+    raft->commit_index = 0;
+    if (ver == T_RAFT_VER) {
+        if (sz < T_RAFT_HDR_V2) return -1;
+        if (t_file_read(&raft->logf, hdr + T_RAFT_HDR_V1, 8) != 0) return -1;
+        raft->commit_index = read_le64(hdr + 24);
+    }
     raft->state = T_NODE_FOLLOWER;
     for (;;) {
         uint8_t rec[T_RAFT_REC];
@@ -472,6 +525,10 @@ int t_raft_open_log(t_raft *raft, const char *path, int sync_every) {
         }
         if (term > raft->current_term) raft->current_term = term;
         free(data);
+    }
+    if (ver == 1) {
+        if (raft_rewrite_log(raft) != 0) return -1;
+        return 0;
     }
     if (t_file_seek(&raft->logf, 0, SEEK_END) != 0) return -1;
     return 0;
@@ -582,7 +639,10 @@ int t_raft_rpc(t_raft *raft, const uint8_t *req, size_t req_len,
         uint8_t ok = 0;
         if (raft_on_append_req(raft, &a, ents, a.nentries, &term, &ok, &match) != 0)
             return -1;
-        return t_wire_encode_append_resp(resp, resp_cap, term, ok, match);
+        int n = t_wire_encode_append_resp(resp, resp_cap, term, ok, match);
+        if (n < 0) return -1;
+        if (t_raft_apply_entries(raft) == -2) return n;
+        return n;
     }
     return -1;
 }

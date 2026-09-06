@@ -186,6 +186,20 @@ int main(int argc, char **argv) {
         rcfg.election_timeout_ms = 150;
         rcfg.heartbeat_interval_ms = 50;
         g_raft = t_raft_create(&rcfg);
+        if (g_raft && datadir) {
+            char rpath[1024];
+            int rn = snprintf(rpath, sizeof(rpath), "%s/raft.log", datadir);
+            if (rn < 0 || (size_t)rn >= sizeof(rpath) ||
+                t_raft_open_log(g_raft, rpath, 1) != 0) {
+                fprintf(stderr, "Failed to open raft log in %s\n", datadir);
+                if (g_raft) t_raft_destroy(g_raft);
+                t_server_destroy(g_server);
+                t_broker_destroy(g_broker);
+                t_evloop_destroy(g_loop);
+                t_config_destroy(g_config);
+                return 1;
+            }
+        }
         t_peer_config pcfg;
         t_peer_config_init(&pcfg);
         pcfg.host = host;
@@ -206,6 +220,8 @@ int main(int argc, char **argv) {
         if (t_cluster_add_node(g_cluster, 1, t_peer_host(g_peer),
                                t_peer_port(g_peer)) != 0 ||
             t_broker_set_cluster(g_broker, g_cluster) != 0 ||
+            t_broker_set_raft(g_broker, g_raft) != 0 ||
+            t_raft_apply_entries(g_raft) != 0 ||
             t_peer_campaign(g_peer) != 0) {
             fprintf(stderr, "Failed to start cluster peer\n");
             t_peer_destroy(g_peer);

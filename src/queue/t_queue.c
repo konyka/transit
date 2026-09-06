@@ -542,6 +542,32 @@ int t_queue_ack(t_queue *q, uint64_t msg_id) {
     return freed ? 0 : -1;
 }
 
+int t_queue_drop(t_queue *q, uint64_t msg_id) {
+    if (!q || q->free_pending) return -1;
+    if (t_queue_ack(q, msg_id) == 0) return 0;
+    if (q->type == T_QUEUE_PRIORITY) {
+        size_t n = t_pqueue_len(&q->pri);
+        for (size_t i = 0; i < n; i++) {
+            t_msg *m = (t_msg *)q->pri.entries[i].data;
+            if (!m || m->msg_id != msg_id) continue;
+            if (t_pqueue_remove(&q->pri, m) != 0) return -1;
+            t_msg_free(m);
+            queue_wal_del(q, msg_id);
+            return 0;
+        }
+        return -1;
+    }
+    for (size_t i = 0; i < q->pending.len; i++) {
+        t_msg *m = (t_msg *)q->pending.items[i];
+        if (!m || m->msg_id != msg_id) continue;
+        (void)t_vec_remove(&q->pending, i);
+        t_msg_free(m);
+        queue_wal_del(q, msg_id);
+        return 0;
+    }
+    return -1;
+}
+
 int t_queue_nack(t_queue *q, uint64_t msg_id) {
     if (!q || q->free_pending) return -1;
     if (q->type == T_QUEUE_BROADCAST) return -1;

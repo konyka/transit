@@ -73,6 +73,20 @@ static void t_pqueue_sift_down(t_pqueue *pq, size_t idx) {
     }
 }
 
+int t_pqueue_remove(t_pqueue *pq, void *data) {
+    if (!pq) return -1;
+    for (size_t i = 0; i < pq->len; i++) {
+        if (pq->entries[i].data != data) continue;
+        pq->entries[i] = pq->entries[--pq->len];
+        if (i < pq->len) {
+            t_pqueue_sift_down(pq, i);
+            t_pqueue_sift_up(pq, i);
+        }
+        return 0;
+    }
+    return -1;
+}
+
 int t_pqueue_push(t_pqueue *pq, int64_t priority, void *data) {
     if (!pq) return -1;
     if (pq->len >= pq->cap) {

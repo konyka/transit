@@ -258,6 +258,33 @@ T_TEST(router_multiple_matches) {
     t_router_destroy(r);
 }
 
+T_TEST(queue_drop_pending_and_inflight) {
+    t_queue *q = t_queue_create("drop.q", T_QUEUE_FIFO, 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"a", 1, 0), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"b", 1, 0), 0);
+    T_ASSERT_EQ(t_queue_drop(q, 1), 0);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
+    t_msg msg;
+    T_ASSERT_EQ(t_queue_consume(q, &msg), 0);
+    T_ASSERT_EQ((int)msg.msg_id, 2);
+    T_ASSERT_EQ(t_queue_drop(q, 2), 0);
+    T_ASSERT(!t_queue_has_inflight(q));
+    T_ASSERT_EQ(t_queue_drop(q, 99), -1);
+    t_queue_destroy(q);
+}
+
+T_TEST(queue_drop_priority) {
+    t_queue *q = t_queue_create("drop.pri", T_QUEUE_PRIORITY, 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"low", 3, 10), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"high", 4, 1), 0);
+    T_ASSERT_EQ(t_queue_drop(q, 1), 0);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
+    t_msg msg;
+    T_ASSERT_EQ(t_queue_consume(q, &msg), 0);
+    T_ASSERT(memcmp(msg.data, "high", 4) == 0);
+    t_queue_destroy(q);
+}
+
 T_TEST(router_unbind) {
     t_router *r = t_router_create();
     int target = 1;

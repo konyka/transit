@@ -1,8 +1,9 @@
 # Roadmap
 
 Transit already has in-process queues, broker/domain routing, framed TCP,
-admin HTTP, and a simplified Raft object model. The gaps below are what still
-separate that library from a production message bus.
+admin HTTP, consumer groups, and a Raft log for clustered durable queues.
+The gaps below are what still separate that library from a production
+message bus.
 
 ## Implemented in this change
 
@@ -32,17 +33,22 @@ separate that library from a production message bus.
   FIFO/priority queue, O(1) `t_cgroup_pick`, one `PUSH`. Fail closed
   without consumer `OPEN`, on duplicate ids, and when the group is
   empty. See `docs/Consumer_Groups.md`.
+- Raft queue log: clustered `POST` / `CONFIRM` append `PUT` / `ACK`
+  commands, majority-commit (Figure 8), and apply on every node via
+  `t_queue_restore` / `t_queue_drop`. The Raft log is the WAL when
+  `t_broker_set_raft` is set. See `docs/Raft.md`.
 
 ## Remaining (priority order)
 
-1. **Raft** is still a simplified object model plus peer RPC, not a
-   full replicated log for durable queues.
+(none for the current production-gap list)
 
 GitHub `windows` (`cl` `/W4 /WX`, `ctest -C Release`) is green as of
 `d4521ec`.
 
 Consumer groups over TCP (`T_MSG_JOIN`) are implemented. See
 `docs/Consumer_Groups.md` and `docs/Wire_Protocol.md`.
+
+Raft replicated durable-queue log is implemented. See `docs/Raft.md`.
 
 TLS is still deferred (PSK AUTH covers the loopback-default client
 port).

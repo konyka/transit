@@ -60,6 +60,8 @@ int           t_queue_has_consumer_ud(const t_queue *q, void *ud);
 size_t        t_queue_consumer_count(const t_queue *q);
 
 int           t_queue_ack(t_queue *q, uint64_t msg_id);
+/* Remove msg_id from inflight or pending. Used by Raft ACK apply. */
+int           t_queue_drop(t_queue *q, uint64_t msg_id);
 int           t_queue_nack(t_queue *q, uint64_t msg_id);
 int           t_queue_requeue(t_queue *q, uint64_t msg_id);
 

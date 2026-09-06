@@ -482,7 +482,7 @@ static int32_t handle_post(t_server_conn *sc, const t_proto_msg *msg) {
     if (!t_broker_is_leader(sc->srv->broker))
         return T_ERR_AGAIN;
     if (t_broker_publish(sc->srv->broker, name, p.data, p.data_len, (int)p.priority) != 0)
-        return T_ERR_GENERIC;
+        return t_broker_raft(sc->srv->broker) ? T_ERR_AGAIN : T_ERR_GENERIC;
     server_flush_pull(sc->srv, name);
     if (send_ack(sc, T_MSG_POST, T_OK_CODE, name) != 0)
         return T_ERR_IO;
@@ -501,11 +501,19 @@ static int32_t handle_confirm(t_server_conn *sc, const t_proto_msg *msg) {
     t_push_inf *inf = server_inflight_take(sc, name, c.msg_id);
     if (inf) {
         t_queue *q = server_lookup_queue(sc->srv->broker, name);
-        if (q) {
-            if (msg->header.type == T_MSG_REJECT)
-                (void)t_queue_nack(q, inf->id);
-            else
-                (void)t_queue_ack(q, inf->id);
+        if (msg->header.type == T_MSG_REJECT) {
+            if (q) (void)t_queue_nack(q, inf->id);
+        } else if (t_broker_raft(sc->srv->broker)) {
+            if (t_broker_ack(sc->srv->broker, name, inf->id) != 0) {
+                if (t_vec_push(&sc->inflight, inf) != 0) {
+                    free(inf->name);
+                    free(inf);
+                    return T_ERR_GENERIC;
+                }
+                return T_ERR_AGAIN;
+            }
+        } else if (q) {
+            (void)t_queue_ack(q, inf->id);
         }
         free(inf->name);
         free(inf);

@@ -1,0 +1,87 @@
+# Raft queue log
+
+When a broker has a Raft instance (`t_broker_set_raft`), durable queue
+mutations go through the Raft log. The log is the WAL: apply does not
+open a per-queue WAL. Unclustered durable queues keep the existing
+local WAL.
+
+## Fail closed
+
+- `POST` / `t_broker_publish` on a Raft-attached leader appends a `PUT`
+  command and returns success only after majority commit **and** apply.
+- `CONFIRM` / `t_broker_ack` appends an `ACK` command the same way.
+- A follower client `POST` still returns `T_ERR_AGAIN` (leader hint).
+- A leader that cannot gather a majority returns an error; the message
+  is not visible in the queue. The uncommitted entry stays in the log
+  (a later successful propose in the same term may commit it). Client
+  retry after an error is at-least-once.
+- Cluster attached **without** Raft is unchanged: immediate local
+  publish, leader check only.
+
+Single-node membership (`cluster_n == 1`) is a majority of one: the
+leader commits and applies immediately after append.
+
+## Commands
+
+Compact big-endian payloads, exact length. Queue names use the client
+wire charset (`[A-Za-z0-9._-]`).
+
+`PUT` (`type = 1`):
+
+```
+u8  type
+u8  qtype
+u8  qflags
+u8  priority
+u64 msg_id
+u16 name_len
+u8  name[name_len]
+u32 data_len
+u8  data[data_len]
+```
+
+`msg_id` is the Raft log index so every node restores the same id
+(`t_queue_restore`). Apply creates the queue if it is missing.
+
+`ACK` (`type = 2`):
+
+```
+u8  type
+u64 msg_id
+u16 name_len
+u8  name[name_len]
+```
+
+Apply calls `t_queue_drop` so the id is removed from pending (follower)
+or inflight (leader that already `PUSH`ed).
+
+`REJECT` / nack stays local. An unacked message is still in the
+follower pending set and can be redelivered after failover.
+
+## Commit
+
+`t_raft_majority_commit` counts self plus peer `match_index` values.
+It only commits an index whose entry term equals `current_term`
+(Raft Figure 8). Older entries commit together with that index.
+
+`t_peer` records `match_index` from `AppendResp`, then majority-commits
+and applies. Inbound `AppendReq` already advances `commit_index`;
+`t_raft_rpc` then applies so followers materialize queue state.
+
+Heartbeats are incremental: each peer is sent entries after its
+`match_index` with a matching `prev_log_index` / `prev_log_term`.
+
+A leader append can invoke `t_raft_replicate` (set by `t_peer`) so a
+client `POST` waits for a blocking peer RPC before the ACK. After
+majority commit the leader sends a second AppendRPC with the new
+`leader_commit` so followers apply before the client is ACKed.
+
+## Durable header
+
+`t_raft_open_log` writes magic `TRFT`. Version 2 is a 32-byte header:
+term, `votedFor`, and `commit_index`. Version 1 files (24-byte header)
+still open; they are rewritten as version 2. Restart replays committed
+entries through the broker apply callback (`last_applied` starts at 0).
+
+`transit-server -C` with `-d` stores `datadir/raft.log` and applies it
+before campaigning.

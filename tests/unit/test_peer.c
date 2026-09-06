@@ -131,6 +131,11 @@ T_TEST(peer_heartbeat_replicates) {
     const t_raft_entry *e = t_raft_get_entry(pp.r2, 1);
     T_ASSERT_NOT_NULL(e);
     T_ASSERT_MEM_EQ(e->data, data, 1);
+    T_ASSERT_EQ((int)t_raft_commit_index(pp.r1), 1);
+    T_ASSERT_EQ((int)t_raft_last_applied(pp.r1), 1);
+    peer_pump(pp.loop, 80);
+    T_ASSERT_EQ((int)t_raft_commit_index(pp.r2), 1);
+    T_ASSERT_EQ((int)t_raft_last_applied(pp.r2), 1);
     peer_pair_destroy(&pp);
 }
 

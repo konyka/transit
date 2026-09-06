@@ -22,10 +22,18 @@ typedef struct t_raft_config {
 } t_raft_config;
 
 typedef void (*t_raft_apply_cb)(const t_raft_entry *entry, void *ud);
+/* Optional: after a leader append, replicate index to peers and majority-commit. */
+typedef int  (*t_raft_replicate_cb)(t_raft *raft, uint64_t index, void *ud);
 
 t_raft            *t_raft_create(const t_raft_config *cfg);
 void               t_raft_destroy(t_raft *raft);
 void               t_raft_set_apply_cb(t_raft *raft, t_raft_apply_cb cb, void *ud);
+void               t_raft_set_replicate_cb(t_raft *raft, t_raft_replicate_cb cb, void *ud);
+int                t_raft_replicate(t_raft *raft, uint64_t index);
+/* Commit the highest current-term index replicated on a majority (self + matches).
+ * Applies newly committed entries. cluster_n is the voting membership. */
+int                t_raft_majority_commit(t_raft *raft, const uint64_t *matches,
+                                          size_t nmatches, size_t cluster_n);
 uint64_t           t_raft_current_term(const t_raft *raft);
 t_nrole            t_raft_state(const t_raft *raft);
 uint64_t           t_raft_commit_index(const t_raft *raft);
@@ -50,7 +58,7 @@ uint64_t           t_raft_election_timeout_ms(const t_raft *raft);
 uint64_t           t_raft_heartbeat_interval_ms(const t_raft *raft);
 uint64_t           t_raft_last_log_index(const t_raft *raft);
 uint64_t           t_raft_last_log_term(const t_raft *raft);
-/* Durable log (term + votedFor in the header, entries append-only). */
+/* Durable log (term + votedFor + commit_index in the v2 header). */
 int                t_raft_open_log(t_raft *raft, const char *path, int sync_every);
 /* Handle a T_MSG_CLUSTER payload; writes a response into resp. Returns length. */
 int                t_raft_rpc(t_raft *raft, const uint8_t *req, size_t req_len,

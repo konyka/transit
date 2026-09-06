@@ -103,13 +103,16 @@ u16 name_len
 u8  name[name_len]
 ```
 
-`CONFIRM` calls `t_queue_ack` for a matching inflight `PUSH` on this
-session (WAL `DEL` for durable queues). `REJECT` calls `t_queue_nack` and
-the server immediately tries to `PUSH` again. Unknown ids still return a
-credit (capped at the window) and `ACK` `T_OK`. Disconnect nacks leftover
-inflight. These frames skip the per-connection token bucket. Broadcast
-`PUSH` is not inflight — confirm only returns a credit. The TCP client
-(`t_client_dial`) sends `CONFIRM` automatically after a decoded `PUSH`.
+`CONFIRM` acks a matching inflight `PUSH` on this session. Without Raft
+that is a local `t_queue_ack` (WAL `DEL` for durable queues). With Raft
+attached it proposes an `ACK` command and succeeds only after majority
+commit and apply (`docs/Raft.md`). `REJECT` stays local (`t_queue_nack`)
+and the server immediately tries to `PUSH` again. Unknown ids still
+return a credit (capped at the window) and `ACK` `T_OK`. Disconnect
+nacks leftover inflight. These frames skip the per-connection token
+bucket. Broadcast `PUSH` is not inflight — confirm only returns a
+credit. The TCP client (`t_client_dial`) sends `CONFIRM` automatically
+after a decoded `PUSH`.
 
 ### `HEARTBEAT` / `NOP`
 
@@ -149,12 +152,16 @@ u8 rpc   /* 1 VoteReq, 2 VoteResp, 3 AppendReq, 4 AppendResp */
 `u32 n`, then `n` entries of `u64 index, term`, `u8 type`, `u32 len`, `data`.  
 `AppendResp`: `u64 term`, `u8 success`, `u64 match_index`.
 
-Handle with `t_raft_rpc`. Durable term/vote/entries: `t_raft_open_log`.
+Handle with `t_raft_rpc`. Durable term/vote/`commit_index`/entries:
+`t_raft_open_log` (header v2). Queue `PUT`/`ACK` command layouts are in
+`docs/Raft.md`.
 
 Follower `POST` on the client port returns `T_ERR_AGAIN` when a cluster is
 attached and this node is not leader. The ACK name is `host_port` of the
 current leader cluster node (underscore because `:` is not a valid name
-character). Empty name if no leader is known.
+character). Empty name if no leader is known. A Raft-attached leader
+`POST`/`CONFIRM` also returns `T_ERR_AGAIN` if the command is not yet
+majority-committed.
 
 ## Server safety switches
 

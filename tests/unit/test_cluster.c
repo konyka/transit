@@ -2,8 +2,11 @@
 #include "t_cluster.h"
 #include "t_node.h"
 #include "t_raft.h"
+#include "t_raft_cmd.h"
 #include "t_wire.h"
 #include "t_broker.h"
+#include "t_domain.h"
+#include "t_queue.h"
 #include "t_file.h"
 #include <string.h>
 
@@ -271,6 +274,256 @@ T_TEST(raft_log_survives_reopen) {
     T_ASSERT_MEM_EQ(e->data, data, 1);
     t_raft_destroy(r);
     t_file_unlink(path);
+}
+
+T_TEST(raft_cmd_put_ack_roundtrip) {
+    t_raft_cmd put;
+    memset(&put, 0, sizeof(put));
+    put.type = T_RAFT_CMD_PUT;
+    put.qtype = 0;
+    put.qflags = 1;
+    put.priority = 7;
+    put.msg_id = 42;
+    put.name = "jobs";
+    put.name_len = 4;
+    put.data = (const uint8_t *)"hi";
+    put.data_len = 2;
+    uint8_t buf[64];
+    int n = t_raft_cmd_encode_put(buf, sizeof(buf), &put);
+    T_ASSERT(n > 0);
+    t_raft_cmd out;
+    T_ASSERT_EQ(t_raft_cmd_decode(buf, (size_t)n, &out), 0);
+    T_ASSERT_EQ((int)out.type, T_RAFT_CMD_PUT);
+    T_ASSERT_EQ((int)out.priority, 7);
+    T_ASSERT_EQ((int)out.msg_id, 42);
+    T_ASSERT_EQ((int)out.qflags, 1);
+    T_ASSERT_EQ((int)out.name_len, 4);
+    T_ASSERT(memcmp(out.name, "jobs", 4) == 0);
+    T_ASSERT_EQ((int)out.data_len, 2);
+    T_ASSERT_MEM_EQ(out.data, (const uint8_t *)"hi", 2);
+    T_ASSERT_EQ(t_raft_cmd_decode(buf, (size_t)n - 1, &out), -1);
+
+    t_raft_cmd ack;
+    memset(&ack, 0, sizeof(ack));
+    ack.type = T_RAFT_CMD_ACK;
+    ack.msg_id = 42;
+    ack.name = "jobs";
+    ack.name_len = 4;
+    n = t_raft_cmd_encode_ack(buf, sizeof(buf), &ack);
+    T_ASSERT(n > 0);
+    T_ASSERT_EQ(t_raft_cmd_decode(buf, (size_t)n, &out), 0);
+    T_ASSERT_EQ((int)out.type, T_RAFT_CMD_ACK);
+    T_ASSERT_EQ((int)out.msg_id, 42);
+    T_ASSERT_EQ((int)out.name_len, 4);
+}
+
+T_TEST(raft_majority_commit_single_node) {
+    t_raft_config cfg = {1, 150, 50};
+    t_raft *r = t_raft_create(&cfg);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    uint8_t data[] = {1};
+    T_ASSERT_EQ(t_raft_append_entry(r, 1, data, 1), 0);
+    T_ASSERT_EQ(t_raft_majority_commit(r, NULL, 0, 1), 0);
+    T_ASSERT_EQ((int)t_raft_commit_index(r), 1);
+    T_ASSERT_EQ((int)t_raft_last_applied(r), 1);
+    t_raft_destroy(r);
+}
+
+T_TEST(raft_majority_commit_needs_peer) {
+    t_raft_config cfg = {1, 150, 50};
+    t_raft *r = t_raft_create(&cfg);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    uint8_t data[] = {1};
+    T_ASSERT_EQ(t_raft_append_entry(r, 1, data, 1), 0);
+    T_ASSERT_EQ(t_raft_majority_commit(r, NULL, 0, 2), 0);
+    T_ASSERT_EQ((int)t_raft_commit_index(r), 0);
+    uint64_t match = 1;
+    T_ASSERT_EQ(t_raft_majority_commit(r, &match, 1, 2), 0);
+    T_ASSERT_EQ((int)t_raft_commit_index(r), 1);
+    T_ASSERT_EQ((int)t_raft_last_applied(r), 1);
+    t_raft_destroy(r);
+}
+
+T_TEST(raft_majority_commit_old_term_not_committed) {
+    t_raft_config cfg = {1, 150, 50};
+    t_raft *r = t_raft_create(&cfg);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    uint8_t data[] = {1};
+    T_ASSERT_EQ(t_raft_append_entry(r, 1, data, 1), 0);
+    T_ASSERT_EQ(t_raft_become_follower(r, t_raft_current_term(r)), 0);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    T_ASSERT_EQ(t_raft_majority_commit(r, NULL, 0, 1), 0);
+    T_ASSERT_EQ((int)t_raft_commit_index(r), 0);
+    T_ASSERT_EQ(t_raft_append_entry(r, 1, data, 1), 0);
+    T_ASSERT_EQ(t_raft_majority_commit(r, NULL, 0, 1), 0);
+    T_ASSERT_EQ((int)t_raft_commit_index(r), 2);
+    t_raft_destroy(r);
+}
+
+T_TEST(raft_commit_survives_reopen) {
+    const char *path = "test_transit_raft_commit.log";
+    t_file_unlink(path);
+    t_raft_config cfg = {1, 150, 50};
+    t_raft *r = t_raft_create(&cfg);
+    T_ASSERT_EQ(t_raft_open_log(r, path, 1), 0);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    uint8_t data[] = {'x'};
+    T_ASSERT_EQ(t_raft_append_entry(r, 3, data, 1), 0);
+    T_ASSERT_EQ(t_raft_majority_commit(r, NULL, 0, 1), 0);
+    T_ASSERT_EQ((int)t_raft_commit_index(r), 1);
+    t_raft_destroy(r);
+
+    r = t_raft_create(&cfg);
+    T_ASSERT_EQ(t_raft_open_log(r, path, 1), 0);
+    T_ASSERT_EQ((int)t_raft_log_count(r), 1);
+    T_ASSERT_EQ((int)t_raft_commit_index(r), 1);
+    T_ASSERT_EQ((int)t_raft_last_applied(r), 0);
+    T_ASSERT_EQ(t_raft_apply_entries(r), 0);
+    T_ASSERT_EQ((int)t_raft_last_applied(r), 1);
+    t_raft_destroy(r);
+    t_file_unlink(path);
+}
+
+typedef struct {
+    t_raft *fol;
+} raft_repl_ctx;
+
+static int test_inproc_repl(t_raft *r, uint64_t index, void *ud) {
+    raft_repl_ctx *cx = (raft_repl_ctx *)ud;
+    (void)index;
+    t_wire_cluster_entry ents[8];
+    uint32_t nent = 0;
+    uint64_t last = t_raft_last_log_index(r);
+    for (uint64_t i = 1; i <= last && nent < 8; i++) {
+        const t_raft_entry *e = t_raft_get_entry(r, i);
+        if (!e) break;
+        ents[nent].index = e->index;
+        ents[nent].term = e->term;
+        ents[nent].type = e->type;
+        ents[nent].data = e->data;
+        ents[nent].data_len = (uint32_t)e->data_len;
+        nent++;
+    }
+    t_wire_append_req ar;
+    memset(&ar, 0, sizeof(ar));
+    ar.term = t_raft_current_term(r);
+    ar.leader_id = t_raft_id(r);
+    ar.leader_commit = t_raft_commit_index(r);
+    uint8_t buf[512], resp[256];
+    int n = t_wire_encode_append_req(buf, sizeof(buf), &ar, ents, nent);
+    if (n < 0) return -1;
+    int m = t_raft_rpc(cx->fol, buf, (size_t)n, resp, sizeof(resp));
+    if (m < 0) return -1;
+    t_wire_append_resp ao;
+    if (t_wire_decode_append_resp(resp, (size_t)m, &ao) != 0 || !ao.success)
+        return -1;
+    uint64_t match = ao.match_index;
+    int rc = t_raft_majority_commit(r, &match, 1, 2);
+    if (rc != 0) return rc;
+    memset(&ar, 0, sizeof(ar));
+    ar.term = t_raft_current_term(r);
+    ar.leader_id = t_raft_id(r);
+    ar.leader_commit = t_raft_commit_index(r);
+    n = t_wire_encode_append_req(buf, sizeof(buf), &ar, NULL, 0);
+    if (n < 0) return -1;
+    return (t_raft_rpc(cx->fol, buf, (size_t)n, resp, sizeof(resp)) < 0) ? -1 : 0;
+}
+
+static t_queue *broker_q(t_broker *b, const char *name) {
+    t_domain *d = t_broker_get_domain(b, "default");
+    return d ? (t_queue *)t_domain_get_queue(d, name) : NULL;
+}
+
+T_TEST(broker_raft_publish_uncommitted_not_visible) {
+    t_broker *b = t_broker_create("n1");
+    t_cluster *c = t_cluster_create(1);
+    t_raft_config cfg = {1, 150, 50};
+    t_raft *r = t_raft_create(&cfg);
+    T_ASSERT_EQ(t_cluster_add_node(c, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(c, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(c, 1), 0);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    T_ASSERT_EQ(t_broker_set_cluster(b, c), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b, r), 0);
+    T_ASSERT_EQ(t_broker_start(b), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "jobs", 0, 0), 0);
+    T_ASSERT_EQ(t_broker_publish(b, "jobs", (const uint8_t *)"a", 1, 0), -1);
+    T_ASSERT_EQ((int)t_queue_pending_count(broker_q(b, "jobs")), 0);
+    T_ASSERT_EQ((int)t_raft_commit_index(r), 0);
+    t_broker_destroy(b);
+    t_raft_destroy(r);
+    t_cluster_destroy(c);
+}
+
+T_TEST(broker_raft_publish_and_ack_two_nodes) {
+    t_broker *b1 = t_broker_create("n1");
+    t_broker *b2 = t_broker_create("n2");
+    t_cluster *c = t_cluster_create(1);
+    t_raft_config c1 = {1, 150, 50};
+    t_raft_config c2 = {2, 150, 50};
+    t_raft *r1 = t_raft_create(&c1);
+    t_raft *r2 = t_raft_create(&c2);
+    T_ASSERT_EQ(t_cluster_add_node(c, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(c, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(c, 1), 0);
+    T_ASSERT_EQ(t_raft_become_candidate(r1), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r1), 0);
+    raft_repl_ctx cx = { r2 };
+    t_raft_set_replicate_cb(r1, test_inproc_repl, &cx);
+    T_ASSERT_EQ(t_broker_set_cluster(b1, c), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b1, r1), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b2, r2), 0);
+    T_ASSERT_EQ(t_broker_start(b1), 0);
+    T_ASSERT_EQ(t_broker_start(b2), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b1, "default", "jobs", 0, T_QUEUE_FLAG_DURABLE), 0);
+    T_ASSERT_EQ(t_broker_publish(b1, "jobs", (const uint8_t *)"hi", 2, 3), 0);
+    t_queue *q1 = broker_q(b1, "jobs");
+    t_queue *q2 = broker_q(b2, "jobs");
+    T_ASSERT_NOT_NULL(q1);
+    T_ASSERT_NOT_NULL(q2);
+    T_ASSERT_EQ((int)t_queue_pending_count(q1), 1);
+    T_ASSERT_EQ((int)t_queue_pending_count(q2), 1);
+    t_msg m1, m2;
+    T_ASSERT_EQ(t_queue_consume(q1, &m1), 0);
+    T_ASSERT_EQ(t_queue_consume(q2, &m2), 0);
+    T_ASSERT_EQ((int)m1.msg_id, (int)m2.msg_id);
+    T_ASSERT_MEM_EQ(m1.data, (const uint8_t *)"hi", 2);
+    T_ASSERT_EQ(t_broker_ack(b1, "jobs", m1.msg_id), 0);
+    T_ASSERT(!t_queue_has_inflight(q1));
+    T_ASSERT(!t_queue_has_inflight(q2));
+    T_ASSERT_EQ((int)t_queue_pending_count(q1), 0);
+    T_ASSERT_EQ((int)t_queue_pending_count(q2), 0);
+    t_broker_destroy(b1);
+    t_broker_destroy(b2);
+    t_raft_destroy(r1);
+    t_raft_destroy(r2);
+    t_cluster_destroy(c);
+}
+
+T_TEST(broker_raft_single_node_commits) {
+    t_broker *b = t_broker_create("n1");
+    t_cluster *c = t_cluster_create(1);
+    t_raft_config cfg = {1, 150, 50};
+    t_raft *r = t_raft_create(&cfg);
+    T_ASSERT_EQ(t_cluster_add_node(c, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(c, 1), 0);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    T_ASSERT_EQ(t_broker_set_cluster(b, c), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b, r), 0);
+    T_ASSERT_EQ(t_broker_start(b), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "jobs", 0, 0), 0);
+    T_ASSERT_EQ(t_broker_publish(b, "jobs", (const uint8_t *)"z", 1, 0), 0);
+    T_ASSERT_EQ((int)t_queue_pending_count(broker_q(b, "jobs")), 1);
+    t_broker_destroy(b);
+    t_raft_destroy(r);
+    t_cluster_destroy(c);
 }
 
 T_TEST(broker_leader_only_publish) {
