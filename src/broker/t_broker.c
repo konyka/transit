@@ -846,10 +846,50 @@ int t_broker_snapshot_encode(const t_broker *broker, uint8_t **out, size_t *len)
     return 0;
 }
 
+typedef struct {
+    char name[T_WIRE_MAX_NAME + 1];
+    int found;
+} snap_firstq;
+
+static void snap_pick_first(void *queue, void *ud) {
+    snap_firstq *f = (snap_firstq *)ud;
+    if (f->found) return;
+    const char *n = t_queue_name((t_queue *)queue);
+    if (!n) return;
+    size_t nlen = strlen(n);
+    if (nlen == 0 || nlen > T_WIRE_MAX_NAME) return;
+    memcpy(f->name, n, nlen + 1);
+    f->found = 1;
+}
+
+static int broker_reset_queues(t_broker *broker) {
+    if (!broker) return -1;
+    for (;;) {
+        int any = 0;
+        t_map_iter it = t_map_iter_begin(&broker->domains);
+        const char *k;
+        void *v;
+        while (t_map_iter_next(&it, &k, &v)) {
+            t_domain *d = (t_domain *)v;
+            snap_firstq f;
+            memset(&f, 0, sizeof(f));
+            t_domain_foreach_queue(d, snap_pick_first, &f);
+            if (!f.found) continue;
+            any = 1;
+            if (broker_delete_queue_local(broker, t_domain_name(d), f.name) != 0)
+                return -1;
+            break;
+        }
+        if (!any) break;
+    }
+    return 0;
+}
+
 int t_broker_snapshot_apply(t_broker *broker, const uint8_t *data, size_t len) {
     if (!broker || broker->free_pending) return -1;
     if (len > 0 && !data) return -1;
-    if (t_broker_total_queues(broker) != 0) return -1;
+    if (t_broker_total_queues(broker) != 0 && broker_reset_queues(broker) != 0)
+        return -1;
     const uint8_t *p = data;
     const uint8_t *end = data + len;
     uint32_t ndom = 0;

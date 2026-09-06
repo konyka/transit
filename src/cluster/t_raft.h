@@ -41,6 +41,11 @@ int                t_raft_snapshot(t_raft *raft, const uint8_t *data, size_t len
 /* Snapshot+compact when the log is long enough and every peer has the prefix. */
 int                t_raft_maybe_snapshot(t_raft *raft, const uint64_t *matches,
                                           size_t nmatches, size_t cluster_n);
+int                t_raft_snapshot_bytes(t_raft *raft, const uint8_t **data, size_t *len);
+/* Install a leader snapshot. 1 = ok, 0 = rejected, -1 = error. */
+int                t_raft_install_snapshot(t_raft *raft, uint64_t term,
+                                           uint64_t last_index, uint64_t last_term,
+                                           const uint8_t *data, size_t len);
 int                t_raft_replicate(t_raft *raft, uint64_t index);
 /* Commit the highest current-term index replicated on a majority (self + matches).
  * Applies newly committed entries. cluster_n is the voting membership. */

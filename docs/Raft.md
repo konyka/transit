@@ -104,8 +104,9 @@ majority commit the leader sends a second AppendRPC with the new
 
 `t_raft_open_log` writes magic `TRFT`. Version 2 is a 32-byte header:
 term, `votedFor`, and `commit_index`. Version 1 files (24-byte header)
-still open; they are rewritten as version 2. Restart replays committed
-entries through the broker apply callback (`last_applied` starts at 0).
+still open; they are rewritten as version 2. Restart loads `raft.log.snap`
+if present (`last_applied` starts at the snapshot index), then replays
+only the log tail.
 
 `transit-server -C` with `-d` stores `datadir/raft.log` and applies it
 before campaigning.
@@ -120,8 +121,10 @@ entries through `last_applied`. Restart loads the snapshot first
 Compact is fail-closed: it runs only when the in-memory log is at least
 `compact_min` entries (default 64) **and** every other voting member's
 `match_index` is at least `last_applied`. A peer that is behind keeps
-the prefix. A node that loses its snapshot file cannot catch up from
-the leader after compact; restore `datadir` from backup.
+the prefix. A lagging or wiped peer is caught up with `InstallSnapshot`
+(`T_WIRE_CLUSTER_SNAP_REQ` / `RESP`): the leader sends the snapshot
+bytes, the follower replaces queue state, and `match_index` advances
+to `last_included_index`. A corrupt snapshot is rejected.
 
 The snapshot payload is big-endian: `u32` domain count, then each
 domain (`u16` name, `u32` queues) and each queue (`qtype`, `qflags`,

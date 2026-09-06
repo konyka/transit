@@ -466,6 +466,72 @@ int t_wire_decode_append_resp(const uint8_t *buf, size_t len, t_wire_append_resp
     return 0;
 }
 
+int t_wire_encode_snap_req(uint8_t *buf, size_t cap, const t_wire_snap_req *req) {
+    if (!buf || !req) return -1;
+    if (req->data_len > 0 && !req->data) return -1;
+    if (req->data_len > T_PROTO_MAX_PAYLOAD) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (put_u8(&p, end, T_WIRE_CLUSTER_SNAP_REQ) != 0) return -1;
+    if (put_u64(&p, end, req->term) != 0) return -1;
+    if (put_u64(&p, end, req->leader_id) != 0) return -1;
+    if (put_u64(&p, end, req->last_index) != 0) return -1;
+    if (put_u64(&p, end, req->last_term) != 0) return -1;
+    if (put_u32(&p, end, req->data_len) != 0) return -1;
+    if (put_bytes(&p, end, req->data, req->data_len) != 0) return -1;
+    return (int)(p - buf);
+}
+
+int t_wire_decode_snap_req(const uint8_t *buf, size_t len, t_wire_snap_req *out) {
+    if (!buf || !out) return -1;
+    const uint8_t *p = buf;
+    const uint8_t *end = buf + len;
+    uint8_t rpc;
+    t_wire_snap_req tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    if (get_u8(&p, end, &rpc) != 0 || rpc != T_WIRE_CLUSTER_SNAP_REQ) return -1;
+    if (get_u64(&p, end, &tmp.term) != 0) return -1;
+    if (get_u64(&p, end, &tmp.leader_id) != 0) return -1;
+    if (get_u64(&p, end, &tmp.last_index) != 0) return -1;
+    if (get_u64(&p, end, &tmp.last_term) != 0) return -1;
+    if (get_u32(&p, end, &tmp.data_len) != 0) return -1;
+    if (tmp.data_len > T_PROTO_MAX_PAYLOAD) return -1;
+    if ((size_t)(end - p) < tmp.data_len) return -1;
+    tmp.data = tmp.data_len ? p : NULL;
+    p += tmp.data_len;
+    if (require_exact(p, end) != 0) return -1;
+    *out = tmp;
+    return 0;
+}
+
+int t_wire_encode_snap_resp(uint8_t *buf, size_t cap, uint64_t term, uint8_t success,
+                            uint64_t match_index) {
+    if (!buf) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (put_u8(&p, end, T_WIRE_CLUSTER_SNAP_RESP) != 0) return -1;
+    if (put_u64(&p, end, term) != 0) return -1;
+    if (put_u8(&p, end, success ? 1 : 0) != 0) return -1;
+    if (put_u64(&p, end, match_index) != 0) return -1;
+    return (int)(p - buf);
+}
+
+int t_wire_decode_snap_resp(const uint8_t *buf, size_t len, t_wire_snap_resp *out) {
+    if (!buf || !out) return -1;
+    const uint8_t *p = buf;
+    const uint8_t *end = buf + len;
+    uint8_t rpc;
+    t_wire_snap_resp tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    if (get_u8(&p, end, &rpc) != 0 || rpc != T_WIRE_CLUSTER_SNAP_RESP) return -1;
+    if (get_u64(&p, end, &tmp.term) != 0) return -1;
+    if (get_u8(&p, end, &tmp.success) != 0) return -1;
+    if (get_u64(&p, end, &tmp.match_index) != 0) return -1;
+    if (require_exact(p, end) != 0) return -1;
+    *out = tmp;
+    return 0;
+}
+
 int t_wire_encode_auth(uint8_t *buf, size_t cap, const uint8_t mac[T_WIRE_AUTH_MAC_LEN]) {
     if (!buf || !mac || cap < T_WIRE_AUTH_MAC_LEN) return -1;
     memcpy(buf, mac, T_WIRE_AUTH_MAC_LEN);

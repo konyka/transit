@@ -293,15 +293,58 @@ static int peer_encode_append(t_peer *p, uint64_t peer_id, uint8_t *buf, size_t 
     return n;
 }
 
+static int peer_catchup_encode(t_peer *p, uint64_t peer_id, uint8_t **out, size_t *len) {
+    if (!p || !out || !len) return -1;
+    *out = NULL;
+    *len = 0;
+    uint64_t match = peer_match_get(p, peer_id);
+    uint64_t snap = t_raft_snapshot_index(p->raft);
+    if (snap > 0 && match < snap) {
+        const uint8_t *data = NULL;
+        size_t dlen = 0;
+        if (t_raft_snapshot_bytes(p->raft, &data, &dlen) != 0) return -1;
+        if (dlen > T_PROTO_MAX_PAYLOAD) return -1;
+        t_wire_snap_req sr;
+        memset(&sr, 0, sizeof(sr));
+        sr.term = t_raft_current_term(p->raft);
+        sr.leader_id = t_raft_id(p->raft);
+        sr.last_index = snap;
+        sr.last_term = t_raft_snapshot_term(p->raft);
+        sr.data = data;
+        sr.data_len = (uint32_t)dlen;
+        size_t cap = 64u + dlen;
+        uint8_t *buf = (uint8_t *)malloc(cap);
+        if (!buf) return -1;
+        int n = t_wire_encode_snap_req(buf, cap, &sr);
+        if (n < 0) {
+            free(buf);
+            return -1;
+        }
+        *out = buf;
+        *len = (size_t)n;
+        return 0;
+    }
+    uint8_t stack[8192];
+    int n = peer_encode_append(p, peer_id, stack, sizeof(stack));
+    if (n < 0) return -1;
+    uint8_t *buf = (uint8_t *)malloc((size_t)n);
+    if (!buf) return -1;
+    memcpy(buf, stack, (size_t)n);
+    *out = buf;
+    *len = (size_t)n;
+    return 0;
+}
+
 static void peer_heartbeat_one(t_node *n, void *ud) {
     t_peer *p = (t_peer *)ud;
     if (!n || t_node_id(n) == t_raft_id(p->raft)) return;
     if (!t_node_is_alive(n)) return;
-    uint8_t buf[8192];
-    int nenc = peer_encode_append(p, t_node_id(n), buf, sizeof(buf));
-    if (nenc < 0) return;
+    uint8_t *buf = NULL;
+    size_t blen = 0;
+    if (peer_catchup_encode(p, t_node_id(n), &buf, &blen) != 0) return;
     (void)peer_dial_payload(p, t_node_host(n), t_node_port(n),
-                            buf, (size_t)nenc, t_node_id(n));
+                            buf, blen, t_node_id(n));
+    free(buf);
 }
 
 static void peer_heartbeat(t_peer *p) {
@@ -324,6 +367,12 @@ static void peer_on_inbound(t_peer *p, t_peer_conn *pc, const t_proto_msg *msg) 
                                      ents, T_WIRE_CLUSTER_MAX_ENTS) == 0) {
             if (ar.leader_id && t_cluster_get_node(p->cluster, ar.leader_id))
                 (void)t_cluster_set_leader(p->cluster, ar.leader_id);
+        }
+    } else if (msg->payload_len > 0 && msg->payload[0] == T_WIRE_CLUSTER_SNAP_REQ) {
+        t_wire_snap_req sr;
+        if (t_wire_decode_snap_req(msg->payload, msg->payload_len, &sr) == 0) {
+            if (sr.leader_id && t_cluster_get_node(p->cluster, sr.leader_id))
+                (void)t_cluster_set_leader(p->cluster, sr.leader_id);
         }
     }
     (void)peer_send(pc->conn, resp, (size_t)n);
@@ -354,6 +403,17 @@ static void peer_on_outbound(t_peer *p, t_peer_conn *pc, const t_proto_msg *msg)
             else if (ar.success && t_raft_state(p->raft) == T_NODE_LEADER &&
                      ar.term == t_raft_current_term(p->raft)) {
                 if (pc->peer_id) peer_match_set(p, pc->peer_id, ar.match_index);
+                peer_try_commit(p);
+            }
+        }
+    } else if (rpc == T_WIRE_CLUSTER_SNAP_RESP) {
+        t_wire_snap_resp sr;
+        if (t_wire_decode_snap_resp(msg->payload, msg->payload_len, &sr) == 0) {
+            if (sr.term > t_raft_current_term(p->raft))
+                (void)t_raft_become_follower(p->raft, sr.term);
+            else if (sr.success && t_raft_state(p->raft) == T_NODE_LEADER &&
+                     sr.term == t_raft_current_term(p->raft)) {
+                if (pc->peer_id) peer_match_set(p, pc->peer_id, sr.match_index);
                 peer_try_commit(p);
             }
         }
@@ -534,14 +594,28 @@ static int peer_rpc_once(t_peer *p, const char *host, uint16_t port,
 static void peer_repl_one(t_node *n, void *ud) {
     t_peer *p = (t_peer *)ud;
     if (!n || t_node_id(n) == t_raft_id(p->raft) || !t_node_is_alive(n)) return;
-    uint8_t buf[8192];
-    int nenc = peer_encode_append(p, t_node_id(n), buf, sizeof(buf));
-    if (nenc < 0) return;
+    uint8_t *buf = NULL;
+    size_t blen = 0;
+    if (peer_catchup_encode(p, t_node_id(n), &buf, &blen) != 0) return;
     uint8_t resp[512];
     size_t rlen = 0;
-    if (peer_rpc_once(p, t_node_host(n), t_node_port(n), buf, (size_t)nenc,
-                      resp, sizeof(resp), &rlen) != 0)
+    if (peer_rpc_once(p, t_node_host(n), t_node_port(n), buf, blen,
+                      resp, sizeof(resp), &rlen) != 0) {
+        free(buf);
         return;
+    }
+    free(buf);
+    if (rlen == 0) return;
+    if (resp[0] == T_WIRE_CLUSTER_SNAP_RESP) {
+        t_wire_snap_resp sr;
+        if (t_wire_decode_snap_resp(resp, rlen, &sr) != 0) return;
+        if (sr.term > t_raft_current_term(p->raft)) {
+            (void)t_raft_become_follower(p->raft, sr.term);
+            return;
+        }
+        if (sr.success) peer_match_set(p, t_node_id(n), sr.match_index);
+        return;
+    }
     t_wire_append_resp ar;
     if (t_wire_decode_append_resp(resp, rlen, &ar) != 0) return;
     if (ar.term > t_raft_current_term(p->raft)) {

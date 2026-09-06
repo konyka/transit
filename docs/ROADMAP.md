@@ -46,7 +46,8 @@ message bus.
   `t_client_parse_leader_hint` / `t_client_redial_leader` follow that hint.
 - Raft snapshot: `raft.log.snap` holds applied queue state. Restart
   replays the tail only. Prefix compact waits until every peer's
-  `match_index` covers `last_applied`. See `docs/Raft.md`.
+  `match_index` covers `last_applied`. A lagging peer is caught up
+  with `InstallSnapshot`. See `docs/Raft.md`.
 
 ## Remaining (priority order)
 

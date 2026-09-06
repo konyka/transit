@@ -635,7 +635,7 @@ T_TEST(broker_snapshot_roundtrip) {
     t_broker *b2 = t_broker_create("n2");
     T_ASSERT_EQ(t_broker_start(b2), 0);
     T_ASSERT_EQ(t_broker_snapshot_apply(b2, snap, slen), 0);
-    T_ASSERT_EQ(t_broker_snapshot_apply(b2, snap, slen), -1);
+    T_ASSERT_EQ(t_broker_snapshot_apply(b2, snap, slen), 0);
     t_queue *q = broker_q(b2, "jobs");
     T_ASSERT_NOT_NULL(q);
     T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
@@ -732,6 +732,61 @@ T_TEST(raft_snapshot_survives_reopen) {
     t_raft_destroy(r);
     t_file_unlink(path);
     t_file_unlink("test_transit_raft_snap.log.snap");
+}
+
+T_TEST(raft_install_snapshot_catchup) {
+    t_broker *b1 = t_broker_create("n1");
+    t_raft_config c1 = {1, 150, 50};
+    t_raft *r1 = t_raft_create(&c1);
+    T_ASSERT_EQ(t_raft_become_candidate(r1), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r1), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b1, r1), 0);
+    T_ASSERT_EQ(t_broker_start(b1), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b1, "default", "jobs", 0, 0), 0);
+    T_ASSERT_EQ(t_broker_publish(b1, "jobs", (const uint8_t *)"hi", 2, 0), 0);
+    uint8_t *enc = NULL;
+    size_t elen = 0;
+    T_ASSERT_EQ(t_broker_snapshot_encode(b1, &enc, &elen), 0);
+    T_ASSERT_EQ(t_raft_snapshot(r1, enc, elen), 0);
+    free(enc);
+    T_ASSERT_EQ((int)t_raft_log_count(r1), 0);
+    const uint8_t *bytes = NULL;
+    size_t blen = 0;
+    T_ASSERT_EQ(t_raft_snapshot_bytes(r1, &bytes, &blen), 0);
+
+    t_broker *b2 = t_broker_create("n2");
+    t_raft_config c2 = {2, 150, 50};
+    t_raft *r2 = t_raft_create(&c2);
+    T_ASSERT_EQ(t_broker_set_raft(b2, r2), 0);
+    T_ASSERT_EQ(t_broker_start(b2), 0);
+    T_ASSERT_NULL(broker_q(b2, "jobs"));
+    uint8_t req[4096], resp[64];
+    t_wire_snap_req sr;
+    memset(&sr, 0, sizeof(sr));
+    sr.term = t_raft_current_term(r1);
+    sr.leader_id = 1;
+    sr.last_index = t_raft_snapshot_index(r1);
+    sr.last_term = t_raft_snapshot_term(r1);
+    sr.data = bytes;
+    sr.data_len = (uint32_t)blen;
+    int n = t_wire_encode_snap_req(req, sizeof(req), &sr);
+    T_ASSERT(n > 0);
+    int m = t_raft_rpc(r2, req, (size_t)n, resp, sizeof(resp));
+    T_ASSERT(m > 0);
+    t_wire_snap_resp so;
+    T_ASSERT_EQ(t_wire_decode_snap_resp(resp, (size_t)m, &so), 0);
+    T_ASSERT_EQ((int)so.success, 1);
+    T_ASSERT_EQ((int)t_raft_snapshot_index(r2), (int)t_raft_snapshot_index(r1));
+    t_queue *q = broker_q(b2, "jobs");
+    T_ASSERT_NOT_NULL(q);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
+    t_msg msg;
+    T_ASSERT_EQ(t_queue_consume(q, &msg), 0);
+    T_ASSERT_MEM_EQ(msg.data, (const uint8_t *)"hi", 2);
+    t_broker_destroy(b2);
+    t_broker_destroy(b1);
+    t_raft_destroy(r2);
+    t_raft_destroy(r1);
 }
 
 T_TEST(broker_leader_only_publish) {

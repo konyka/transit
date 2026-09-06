@@ -561,8 +561,64 @@ int t_raft_snapshot(t_raft *raft, const uint8_t *data, size_t len) {
     free(raft->snap_payload);
     raft->snap_payload = NULL;
     raft->snap_payload_len = 0;
+    if (len) {
+        uint8_t *copy = (uint8_t *)malloc(len);
+        if (!copy) return -1;
+        memcpy(copy, data, len);
+        raft->snap_payload = copy;
+        raft->snap_payload_len = len;
+    }
     raft->snap_applied = 1;
     return raft_compact_prefix(raft, idx);
+}
+
+int t_raft_snapshot_bytes(t_raft *raft, const uint8_t **data, size_t *len) {
+    if (!raft || !data || !len || raft->snap_index == 0) return -1;
+    *data = raft->snap_payload;
+    *len = raft->snap_payload_len;
+    return 0;
+}
+
+int t_raft_install_snapshot(t_raft *raft, uint64_t term,
+                            uint64_t last_index, uint64_t last_term,
+                            const uint8_t *data, size_t len) {
+    if (!raft || last_index == 0) return -1;
+    if (len > 0 && !data) return -1;
+    if (term < raft->current_term) return 0;
+    if (term > raft->current_term) {
+        if (t_raft_become_follower(raft, term) != 0) return -1;
+    } else {
+        raft->state = T_NODE_FOLLOWER;
+    }
+    if (last_index <= raft->snap_index && raft->last_applied >= last_index)
+        return 1;
+    if (raft->snap_apply_cb) {
+        if (raft->snap_apply_cb(data, len, raft->snap_ud) != 0)
+            return -1;
+    }
+    uint8_t *copy = NULL;
+    if (len) {
+        copy = (uint8_t *)malloc(len);
+        if (!copy) return -1;
+        memcpy(copy, data, len);
+    }
+    free(raft->snap_payload);
+    raft->snap_payload = copy;
+    raft->snap_payload_len = len;
+    raft->snap_index = last_index;
+    raft->snap_term = last_term;
+    raft->snap_applied = 1;
+    raft->last_applied = last_index;
+    if (raft->commit_index < last_index) raft->commit_index = last_index;
+    for (size_t i = 0; i < raft->log_count; i++)
+        free(raft->log[i].data);
+    raft->log_count = 0;
+    if (raft->log_path &&
+        raft_write_snap_file(raft, last_index, last_term, data, len) != 0)
+        return -1;
+    if (t_file_is_open(&raft->logf) && raft_rewrite_log(raft) != 0) return -1;
+    if (raft_sync_meta(raft) != 0) return -1;
+    return 1;
 }
 
 int t_raft_maybe_snapshot(t_raft *raft, const uint64_t *matches, size_t nmatches,
@@ -896,6 +952,17 @@ int t_raft_rpc(t_raft *raft, const uint8_t *req, size_t req_len,
         if (n < 0) return -1;
         if (t_raft_apply_entries(raft) == -2) return n;
         return n;
+    }
+    if (rpc == T_WIRE_CLUSTER_SNAP_REQ) {
+        t_wire_snap_req s;
+        if (t_wire_decode_snap_req(req, req_len, &s) != 0) return -1;
+        int inst = t_raft_install_snapshot(raft, s.term, s.last_index, s.last_term,
+                                           s.data, s.data_len);
+        if (inst < 0) return -1;
+        uint8_t ok = inst > 0 ? 1 : 0;
+        uint64_t match = ok ? s.last_index : t_raft_last_log_index(raft);
+        return t_wire_encode_snap_resp(resp, resp_cap, t_raft_current_term(raft),
+                                       ok, match);
     }
     return -1;
 }

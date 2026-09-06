@@ -98,6 +98,8 @@ int t_wire_decode_join(const uint8_t *buf, size_t len, t_wire_join *out);
 #define T_WIRE_CLUSTER_VOTE_RESP   2
 #define T_WIRE_CLUSTER_APPEND_REQ  3
 #define T_WIRE_CLUSTER_APPEND_RESP 4
+#define T_WIRE_CLUSTER_SNAP_REQ    5
+#define T_WIRE_CLUSTER_SNAP_RESP   6
 #define T_WIRE_CLUSTER_MAX_ENTS    256
 
 typedef struct t_wire_cluster_entry {
@@ -146,6 +148,27 @@ int t_wire_decode_append_req(const uint8_t *buf, size_t len, t_wire_append_req *
 int t_wire_encode_append_resp(uint8_t *buf, size_t cap, uint64_t term, uint8_t success,
                               uint64_t match_index);
 int t_wire_decode_append_resp(const uint8_t *buf, size_t len, t_wire_append_resp *out);
+
+typedef struct t_wire_snap_req {
+    uint64_t       term;
+    uint64_t       leader_id;
+    uint64_t       last_index;
+    uint64_t       last_term;
+    const uint8_t *data;
+    uint32_t       data_len;
+} t_wire_snap_req;
+
+typedef struct t_wire_snap_resp {
+    uint64_t term;
+    uint8_t  success;
+    uint64_t match_index;
+} t_wire_snap_resp;
+
+int t_wire_encode_snap_req(uint8_t *buf, size_t cap, const t_wire_snap_req *req);
+int t_wire_decode_snap_req(const uint8_t *buf, size_t len, t_wire_snap_req *out);
+int t_wire_encode_snap_resp(uint8_t *buf, size_t cap, uint64_t term, uint8_t success,
+                            uint64_t match_index);
+int t_wire_decode_snap_resp(const uint8_t *buf, size_t len, t_wire_snap_resp *out);
 
 #define T_WIRE_AUTH_MAC_LEN 32
 int t_wire_encode_auth(uint8_t *buf, size_t cap, const uint8_t mac[T_WIRE_AUTH_MAC_LEN]);

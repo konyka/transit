@@ -172,6 +172,33 @@ T_TEST(wire_cluster_append_roundtrip) {
     T_ASSERT_EQ((int)ar.match_index, 1);
 }
 
+T_TEST(wire_cluster_snap_roundtrip) {
+    uint8_t payload[] = {1, 2, 3};
+    t_wire_snap_req in;
+    memset(&in, 0, sizeof(in));
+    in.term = 4;
+    in.leader_id = 1;
+    in.last_index = 9;
+    in.last_term = 3;
+    in.data = payload;
+    in.data_len = 3;
+    uint8_t buf[64];
+    int n = t_wire_encode_snap_req(buf, sizeof(buf), &in);
+    T_ASSERT(n > 0);
+    t_wire_snap_req out;
+    T_ASSERT_EQ(t_wire_decode_snap_req(buf, (size_t)n, &out), 0);
+    T_ASSERT_EQ((int)out.term, 4);
+    T_ASSERT_EQ((int)out.last_index, 9);
+    T_ASSERT_MEM_EQ(out.data, payload, 3);
+    buf[n] = 0xFF;
+    T_ASSERT(t_wire_decode_snap_req(buf, (size_t)n + 1, &out) != 0);
+    n = t_wire_encode_snap_resp(buf, sizeof(buf), 4, 1, 9);
+    t_wire_snap_resp sr;
+    T_ASSERT_EQ(t_wire_decode_snap_resp(buf, (size_t)n, &sr), 0);
+    T_ASSERT_EQ((int)sr.success, 1);
+    T_ASSERT_EQ((int)sr.match_index, 9);
+}
+
 T_TEST(wire_cluster_rejects_trailing_junk) {
     t_wire_vote_req in = {1, 1, 0, 0};
     uint8_t buf[64];
