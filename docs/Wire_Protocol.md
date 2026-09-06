@@ -39,8 +39,8 @@ Idempotent per connection. Consumer mode subscribes that connection for
   `[storage] datadir=`) when Raft is not attached. Missing datadir returns
   `T_ERR_IO`. Combined with `BROADCAST` returns `T_ERR_INVALID`. WAL path is
   `{datadir}/{domain}.{queue}.wal` (file mode `0600`, cap 256 MiB, default
-  fsync every 32 records). With Raft, create is a log `CREATE` (no per-queue
-  WAL).
+  fsync every 32 records). Records are `PUT` / `DEL` / `JOIN` (group name).
+  With Raft, create is a log `CREATE` (no per-queue WAL).
 - A Raft follower `OPEN` of a missing queue returns `T_ERR_AGAIN`. The
   leader waits for majority apply before ACKing create.
 - `T_QUEUE_FLAG_EXCLUSIVE` refuses a second consumer with `T_ERR_BUSY`.

@@ -5,8 +5,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define T_WAL_PUT 1
-#define T_WAL_DEL 2
+#define T_WAL_PUT  1
+#define T_WAL_DEL  2
+#define T_WAL_JOIN 3
 #define T_WAL_MAX_FILE (256 * 1024 * 1024)
 
 typedef struct t_wal t_wal;

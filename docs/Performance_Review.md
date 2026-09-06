@@ -37,7 +37,7 @@ July 2026 review.
   byte.
 - Wire protocol decode aliases the frame (no extra payload copy). The protocol
   server rate-limits in O(1) before broker work and caps accept fan-in.
-- Durable WAL is append-only (PUT/DEL). Default fsync every 32 records so the
+- Durable WAL is append-only (PUT/DEL/JOIN). Default fsync every 32 records so the
   hot path is not a syscall per message; tests use `sync_every=1`.
   Clustered brokers use the Raft log as the WAL (one append, no
   per-queue double-write on apply). Majority commit is O(peers).

@@ -76,6 +76,8 @@ message bus.
 - Clustered `AUTODELETE` `CLOSE` waits for Raft `DELETE` apply
   before `T_OK`. A majority that never arrives is `T_ERR_AGAIN`
   and the queue stays; disconnect still proposes without waiting.
+- Unclustered durable WAL records `JOIN` so a sticky group name
+  survives process restart (same exclusivity as Raft snapshot).
 
 ## Remaining (priority order)
 

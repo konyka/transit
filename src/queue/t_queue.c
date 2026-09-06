@@ -21,6 +21,7 @@
 #include "../collections/t_pqueue.h"
 #include "t_wal.h"
 #include "t_map.h"
+#include "t_wire.h"
 
 /* Internal: in-flight entry. */
 typedef struct t_inflight {
@@ -58,6 +59,7 @@ struct t_queue {
     size_t total_consumed;
     t_wal *wal;
     char *group;           /* sticky consumer group; NULL if none */
+    int recovering;        /* WAL replay: bind group without appending */
 };
 
 /* Helpers */
@@ -214,6 +216,7 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     q->total_consumed = 0;
     q->wal = NULL;
     q->group = NULL;
+    q->recovering = 0;
 
     t_vec_init(&q->pending);
     t_vec_init(&q->consumers);
@@ -298,7 +301,14 @@ int t_queue_get_flags(const t_queue *q) {
 
 int t_queue_set_group(t_queue *q, const char *group) {
     if (!q || !group || !group[0] || q->type == T_QUEUE_BROADCAST) return -1;
+    size_t glen = strlen(group);
+    if (glen > T_WIRE_MAX_NAME || !t_wire_name_valid(group, glen)) return -1;
     if (q->group) return strcmp(q->group, group) == 0 ? 0 : -1;
+    if (q->wal && !q->recovering) {
+        if (t_wal_append(q->wal, T_WAL_JOIN, 0, 0, (const uint8_t *)group,
+                         (uint32_t)glen) != 0)
+            return -1;
+    }
     char *g = strdup(group);
     if (!g) return -1;
     q->group = g;
@@ -706,8 +716,28 @@ typedef struct {
     uint32_t len;
 } t_q_live;
 
+typedef struct {
+    t_map    live;
+    t_queue *q;
+    int      err;
+} t_q_recover;
+
 static void queue_recover_cb(const t_wal_rec *r, void *ud) {
-    t_map *live = (t_map *)ud;
+    t_q_recover *ctx = (t_q_recover *)ud;
+    if (ctx->err) return;
+    if (r->op == T_WAL_JOIN) {
+        if (!r->data || r->data_len == 0 || r->data_len > T_WIRE_MAX_NAME) {
+            ctx->err = 1;
+            return;
+        }
+        char gname[T_WIRE_MAX_NAME + 1];
+        memcpy(gname, r->data, r->data_len);
+        gname[r->data_len] = '\0';
+        if (t_queue_set_group(ctx->q, gname) != 0)
+            ctx->err = 1;
+        return;
+    }
+    t_map *live = &ctx->live;
     char key[32];
     snprintf(key, sizeof(key), "%016llx", (unsigned long long)r->msg_id);
     if (r->op == T_WAL_DEL) {
@@ -751,39 +781,41 @@ static int live_cmp(const void *a, const void *b) {
     return 0;
 }
 
+static void recover_free_live(t_map *live) {
+    t_map_iter it = t_map_iter_begin(live);
+    const char *k;
+    void *v;
+    while (t_map_iter_next(&it, &k, &v)) {
+        t_q_live *e = (t_q_live *)v;
+        free(e->data);
+        free(e);
+    }
+    t_map_destroy(live);
+}
+
 static int t_queue_recover(t_queue *q) {
-    t_map live;
-    t_map_init(&live);
-    if (t_wal_replay(q->wal, queue_recover_cb, &live) != 0) {
-        t_map_iter it = t_map_iter_begin(&live);
-        const char *k;
-        void *v;
-        while (t_map_iter_next(&it, &k, &v)) {
-            t_q_live *e = (t_q_live *)v;
-            free(e->data);
-            free(e);
-        }
-        t_map_destroy(&live);
+    t_q_recover ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    t_map_init(&ctx.live);
+    ctx.q = q;
+    q->recovering = 1;
+    int rr = t_wal_replay(q->wal, queue_recover_cb, &ctx);
+    q->recovering = 0;
+    if (rr != 0 || ctx.err) {
+        recover_free_live(&ctx.live);
         return -1;
     }
-    size_t n = t_map_len(&live);
+    t_map *live = &ctx.live;
+    size_t n = t_map_len(live);
     t_q_live **arr = NULL;
     if (n > 0) {
         arr = (t_q_live **)malloc(n * sizeof(*arr));
         if (!arr) {
-            t_map_iter it = t_map_iter_begin(&live);
-            const char *k;
-            void *v;
-            while (t_map_iter_next(&it, &k, &v)) {
-                t_q_live *e = (t_q_live *)v;
-                free(e->data);
-                free(e);
-            }
-            t_map_destroy(&live);
+            recover_free_live(live);
             return -1;
         }
         size_t i = 0;
-        t_map_iter it = t_map_iter_begin(&live);
+        t_map_iter it = t_map_iter_begin(live);
         const char *k;
         void *v;
         while (t_map_iter_next(&it, &k, &v) && i < n)
@@ -797,7 +829,7 @@ static int t_queue_recover(t_queue *q) {
         }
         free(arr);
     }
-    t_map_destroy(&live);
+    t_map_destroy(live);
     return 0;
 }
 

@@ -61,8 +61,9 @@ group object is destroyed with the open-ref. The sticky name is
 not. The next consumer `OPEN` or flush recreates an empty group
 from the queue metadata so an outsider cannot steal. After a
 Raft apply or snapshot restore the same restore runs. Clustered
-first bind appends `T_RAFT_CMD_JOIN`; consumer ids stay
-session-local (clients re-`JOIN` after failover).
+first bind appends `T_RAFT_CMD_JOIN`. Unclustered durable queues
+append a WAL `JOIN` record so restart keeps the name. Consumer ids
+stay session-local (clients re-`JOIN` after failover).
 
 ## Hot path
 
@@ -90,3 +91,4 @@ credit (existing competing-consumer behavior).
 8. `client_join_stub_fails`
 9. `client_join_follow_to_leader` / `client_join_follow_no_hint_stays`
 10. `queue_set_group_sticky` / `broker_raft_join_two_nodes`
+11. `queue_durable_group_survives_reopen` / `broker_durable_group_roundtrip`

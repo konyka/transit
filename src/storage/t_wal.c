@@ -270,7 +270,8 @@ void t_wal_close(t_wal *w) {
 int t_wal_append(t_wal *w, uint8_t op, uint8_t priority, uint64_t msg_id,
                  const uint8_t *data, uint32_t len) {
     if (!wal_is_open(w)) return -1;
-    if (op != T_WAL_PUT && op != T_WAL_DEL) return -1;
+    if (op != T_WAL_PUT && op != T_WAL_DEL && op != T_WAL_JOIN) return -1;
+    if (op == T_WAL_JOIN && (len == 0 || !data)) return -1;
     if (len > 0 && !data) return -1;
     if (len > T_QUEUE_MAX_PAYLOAD) return -1;
     size_t rec = (size_t)T_WAL_REC_HDR + (size_t)len;
@@ -346,7 +347,11 @@ int t_wal_replay(t_wal *w, t_wal_replay_fn fn, void *ud) {
             free(data);
             return -1;
         }
-        if (op != T_WAL_PUT && op != T_WAL_DEL) {
+        if (op != T_WAL_PUT && op != T_WAL_DEL && op != T_WAL_JOIN) {
+            free(data);
+            return -1;
+        }
+        if (op == T_WAL_JOIN && (len == 0 || !data)) {
             free(data);
             return -1;
         }

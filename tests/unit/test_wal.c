@@ -154,6 +154,44 @@ T_TEST(queue_durable_survives_reopen) {
     rm(path);
 }
 
+T_TEST(wal_join_roundtrip) {
+    const char *path = "test_transit_wal_join.bin";
+    rm(path);
+    t_wal *w = t_wal_open(path, 1);
+    T_ASSERT_NOT_NULL(w);
+    T_ASSERT_EQ(t_wal_append(w, T_WAL_JOIN, 0, 0, (const uint8_t *)"workers", 7), 0);
+    T_ASSERT_EQ(t_wal_append(w, T_WAL_JOIN, 0, 0, NULL, 0), -1);
+    t_wal_close(w);
+
+    w = t_wal_open(path, 1);
+    T_ASSERT_NOT_NULL(w);
+    g_n = 0;
+    g_buf[0] = 0;
+    T_ASSERT_EQ(t_wal_replay(w, replay_one, NULL), 0);
+    T_ASSERT_EQ(g_n, 1);
+    T_ASSERT_STR_EQ(g_buf, "workers");
+    t_wal_close(w);
+    rm(path);
+}
+
+T_TEST(queue_durable_group_survives_reopen) {
+    const char *path = "test_transit_q_group.wal";
+    rm(path);
+    t_queue *q = t_queue_create("orders", T_QUEUE_FIFO, T_QUEUE_FLAG_DURABLE);
+    T_ASSERT_EQ(t_queue_open_wal(q, path, 1), 0);
+    T_ASSERT_EQ(t_queue_set_group(q, "workers"), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"one", 3, 0), 0);
+    t_queue_destroy(q);
+
+    q = t_queue_create("orders", T_QUEUE_FIFO, T_QUEUE_FLAG_DURABLE);
+    T_ASSERT_EQ(t_queue_open_wal(q, path, 1), 0);
+    T_ASSERT(strcmp(t_queue_group(q), "workers") == 0);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
+    T_ASSERT_EQ(t_queue_set_group(q, "other"), -1);
+    t_queue_destroy(q);
+    rm(path);
+}
+
 T_TEST(queue_durable_rejected_for_broadcast) {
     t_queue *q = t_queue_create("bc", T_QUEUE_BROADCAST, T_QUEUE_FLAG_DURABLE);
     T_ASSERT_NULL(q);
@@ -192,6 +230,37 @@ T_TEST(broker_durable_roundtrip) {
     t_queue *q = (t_queue *)t_domain_get_queue(d, "jobs");
     T_ASSERT_NOT_NULL(q);
     T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
+    t_broker_destroy(b);
+    rm(wal);
+    rm_dir(dir);
+}
+
+T_TEST(broker_durable_group_roundtrip) {
+    const char *dir = "test_transit_broker_wal_g";
+    const char *wal = "test_transit_broker_wal_g/default.jobs.wal";
+    rm(wal);
+    rm_dir(dir);
+    t_broker *b = t_broker_create("n0");
+    T_ASSERT_EQ(t_broker_set_datadir(b, dir), 0);
+    T_ASSERT_EQ(t_broker_set_wal_sync_every(b, 1), 0);
+    T_ASSERT_EQ(t_broker_start(b), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "jobs", T_QUEUE_FIFO,
+                                      T_QUEUE_FLAG_DURABLE), 0);
+    T_ASSERT_EQ(t_broker_join_group(b, "jobs", "workers"), 0);
+    T_ASSERT_EQ(t_broker_publish(b, "jobs", (const uint8_t *)"hi", 2, 0), 0);
+    t_broker_destroy(b);
+
+    b = t_broker_create("n0");
+    T_ASSERT_EQ(t_broker_set_datadir(b, dir), 0);
+    T_ASSERT_EQ(t_broker_set_wal_sync_every(b, 1), 0);
+    T_ASSERT_EQ(t_broker_start(b), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "jobs", T_QUEUE_FIFO,
+                                      T_QUEUE_FLAG_DURABLE), 0);
+    t_domain *d = t_broker_get_domain(b, "default");
+    t_queue *q = (t_queue *)t_domain_get_queue(d, "jobs");
+    T_ASSERT_NOT_NULL(q);
+    T_ASSERT(strcmp(t_queue_group(q), "workers") == 0);
+    T_ASSERT_EQ(t_broker_join_group(b, "jobs", "other"), -1);
     t_broker_destroy(b);
     rm(wal);
     rm_dir(dir);
