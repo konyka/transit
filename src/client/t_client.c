@@ -16,6 +16,8 @@
 /* Minimal in-process client implementation with queue registry and subscriptions. */
 typedef struct t_client_queue_entry {
     char *name;
+    int   flags;
+    int   acked;
 } t_client_queue_entry;
 
 typedef struct t_client_subscription {
@@ -91,6 +93,7 @@ static int client_ensure_subs_cap(t_client *c, size_t need) {
 
 static void client_on_close(t_conn *conn, void *ud);
 static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud);
+static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen);
 
 static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen) {
     if (!c || !c->conn) return -1;
@@ -99,6 +102,46 @@ static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payl
     msg.payload = (uint8_t *)payload;
     msg.payload_len = plen;
     return t_conn_send(c->conn, &msg);
+}
+
+static int client_queue_ready(const t_client *c, const char *name) {
+    if (!c || !name) return 0;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (c->queues[i].name && strcmp(c->queues[i].name, name) == 0)
+            return !c->net_mode || c->queues[i].acked != 0;
+    }
+    return 0;
+}
+
+static void client_mark_queue_acked(t_client *c, const char *name) {
+    if (!c || !name || !name[0]) return;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (c->queues[i].name && strcmp(c->queues[i].name, name) == 0) {
+            c->queues[i].acked = 1;
+            return;
+        }
+    }
+}
+
+static int client_send_open(t_client *c, const char *queue_name, int flags) {
+    if (!c->net_mode) return 0;
+    uint8_t mode = (uint8_t)(flags & 0xFF);
+    uint8_t qflags = (uint8_t)((flags >> 8) & 0xFF);
+    if (mode == 0) mode = T_CLIENT_OPEN_PRODUCER;
+    uint8_t buf[3 + 2 + T_WIRE_MAX_NAME];
+    int n = t_wire_encode_open(buf, sizeof(buf), T_QUEUE_FIFO, qflags,
+                               mode, queue_name);
+    if (n < 0) return -1;
+    return client_send_payload(c, T_MSG_OPEN_QUEUE, buf, (size_t)n);
+}
+
+/* 0 = T_OK, 1 = T_ERR_AGAIN (caller may follow once), -1 = fail. */
+static int client_wait_status(t_client *c, unsigned seq, int timeout_ms) {
+    if (t_client_wait_ack(c, seq, timeout_ms) != 0) return -1;
+    int st = t_client_last_status(c);
+    if (st == 0) return 0;
+    if (st != (int)T_ERR_AGAIN) return -1;
+    return 1;
 }
 
 static void client_drop_conn(t_client *c) {
@@ -131,6 +174,8 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
             if (a.name && a.name_len)
                 (void)t_wire_name_copy(c->last_ack_name, sizeof(c->last_ack_name),
                                        a.name, a.name_len);
+            if (a.status == 0 && c->last_ack_name[0])
+                client_mark_queue_acked(c, c->last_ack_name);
             (void)t_atomic_add_fetch_int(&c->ack_seq, 1);
         }
         return;
@@ -375,17 +420,67 @@ int t_client_wait_ack(t_client *client, unsigned prev_seq, int timeout_ms) {
 int t_client_open_follow(t_client *client, const char *queue_name, int flags,
                          int timeout_ms) {
     if (!client || !queue_name || timeout_ms < 0) return -1;
+    if (!client->connected) return -1;
+    if (client_queue_ready(client, queue_name)) return 0;
+    if (!client->net_mode)
+        return t_client_open_queue(client, queue_name, flags);
+
     unsigned seq = t_client_ack_seq(client);
     if (t_client_open_queue(client, queue_name, flags) != 0) return -1;
-    if (t_client_wait_ack(client, seq, timeout_ms) != 0) return -1;
-    int st = t_client_last_status(client);
-    if (st == 0) return 0;
-    if (st != (int)T_ERR_AGAIN) return -1;
+    int wr = client_wait_status(client, seq, timeout_ms);
+    if (wr <= 0) return wr;
     if (t_client_redial_leader(client) != 0) return -1;
     seq = t_client_ack_seq(client);
     if (t_client_open_queue(client, queue_name, flags) != 0) return -1;
-    if (t_client_wait_ack(client, seq, timeout_ms) != 0) return -1;
-    return t_client_last_status(client) == 0 ? 0 : -1;
+    return client_wait_status(client, seq, timeout_ms) == 0 ? 0 : -1;
+}
+
+int t_client_join_follow(t_client *client, const char *group,
+                         const char *consumer_id, const char *queue_name,
+                         int timeout_ms) {
+    if (!client || !group || !consumer_id || !queue_name || timeout_ms < 0)
+        return -1;
+    if (!client->net_mode) return -1;
+    if (t_client_open_follow(client, queue_name, T_CLIENT_OPEN_CONSUMER,
+                             timeout_ms) != 0)
+        return -1;
+    unsigned seq = t_client_ack_seq(client);
+    if (t_client_join(client, group, consumer_id, queue_name) != 0) return -1;
+    int wr = client_wait_status(client, seq, timeout_ms);
+    if (wr <= 0) return wr;
+    if (t_client_redial_leader(client) != 0) return -1;
+    if (t_client_open_follow(client, queue_name, T_CLIENT_OPEN_CONSUMER,
+                             timeout_ms) != 0)
+        return -1;
+    seq = t_client_ack_seq(client);
+    if (t_client_join(client, group, consumer_id, queue_name) != 0) return -1;
+    return client_wait_status(client, seq, timeout_ms) == 0 ? 0 : -1;
+}
+
+int t_client_post_follow(t_client *client, const char *queue_name,
+                         const uint8_t *data, size_t len, int priority,
+                         int timeout_ms) {
+    if (!client || !queue_name || timeout_ms < 0) return -1;
+    if (len > 0 && !data) return -1;
+    if (!client->net_mode) {
+        if (t_client_open_queue(client, queue_name, T_CLIENT_OPEN_PRODUCER) != 0)
+            return -1;
+        return t_client_post(client, queue_name, data, len, priority);
+    }
+    if (t_client_open_follow(client, queue_name, T_CLIENT_OPEN_PRODUCER,
+                             timeout_ms) != 0)
+        return -1;
+    unsigned seq = t_client_ack_seq(client);
+    if (t_client_post(client, queue_name, data, len, priority) != 0) return -1;
+    int wr = client_wait_status(client, seq, timeout_ms);
+    if (wr <= 0) return wr;
+    if (t_client_redial_leader(client) != 0) return -1;
+    if (t_client_open_follow(client, queue_name, T_CLIENT_OPEN_PRODUCER,
+                             timeout_ms) != 0)
+        return -1;
+    seq = t_client_ack_seq(client);
+    if (t_client_post(client, queue_name, data, len, priority) != 0) return -1;
+    return client_wait_status(client, seq, timeout_ms) == 0 ? 0 : -1;
 }
 
 int t_client_disconnect(t_client *client) {
@@ -402,32 +497,24 @@ int t_client_disconnect(t_client *client) {
 
 int t_client_open_queue(t_client *client, const char *queue_name, int flags) {
     if (!client || client->free_pending || !queue_name || !client->connected) return -1;
-    /* ensure exists */
     for (size_t i = 0; i < client->queues_size; ++i) {
-        if (strcmp(client->queues[i].name, queue_name) == 0) return 0;
+        if (strcmp(client->queues[i].name, queue_name) == 0) {
+            if (client->queues[i].acked) return 0;
+            client->queues[i].flags = flags;
+            return client_send_open(client, queue_name, flags);
+        }
     }
     if (client_ensure_queues_cap(client, client->queues_size + 1) != 0) return -1;
     char *qn = strdup(queue_name);
     if (!qn) return -1;
     client->queues[client->queues_size].name = qn;
+    client->queues[client->queues_size].flags = flags;
+    client->queues[client->queues_size].acked = 0;
     client->queues_size++;
-    if (client->net_mode) {
-        uint8_t mode = (uint8_t)(flags & 0xFF);
-        uint8_t qflags = (uint8_t)((flags >> 8) & 0xFF);
-        if (mode == 0) mode = T_CLIENT_OPEN_PRODUCER;
-        uint8_t buf[3 + 2 + T_WIRE_MAX_NAME];
-        int n = t_wire_encode_open(buf, sizeof(buf), T_QUEUE_FIFO, qflags,
-                                   mode, queue_name);
-        if (n < 0) {
-            free(qn);
-            client->queues_size--;
-            return -1;
-        }
-        if (client_send_payload(client, T_MSG_OPEN_QUEUE, buf, (size_t)n) != 0) {
-            free(qn);
-            client->queues_size--;
-            return -1;
-        }
+    if (client_send_open(client, queue_name, flags) != 0) {
+        free(qn);
+        client->queues_size--;
+        return -1;
     }
     return 0;
 }

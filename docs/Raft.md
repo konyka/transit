@@ -12,8 +12,8 @@ local WAL.
 - `CONFIRM` / `t_broker_ack` appends an `ACK` command the same way.
 - `REJECT` / `t_broker_nack` appends a `NACK` command the same way.
 - A follower client `POST` still returns `T_ERR_AGAIN` (leader hint).
-  `t_client_open_follow` redials that hint once when it names another
-  client port.
+  `t_client_open_follow` / `join_follow` / `post_follow` redial that
+  hint once when it names another client port.
 - A leader that cannot gather a majority returns an error; the message
   is not visible in the queue. The uncommitted entry stays in the log
   (a later successful propose in the same term may commit it). Client

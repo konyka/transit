@@ -170,8 +170,7 @@ int main(void) {
 
     t_client *c = t_client_create("worker");
     t_client_dial(c, loop, "127.0.0.1", t_server_port(srv));
-    t_client_open_follow(c, "my.queue", T_CLIENT_OPEN_PRODUCER, 500);
-    t_client_post(c, "my.queue", (const uint8_t *)"hello", 5, 0);
+    t_client_post_follow(c, "my.queue", (const uint8_t *)"hello", 5, 0, 500);
 
     t_client_destroy(c);
     t_server_destroy(srv);

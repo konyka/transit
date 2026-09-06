@@ -46,6 +46,14 @@ int        t_client_wait_ack(t_client *client, unsigned prev_seq, int timeout_ms
  * redial once and OPEN again. Returns 0 only after a T_OK ACK. */
 int        t_client_open_follow(t_client *client, const char *queue_name, int flags,
                                 int timeout_ms);
+/* JOIN after a consumer OPEN. Follows a different client-port hint once. */
+int        t_client_join_follow(t_client *client, const char *group,
+                                const char *consumer_id, const char *queue_name,
+                                int timeout_ms);
+/* OPEN producer if needed, POST, follow a different client-port hint once. */
+int        t_client_post_follow(t_client *client, const char *queue_name,
+                                const uint8_t *data, size_t len, int priority,
+                                int timeout_ms);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,

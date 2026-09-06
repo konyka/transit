@@ -20,11 +20,14 @@ See `docs/Wire_Protocol.md`. Three names, same charset as queues,
 exact length (no trailing junk).
 
 ```
-t_client_open_queue(..., T_CLIENT_OPEN_CONSUMER);
-t_client_join(client, group, consumer_id, queue);
+t_client_join_follow(client, group, consumer_id, queue, timeout_ms);
 ```
 
-`t_client_join` is TCP-only. The in-process stub returns -1.
+`join_follow` does a consumer `OPEN` first (required), then `JOIN`.
+On `T_ERR_AGAIN` with a different client-port hint it redials once.
+The lower-level pair is still `t_client_open_queue` + `t_client_join`
+when the caller already waits on `ack_seq`. Both `join` and
+`join_follow` are TCP-only; the in-process stub returns -1.
 
 ## Server model
 
@@ -74,3 +77,4 @@ credit (existing competing-consumer behavior).
 5. `server_join_duplicate_consumer` — EXISTS / BUSY / idempotent
 6. `server_join_empty_holds` — outsider OPEN does not steal
 7. `client_join_stub_fails`
+8. `client_join_follow_to_leader` / `client_join_follow_no_hint_stays`
