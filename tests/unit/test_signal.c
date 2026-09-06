@@ -14,7 +14,9 @@ T_TEST(signal_shutdown_on_sigint) {
 }
 
 T_TEST(signal_install_resets_flag) {
+    t_signal_install();
     raise(SIGINT);
+    T_ASSERT(t_signal_is_shutdown());
     t_signal_install();
     T_ASSERT(!t_signal_is_shutdown());
 }

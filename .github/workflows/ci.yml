@@ -78,7 +78,19 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: ctest -C Release --output-on-failure -j
+        run: ctest -C Release --output-on-failure -j --output-log ctest.log
+
+      - name: Annotate ctest failures
+        if: failure()
+        shell: pwsh
+        working-directory: build
+        run: |
+          foreach ($f in @('ctest.log', 'Testing/Temporary/LastTest.log')) {
+            if (-not (Test-Path $f)) { continue }
+            Select-String -Path $f -Pattern 'The following tests FAILED|Failed +#|Assertion failed|\[FAIL\]|t_run_all_tests' |
+              Select-Object -First 50 |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+          }
 
   sanitize:
     runs-on: ubuntu-latest

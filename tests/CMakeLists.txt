@@ -7,6 +7,10 @@ add_library(t_test STATIC
 target_include_directories(t_test PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/framework
 )
+if(MSVC)
+    # Keep .CRT$XCU T_TEST registrars under /OPT:REF (Release).
+    target_link_options(t_test INTERFACE /OPT:NOREF)
+endif()
 
 # Build and register all unit tests
 file(GLOB UNIT_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/unit/*.c")

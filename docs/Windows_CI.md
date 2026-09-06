@@ -80,8 +80,11 @@ and `T_PREFETCH` are no-ops on MSVC. `strdup` maps to `_strdup`.
 
 One portable test harness: `t_thread`, `t_socket_pair`, `t_file`,
 `t_time_sleep_us`. MSVC registers `T_TEST` via `.CRT$XCU` so
-constructors still run. Coroutine tests assert `T_HAVE_CORO_ASM == 0`
-when create returns NULL.
+constructors still run; test binaries link `/OPT:NOREF` so Release
+does not strip those registrars. `t_run_all_tests` fails closed if
+none registered. Do not `raise(SIGINT)` before `t_signal_install`
+(MSVC `SIG_DFL` terminates the process). Coroutine tests assert
+`T_HAVE_CORO_ASM == 0` when create returns NULL.
 
 ## TDD
 

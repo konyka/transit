@@ -150,8 +150,9 @@ int t_suite_run(t_test_suite *suite)
 
 int t_run_all_tests(void)
 {
-    if(!g_all_suite){
-        return 0;
+    if(!g_all_suite || g_all_suite->count == 0){
+        fprintf(stderr, "t_run_all_tests: no tests registered\n");
+        return 1;
     }
     return t_suite_run(g_all_suite);
 }
