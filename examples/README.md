@@ -8,6 +8,9 @@ This directory contains C examples that illustrate how to use the Transit MQ API
 - `transit-server.c` — Integrated server (config, admin HTTP, protocol
   listener, broker, evloop, signal, shutdown). Default client bind is
   `127.0.0.1:4222`; pass `-h 0.0.0.0` only when remote clients are intended.
+  Admin HTTP: `GET /health` (process up), `GET /ready` (200 only when the
+  client listener is up and the node is standalone or Raft leader),
+  `GET /stats` (includes `"ready"`).
   Durable queues need `-d <dir>` or `[storage] datadir=` in the INI config.
   Cluster peer listen is opt-in: `-C <port>` or `[cluster] port=`.
   Static peers: `id@host:peer[/client]` (`/client` is the redirect hint).

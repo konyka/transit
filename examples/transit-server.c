@@ -54,11 +54,14 @@ static void on_stats(t_admin_stats *stats, void *ud) {
         stats->cluster_role = "standalone";
         stats->cluster_leader = "";
         stats->cluster_nodes = 0;
+        stats->ready = (g_server && t_server_is_running(g_server)) ? 1 : 0;
         return;
     }
     t_nrole role = t_raft_state(g_raft);
     stats->cluster_role = (role == T_NODE_LEADER) ? "leader" :
                           (role == T_NODE_CANDIDATE) ? "candidate" : "follower";
+    stats->ready = (g_server && t_server_is_running(g_server) &&
+                    role == T_NODE_LEADER) ? 1 : 0;
     stats->cluster_nodes = g_cluster ? t_cluster_node_count(g_cluster) : 0;
     t_node *lead = g_cluster ? t_cluster_get_leader(g_cluster) : NULL;
     uint16_t cport = lead ? t_node_client_port(lead) : 0;

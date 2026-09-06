@@ -288,13 +288,51 @@ static int json_escape(char *dst, size_t dst_cap, const char *src) {
     return (int)o;
 }
 
+static void admin_json_resp(t_admin_client *c, int code, const char *reason,
+                            const char *json) {
+    if (!c || !reason || !json) {
+        if (c) admin_set_error_resp(c, 500);
+        return;
+    }
+    int jlen = (int)strlen(json);
+    int hlen = snprintf(c->resp, sizeof(c->resp),
+        "HTTP/1.1 %d %s\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: %d\r\n"
+        "Connection: close\r\n"
+        "\r\n%s",
+        code, reason, jlen, json);
+    if (hlen < 0 || (size_t)hlen >= sizeof(c->resp)) {
+        admin_set_error_resp(c, 500);
+        return;
+    }
+    c->resp_len = (size_t)hlen;
+    c->resp_sent = 0;
+}
+
+static void admin_fill_stats(t_admin *admin, t_admin_stats *stats) {
+    memset(stats, 0, sizeof(*stats));
+    stats->version = T_ADMIN_VERSION;
+    if (admin && admin->stats_cb)
+        admin->stats_cb(stats, admin->stats_ud);
+}
+
+static void build_health(t_admin_client *c) {
+    admin_json_resp(c, 200, "OK", "{\"status\":\"ok\"}");
+}
+
+static void build_ready(t_admin *admin, t_admin_client *c) {
+    t_admin_stats stats;
+    admin_fill_stats(admin, &stats);
+    if (stats.ready)
+        admin_json_resp(c, 200, "OK", "{\"ready\":true}");
+    else
+        admin_json_resp(c, 503, "Service Unavailable", "{\"ready\":false}");
+}
+
 static void build_response(t_admin *admin, t_admin_client *c) {
     t_admin_stats stats;
-    memset(&stats, 0, sizeof(stats));
-    stats.version = T_ADMIN_VERSION;
-    if (admin->stats_cb) {
-        admin->stats_cb(&stats, admin->stats_ud);
-    }
+    admin_fill_stats(admin, &stats);
 
     char esc_ver[64], esc_role[64], esc_leader[64], esc_node[64];
     if (json_escape(esc_ver, sizeof(esc_ver), stats.version ? stats.version : T_ADMIN_VERSION) < 0 ||
@@ -320,14 +358,16 @@ static void build_response(t_admin *admin, t_admin_client *c) {
         "\"cluster_nodes\":%zu,"
         "\"cluster_role\":\"%s\","
         "\"cluster_leader\":\"%s\","
-        "\"node_id\":\"%s\""
+        "\"node_id\":\"%s\","
+        "\"ready\":%s"
         "}}",
         esc_ver,
         stats.uptime_ms,
         stats.connections, stats.messages_in, stats.messages_out,
         stats.bytes_in, stats.bytes_out,
         stats.queues, stats.subscriptions, stats.cluster_nodes,
-        esc_role, esc_leader, esc_node
+        esc_role, esc_leader, esc_node,
+        stats.ready ? "true" : "false"
     );
     if (jlen < 0) jlen = 0;
     if ((size_t)jlen >= sizeof(json)) jlen = (int)(sizeof(json) - 1);
@@ -389,6 +429,20 @@ static void admin_client_cb(t_evio *io, int events, void *ud) {
             if (c->len >= 3 && c->buf[0] == 'G' && c->buf[1] == 'E' && c->buf[2] == 'T') {
                 char path[128] = {0};
                 sscanf(c->buf, "GET %127s", path);
+                if (strcmp(path, "/health") == 0) {
+                    build_health(c);
+                    if (!c->free_pending && c->fd >= 0 &&
+                        t_evloop_mod(admin->loop, &c->io, T_EV_WRITE) != 0)
+                        admin_remove_client(admin, c);
+                    goto out;
+                }
+                if (strcmp(path, "/ready") == 0) {
+                    build_ready(admin, c);
+                    if (!c->free_pending && c->fd >= 0 &&
+                        t_evloop_mod(admin->loop, &c->io, T_EV_WRITE) != 0)
+                        admin_remove_client(admin, c);
+                    goto out;
+                }
                 if (strcmp(path, "/") == 0 || strcmp(path, "/stats") == 0) {
                     build_response(admin, c);
                     if (!c->free_pending && c->fd >= 0 &&

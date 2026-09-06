@@ -17,6 +17,7 @@ typedef struct {
     size_t queues;
     size_t subscriptions;
     size_t cluster_nodes;
+    int         ready; /* 1 = accept client traffic (leader / standalone) */
     const char *version;
     const char *node_id;
     const char *cluster_leader;

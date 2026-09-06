@@ -40,7 +40,8 @@ message bus.
   See `docs/Raft.md`.
 - Static cluster membership: `transit-server -n` / `[cluster] id=` and
   `[cluster] peers=id@host:peer[/client],...`. Admin `/stats` reports the
-  live Raft role, client-port leader hint, and live server/broker counters.
+  live Raft role, client-port leader hint, live server/broker counters,
+  and `/health` plus `/ready` (200 only on a standalone or Raft leader).
 - Client leader redirect: follower `OPEN`/`POST`/`JOIN` return `T_ERR_AGAIN`
   with `host_clientport` only when the leader's client port is known.
   `t_client_parse_leader_hint` / `t_client_redial_leader` follow that hint.

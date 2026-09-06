@@ -54,7 +54,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 
 | Test | Description |
 |------|-------------|
-| test_admin | Admin HTTP stats endpoint |
+| test_admin | Admin HTTP `/stats`, `/health`, `/ready` |
 | test_broker | Broker domain/queue/pubsub management |
 | test_cgroup | Consumer group round-robin dispatch |
 | test_cluster | Raft consensus + cluster membership |

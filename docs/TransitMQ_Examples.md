@@ -19,7 +19,9 @@ Assumptions and notes
   queue, TTL, cgroup, flowcontrol, DLQ, ratelimit, shutdown, etc.).
 - Also available: `examples/demo_full.c` and `examples/transit-server.c`.
   `transit-server` listens for client frames on the configured host/port
-  (default `127.0.0.1:4222`) and for admin HTTP on `127.0.0.1:8222`.
+  (default `127.0.0.1:4222`) and for admin HTTP on `127.0.0.1:8222`
+  (`/health`, `/ready`, `/stats`). `/ready` is 200 only on a standalone
+  node or Raft leader; followers return 503.
 - The examples intentionally use a straightforward style with basic error checking,
   minimal resource management, and printf-based status output.
 - No external dependencies are introduced; the examples compile against the project source tree.
