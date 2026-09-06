@@ -498,21 +498,22 @@ static void server_flush_pull(t_server *srv, const char *name) {
     }
 }
 
-static void server_unref_open(t_server *srv, const char *name) {
-    if (!srv || !name) return;
+static int server_unref_open(t_server *srv, const char *name) {
+    if (!srv || !name) return -1;
     uintptr_t n = (uintptr_t)t_map_get(&srv->open_refs, name);
-    if (n == 0) return;
+    if (n == 0) return 0;
     n--;
     if (n > 0) {
         (void)t_map_insert(&srv->open_refs, name, (void *)n);
-        return;
+        return 0;
     }
     (void)t_map_remove(&srv->open_refs, name);
     t_cgroup *cg = (t_cgroup *)t_map_remove(&srv->groups, name);
     if (cg) t_cgroup_destroy(cg);
     t_queue *q = server_lookup_queue(srv->broker, name);
     if (q && (t_queue_get_flags(q) & T_QUEUE_FLAG_AUTODELETE))
-        (void)t_broker_delete_queue(srv->broker, "default", name);
+        return t_broker_delete_queue(srv->broker, "default", name);
+    return 0;
 }
 
 static void server_unsub_all(t_server_conn *sc) {
@@ -528,7 +529,7 @@ static void server_unsub_all(t_server_conn *sc) {
             (void)t_broker_unsubscribe(sc->srv->broker, k, server_push_cb, sc);
             server_flush_pull(sc->srv, k);
         }
-        server_unref_open(sc->srv, k);
+        (void)server_unref_open(sc->srv, k);
     }
 }
 
@@ -657,7 +658,7 @@ static int32_t finish_open(t_server_conn *sc, const char *name, uint8_t omode) {
         if (push && t_broker_subscribe(b, name, server_push_cb, sc) != 0) {
             if (prev == 0) {
                 (void)t_map_remove(&sc->opened, name);
-                server_unref_open(sc->srv, name);
+                (void)server_unref_open(sc->srv, name);
             } else {
                 (void)t_map_insert(&sc->opened, name, (void *)prev);
             }
@@ -696,7 +697,16 @@ static int32_t handle_close(t_server_conn *sc, const t_proto_msg *msg) {
         server_leave_group(sc, name);
         server_flush_pull(sc->srv, name);
     }
-    server_unref_open(sc->srv, name);
+    int ur = server_unref_open(sc->srv, name);
+    if (ur == 1) {
+        if (server_wait_add(sc, T_MSG_CLOSE_QUEUE, name,
+                            server_raft_index(sc->srv->broker), 0, 0,
+                            NULL, NULL) != 0)
+            return T_ERR_GENERIC;
+        return T_OK_CODE;
+    }
+    if (ur < 0)
+        return t_broker_raft(sc->srv->broker) ? T_ERR_AGAIN : T_ERR_GENERIC;
     if (send_ack(sc, T_MSG_CLOSE_QUEUE, T_OK_CODE, name) != 0)
         return T_ERR_IO;
     return T_OK_CODE;

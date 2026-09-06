@@ -68,7 +68,10 @@ u8  name[name_len]
 ```
 
 `t_broker_delete_queue` (including autodelete) proposes `DELETE` when Raft
-is attached.
+is attached. A client `CLOSE` that triggers autodelete waits for apply
+before `T_OK`; without a majority the client gets `T_ERR_AGAIN` and the
+queue stays until a later commit. Disconnect autodelete is best-effort
+(no client to ACK).
 
 `ACK` (`type = 2`):
 

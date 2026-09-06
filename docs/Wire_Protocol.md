@@ -45,7 +45,10 @@ Idempotent per connection. Consumer mode subscribes that connection for
   leader waits for majority apply before ACKing create.
 - `T_QUEUE_FLAG_EXCLUSIVE` refuses a second consumer with `T_ERR_BUSY`.
 - `T_QUEUE_FLAG_AUTODELETE` deletes the queue when the last network session
-  closes it (or disconnects).
+  closes it (or disconnects). A Raft-attached leader `CLOSE` of that last
+  session proposes `DELETE` and ACKs only after majority apply (same
+  election-timeout `T_ERR_AGAIN` as `POST`). Disconnect still proposes
+  without waiting (session is already gone).
 
 Client helper: `t_client_open_queue` packs mode in the low 8 bits and
 `T_CLIENT_QFLAG_*` in the high 8 bits so they do not collide.
@@ -184,10 +187,11 @@ followed: that is retry-later, not a redirect. `t_client_open_follow`,
 `t_client_wait_ack` and redial at most once per call. A second
 `open_follow` on an already-acked queue returns immediately.
 A Raft-attached leader `POST`/`CONFIRM`/`REJECT`/`OPEN` of a missing
-queue appends first and ACKs only after majority apply (the evloop is
-not blocked). `T_ERR_AGAIN` if the node is not leader, the append
-fails, or the apply wait exceeds one election timeout. The uncommitted
-entry stays in the log; client retry is at-least-once.
+queue, or last-`OPEN` `CLOSE` of an `AUTODELETE` queue, appends first
+and ACKs only after majority apply (the evloop is not blocked).
+`T_ERR_AGAIN` if the node is not leader, the append fails, or the
+apply wait exceeds one election timeout. The uncommitted entry stays
+in the log; client retry is at-least-once.
 
 ## Server safety switches
 

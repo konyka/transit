@@ -73,6 +73,9 @@ message bus.
 - PSK `t_client_dial` waits for the `AUTH` ACK before returning
   connected. A wrong key or timeout drops the socket (`-1`);
   `is_connected` stays false. Heartbeat starts only after `T_OK`.
+- Clustered `AUTODELETE` `CLOSE` waits for Raft `DELETE` apply
+  before `T_OK`. A majority that never arrives is `T_ERR_AGAIN`
+  and the queue stays; disconnect still proposes without waiting.
 
 ## Remaining (priority order)
 
