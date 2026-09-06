@@ -35,12 +35,11 @@ separate that library from a production message bus.
 
 ## Remaining (priority order)
 
-1. **Windows `cl` `/W4 /WX`** — GitHub `windows` must compile and run
-   ctest. `t_coro_create` on Windows is fail-closed (`NULL`); the
-   create path must not leave unreachable code after
-   `#if !T_HAVE_CORO_ASM` (MSVC C4702 / C2220).
-2. **Raft** is still a simplified object model plus peer RPC, not a
+1. **Raft** is still a simplified object model plus peer RPC, not a
    full replicated log for durable queues.
+
+GitHub `windows` (`cl` `/W4 /WX`, `ctest -C Release`) is green as of
+`d4521ec`.
 
 Consumer groups over TCP (`T_MSG_JOIN`) are implemented. See
 `docs/Consumer_Groups.md` and `docs/Wire_Protocol.md`.
