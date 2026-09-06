@@ -36,8 +36,16 @@ int        t_client_parse_leader_hint(const char *name, char *host, size_t host_
                                       uint16_t *port);
 int        t_client_leader_hint(const t_client *client, char *host, size_t host_cap,
                                 uint16_t *port);
-/* Drop the current session and dial the last leader hint. Re-OPEN after. */
+/* Drop the current session and dial the last leader hint. Re-OPEN after.
+ * Fail closed if the hint is missing or names the peer already dialed. */
 int        t_client_redial_leader(t_client *client);
+/* Block until ack_seq moves past prev, or timeout_ms elapses.
+ * Does not pump the evloop. timeout_ms < 0 is invalid. */
+int        t_client_wait_ack(t_client *client, unsigned prev_seq, int timeout_ms);
+/* OPEN, wait for ACK. On T_ERR_AGAIN with a different client-port hint,
+ * redial once and OPEN again. Returns 0 only after a T_OK ACK. */
+int        t_client_open_follow(t_client *client, const char *queue_name, int flags,
+                                int timeout_ms);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,

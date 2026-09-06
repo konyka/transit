@@ -170,7 +170,10 @@ valid name character). Empty name if the leader is unknown or its client
 listen port was not configured (`id@host:peer` without `/client`). The
 cluster peer port is never used as a hint. `t_client_parse_leader_hint`
 and `t_client_redial_leader` follow a valid hint; the new session must
-`OPEN` again. A Raft-attached leader `POST`/`CONFIRM` also returns
+`OPEN` again. A same-peer hint (already dialed host/port) is not
+followed: that is retry-later, not a redirect. `t_client_open_follow`
+sends `OPEN`, waits with `t_client_wait_ack`, and redials at most once.
+A Raft-attached leader `POST`/`CONFIRM` also returns
 `T_ERR_AGAIN` if the command is not yet majority-committed.
 
 ## Server safety switches
@@ -232,6 +235,11 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`/`JOIN`, then read
   `last_status`. Status and the name are published before the sequence
   increment (seq_cst), so a new seq is a happens-before for those fields.
+- `t_client_wait_ack(client, prev, timeout_ms)` — poll until `ack_seq`
+  moves past `prev`. Does not run the evloop.
+- `t_client_open_follow` — `OPEN` then wait. On `T_ERR_AGAIN` with a
+  different client-port hint, redial once and `OPEN` again. Returns 0
+  only after `T_OK`. No hint or a same-peer hint is fail-closed.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
   follower `POST` `T_ERR_AGAIN`).
 - `t_client_subscribe` may be called before `open_queue`. On a dialed

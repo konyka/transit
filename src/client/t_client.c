@@ -11,6 +11,7 @@
 #include "t_error.h"
 #include "t_hmac.h"
 #include "t_atomic.h"
+#include "t_time.h"
 
 /* Minimal in-process client implementation with queue registry and subscriptions. */
 typedef struct t_client_queue_entry {
@@ -48,6 +49,8 @@ struct t_client {
     char      last_ack_name[T_WIRE_MAX_NAME + 1];
     uint8_t  *psk;
     size_t    psk_len;
+    char     *dial_host;
+    uint16_t  dial_port;
 };
 
 typedef struct t_cb_snap {
@@ -210,6 +213,7 @@ void t_client_destroy(t_client *client) {
         t_hmac_wipe(client->psk, client->psk_len);
         free(client->psk);
     }
+    free(client->dial_host);
     free(client);
 }
 
@@ -259,6 +263,14 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
             return -1;
         }
     }
+    char *hcopy = strdup(host);
+    if (!hcopy) {
+        client_drop_conn(client);
+        return -1;
+    }
+    free(client->dial_host);
+    client->dial_host = hcopy;
+    client->dial_port = port;
     return 0;
 }
 
@@ -342,9 +354,38 @@ int t_client_redial_leader(t_client *client) {
     uint16_t port = 0;
     if (t_client_leader_hint(client, host, sizeof(host), &port) != 0)
         return -1;
+    if (client->dial_host && client->dial_port == port &&
+        strcmp(client->dial_host, host) == 0)
+        return -1;
     client_drop_conn(client);
     client_clear_session(client);
     return t_client_dial(client, client->loop, host, port);
+}
+
+int t_client_wait_ack(t_client *client, unsigned prev_seq, int timeout_ms) {
+    if (!client || timeout_ms < 0) return -1;
+    int64_t start = t_time_now_ms();
+    while (t_client_ack_seq(client) == prev_seq) {
+        if (t_time_now_ms() - start >= (int64_t)timeout_ms) return -1;
+        t_time_sleep_ms(5);
+    }
+    return 0;
+}
+
+int t_client_open_follow(t_client *client, const char *queue_name, int flags,
+                         int timeout_ms) {
+    if (!client || !queue_name || timeout_ms < 0) return -1;
+    unsigned seq = t_client_ack_seq(client);
+    if (t_client_open_queue(client, queue_name, flags) != 0) return -1;
+    if (t_client_wait_ack(client, seq, timeout_ms) != 0) return -1;
+    int st = t_client_last_status(client);
+    if (st == 0) return 0;
+    if (st != (int)T_ERR_AGAIN) return -1;
+    if (t_client_redial_leader(client) != 0) return -1;
+    seq = t_client_ack_seq(client);
+    if (t_client_open_queue(client, queue_name, flags) != 0) return -1;
+    if (t_client_wait_ack(client, seq, timeout_ms) != 0) return -1;
+    return t_client_last_status(client) == 0 ? 0 : -1;
 }
 
 int t_client_disconnect(t_client *client) {
@@ -353,6 +394,9 @@ int t_client_disconnect(t_client *client) {
     client->net_mode = 0;
     client->connected = 0;
     client_clear_session(client);
+    free(client->dial_host);
+    client->dial_host = NULL;
+    client->dial_port = 0;
     return 0;
 }
 
