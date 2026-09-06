@@ -122,6 +122,12 @@ after a decoded `PUSH`.
 ### `HEARTBEAT` / `NOP`
 
 Empty payload. Server replies `ACK` and refreshes the session timestamp.
+These frames skip the per-connection token bucket so a busy data path
+cannot starve keepalive. The TCP client sends `HEARTBEAT` every
+`T_CLIENT_HEARTBEAT_DEFAULT_MS` (10s) unless `t_client_set_heartbeat`
+disables it (`0`). Those ACKs do not advance `ack_seq` or overwrite
+`last_status` — they are not a substitute for `OPEN`/`POST`/`JOIN`
+completion.
 
 ### `AUTH` (client → server)
 
@@ -242,6 +248,10 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`/`JOIN`, then read
   `last_status`. Status and the name are published before the sequence
   increment (seq_cst), so a new seq is a happens-before for those fields.
+- `t_client_heartbeat` — one `HEARTBEAT`. TCP only. The ACK is ignored
+  for `ack_seq` / `last_status`.
+- `t_client_set_heartbeat(ms)` — repeat interval; `0` off; default 10s
+  so the server 30s idle timeout does not drop waiting consumers.
 - `t_client_wait_ack(client, prev, timeout_ms)` — poll until `ack_seq`
   moves past `prev`. Does not run the evloop.
 - `t_client_open_follow` — `OPEN` then wait. On `T_ERR_AGAIN` with a

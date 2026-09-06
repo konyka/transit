@@ -869,7 +869,8 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
         return;
     }
 
-    if (!t_ratelimit_allow(sc->rl, now_ms)) {
+    if (msg->header.type != T_MSG_HEARTBEAT && msg->header.type != T_MSG_NOP &&
+        !t_ratelimit_allow(sc->rl, now_ms)) {
         sc->srv->msgs_dropped++;
         (void)send_ack(sc, msg->header.type, (int32_t)T_ERR_BUSY, NULL);
         sc->in_cb--;

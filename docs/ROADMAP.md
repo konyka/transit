@@ -58,6 +58,9 @@ message bus.
   The wait is fail-closed: `T_ERR_AGAIN` after one election timeout (or
   sooner if the node is no longer leader). Apply reports the entry
   index so a successful majority still ACKs `T_OK`.
+- Client `HEARTBEAT` (default 10s) keeps idle TCP sessions alive under
+  the server 30s idle timeout. Keepalive ACKs skip `ack_seq` so
+  `wait_ack` is not spoofed. `HEARTBEAT`/`NOP` skip the token bucket.
 - Raft snapshot: `raft.log.snap` holds applied queue state. Restart
   replays the tail only. Prefix compact waits until every peer's
   `match_index` covers `last_applied`. A lagging peer is caught up

@@ -12,6 +12,8 @@
 #define T_CLIENT_QFLAG_DURABLE     0x0100
 #define T_CLIENT_QFLAG_EXCLUSIVE   0x0200
 #define T_CLIENT_QFLAG_AUTODELETE  0x0400
+/* Default idle keepalive so the server 30s idle timeout does not drop waiters. */
+#define T_CLIENT_HEARTBEAT_DEFAULT_MS 10000
 
 typedef struct t_client t_client;
 
@@ -25,6 +27,11 @@ int        t_client_connect(t_client *client, const char *host, uint16_t port);
 /* Real TCP dial. `t_client_connect` remains the in-process stub. */
 int        t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t port);
 int        t_client_set_psk(t_client *client, const uint8_t *psk, size_t len);
+/* Send T_MSG_HEARTBEAT. TCP only. ACK does not advance ack_seq. */
+int        t_client_heartbeat(t_client *client);
+/* Repeat interval in ms. 0 disables. Default T_CLIENT_HEARTBEAT_DEFAULT_MS.
+ * Negative is invalid. Re-arms when already dialed. */
+int        t_client_set_heartbeat(t_client *client, int interval_ms);
 int        t_client_disconnect(t_client *client);
 int        t_client_last_status(const t_client *client);
 /* Monotonic count of decoded ACK frames. 0 until the first ACK arrives.

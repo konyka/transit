@@ -53,6 +53,8 @@ struct t_client {
     size_t    psk_len;
     char     *dial_host;
     uint16_t  dial_port;
+    int       heartbeat_ms;
+    int64_t   heartbeat_timer_id;
 };
 
 typedef struct t_cb_snap {
@@ -102,6 +104,28 @@ static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payl
     msg.payload = (uint8_t *)payload;
     msg.payload_len = plen;
     return t_conn_send(c->conn, &msg);
+}
+
+static void client_heartbeat_tick(void *ud);
+
+static void client_hb_disarm(t_client *c) {
+    if (!c || c->heartbeat_timer_id < 0) return;
+    if (c->loop) t_evloop_timer_del(c->loop, c->heartbeat_timer_id);
+    c->heartbeat_timer_id = -1;
+}
+
+static void client_hb_arm(t_client *c) {
+    if (!c || !c->loop || !c->net_mode || c->heartbeat_ms <= 0) return;
+    client_hb_disarm(c);
+    c->heartbeat_timer_id = t_evloop_timer_add(c->loop, (int64_t)c->heartbeat_ms, 1,
+                                               client_heartbeat_tick, c);
+}
+
+static void client_heartbeat_tick(void *ud) {
+    t_client *c = (t_client *)ud;
+    if (!c || c->free_pending || !c->net_mode || !c->connected || !c->conn)
+        return;
+    (void)client_send_payload(c, T_MSG_HEARTBEAT, NULL, 0);
 }
 
 static int client_queue_ready(const t_client *c, const char *name) {
@@ -169,6 +193,8 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     if (msg->header.type == T_MSG_ACK) {
         t_wire_ack a;
         if (t_wire_decode_ack(msg->payload, msg->payload_len, &a) == 0) {
+            if (a.req_type == T_MSG_HEARTBEAT || a.req_type == T_MSG_NOP)
+                return;
             t_atomic_store_int(&c->last_status, a.status);
             c->last_ack_name[0] = '\0';
             if (a.name && a.name_len)
@@ -235,6 +261,8 @@ t_client *t_client_create(const char *client_id) {
     t_atomic_store_int(&c->last_status, 0);
     t_atomic_store_int(&c->ack_seq, 0);
     c->last_ack_name[0] = '\0';
+    c->heartbeat_ms = T_CLIENT_HEARTBEAT_DEFAULT_MS;
+    c->heartbeat_timer_id = -1;
     return c;
 }
 
@@ -244,6 +272,7 @@ void t_client_destroy(t_client *client) {
         client->free_pending = 1;
         return;
     }
+    client_hb_disarm(client);
     client_drop_conn(client);
     if (client->id) free(client->id);
     for (size_t i = 0; i < client->queues_size; ++i) {
@@ -316,6 +345,7 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
     free(client->dial_host);
     client->dial_host = hcopy;
     client->dial_port = port;
+    client_hb_arm(client);
     return 0;
 }
 
@@ -331,6 +361,24 @@ int t_client_set_psk(t_client *client, const uint8_t *psk, size_t len) {
     }
     client->psk = copy;
     client->psk_len = len;
+    return 0;
+}
+
+int t_client_heartbeat(t_client *client) {
+    if (!client || client->free_pending || !client->net_mode || !client->connected)
+        return -1;
+    return client_send_payload(client, T_MSG_HEARTBEAT, NULL, 0);
+}
+
+int t_client_set_heartbeat(t_client *client, int interval_ms) {
+    if (!client || client->free_pending || interval_ms < 0) return -1;
+    client->heartbeat_ms = interval_ms;
+    if (interval_ms == 0) {
+        client_hb_disarm(client);
+        return 0;
+    }
+    if (client->net_mode && client->connected && client->loop)
+        client_hb_arm(client);
     return 0;
 }
 
@@ -485,6 +533,7 @@ int t_client_post_follow(t_client *client, const char *queue_name,
 
 int t_client_disconnect(t_client *client) {
     if (!client || client->free_pending) return -1;
+    client_hb_disarm(client);
     client_drop_conn(client);
     client->net_mode = 0;
     client->connected = 0;
