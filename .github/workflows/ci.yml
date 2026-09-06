@@ -72,7 +72,7 @@ jobs:
         run: |
           $log = Join-Path $env:GITHUB_WORKSPACE 'msvc.log'
           if (-not (Test-Path $log)) { Write-Host 'no msvc.log'; exit 0 }
-          Select-String -Path $log -Pattern ' error [A-Z]?[0-9]+' |
+          Select-String -Path $log -Pattern ' (error|warning) C[0-9]+' |
             Select-Object -First 40 |
             ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
 

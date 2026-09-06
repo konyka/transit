@@ -25,6 +25,7 @@ struct t_coro {
     t_coro      *caller;
 };
 
+#if T_HAVE_CORO_ASM
 void t_coro_wrapper(t_coro *coro) {
     coro->state = T_CORO_RUNNING;
     coro->fn(coro->arg);
@@ -35,7 +36,7 @@ void t_coro_wrapper(t_coro *coro) {
 static void *coro_init_stack(void *stack, size_t stack_size, t_coro *coro) {
     char *base = (char *)stack;
     char *top = (char *)((uintptr_t)(base + stack_size) & ~(uintptr_t)15);
-#if T_HAVE_CORO_ASM && defined(T_ARCH_X64)
+#if defined(T_ARCH_X64)
     /* retaddr + 6 callee-saved GPRs (rbx, rbp, r12-r15). */
     if (top < base + 8 + 6 * 8) return NULL;
     top -= 8;
@@ -49,7 +50,7 @@ static void *coro_init_stack(void *stack, size_t stack_size, t_coro *coro) {
     regs[4] = NULL;
     regs[5] = (void *)coro; /* rbx */
     return top;
-#elif T_HAVE_CORO_ASM && defined(T_ARCH_ARM64)
+#elif defined(T_ARCH_ARM64)
     /* 6 stp pairs: x19-x28, x29/x30. x19 holds coro; x30 is trampoline. */
     if (top < base + 96) return NULL;
     top -= 96;
@@ -73,12 +74,14 @@ static void *coro_init_stack(void *stack, size_t stack_size, t_coro *coro) {
     return NULL;
 #endif
 }
+#endif /* T_HAVE_CORO_ASM */
 
 t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
     if (!fn || stack_size < 256) return NULL;
 #if !T_HAVE_CORO_ASM
+    (void)arg;
     return NULL;
-#endif
+#else
     t_coro *coro = (t_coro *)calloc(1, sizeof(t_coro));
     if (!coro) return NULL;
     coro->fn = fn;
@@ -94,6 +97,7 @@ t_coro *t_coro_create(t_coro_fn fn, void *arg, size_t stack_size) {
         return NULL;
     }
     return coro;
+#endif
 }
 
 static int coro_caller_is_stub(const t_coro *c) {

@@ -119,6 +119,9 @@ trailing comma (MSVC's default preprocessor rejects GNU
 turns `windows.h` C5105 into a hard error. `/W4 /WX` stays;
 C4204/C4221 (C99 aggregates), C4244/C4267 (size_t narrowing),
 C4714 (`__forceinline` not inlined), and C5105 are disabled.
+On Windows, `t_coro_create` returns `NULL` with no code after that
+`return` (MSVC C4702 / C2220). `t_coro_wrapper` / stack init exist
+only when `T_HAVE_CORO_ASM` is 1.
 
 ## Verification
 

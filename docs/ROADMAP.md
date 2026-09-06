@@ -31,8 +31,23 @@ separate that library from a production message bus.
 
 ## Remaining (priority order)
 
-None for the current library surface. TLS is still deferred (PSK AUTH
-covers the loopback-default client port).
+1. **Windows `cl` `/W4 /WX`** — GitHub `windows` must compile and run
+   ctest. `t_coro_create` on Windows is fail-closed (`NULL`); the
+   create path must not leave unreachable code after
+   `#if !T_HAVE_CORO_ASM` (MSVC C4702 / C2220).
+2. **Consumer groups over TCP** — `t_cgroup` is in-process only
+   (`test_cgroup`). There is no `JOIN` frame. Design: new `T_MSG_JOIN`
+   (not trailing bytes on `OPEN` — those are rejected). Payload is
+   group / consumer / queue names (same charset as queues). Hot path
+   stays one `PUSH` to the chosen session; round-robin is O(1) in
+   `t_cgroup`. Fail closed: unknown names, duplicate consumer id,
+   JOIN without consumer `OPEN`, and disconnect removes the member.
+   Empty group refuses dispatch. PUSH credits still apply.
+3. **Raft** is still a simplified object model plus peer RPC, not a
+   full replicated log for durable queues.
+
+TLS is still deferred (PSK AUTH covers the loopback-default client
+port).
 
 ## Non-goals for now
 

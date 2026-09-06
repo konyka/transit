@@ -170,6 +170,13 @@ character). Empty name if no leader is known.
 `0.0.0.0` is allowed only when set explicitly (CLI/config) **and** a PSK is
 configured. Admin HTTP already binds `127.0.0.1`.
 
+### `JOIN` (not on the wire yet)
+
+In-process `t_cgroup` is not reachable from the TCP server. A later
+`T_MSG_JOIN` will carry group, consumer, and queue names. Trailing
+bytes on `OPEN` stay rejected so an old server cannot misread a
+group as payload.
+
 ## Client API
 
 - `t_client_connect` — in-process stub (tests and local fanout).
