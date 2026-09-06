@@ -255,6 +255,15 @@ void *t_domain_get_queue(t_domain *domain, const char *queue_name) {
     return t_map_get(&domain->queues, queue_name);
 }
 
+void t_domain_foreach_queue(t_domain *domain, t_domain_queue_fn fn, void *ud) {
+    if (!domain || !fn) return;
+    t_map_iter it = t_map_iter_begin(&domain->queues);
+    const char *k;
+    void *v;
+    while (t_map_iter_next(&it, &k, &v))
+        fn(v, ud);
+}
+
 int t_domain_publish(t_domain *domain, const char *queue_name,
                      const uint8_t *data, size_t len, int priority) {
     if (!domain || domain->free_pending || !domain->accepting || !queue_name) return -1;

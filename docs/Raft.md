@@ -110,6 +110,24 @@ entries through the broker apply callback (`last_applied` starts at 0).
 `transit-server -C` with `-d` stores `datadir/raft.log` and applies it
 before campaigning.
 
+## Snapshot
+
+After apply, a node may write `raft.log.snap` (magic `TRFS`) with the
+broker's live queues and pending/inflight messages, then drop log
+entries through `last_applied`. Restart loads the snapshot first
+(`last_applied` starts at the snapshot index), then only the tail.
+
+Compact is fail-closed: it runs only when the in-memory log is at least
+`compact_min` entries (default 64) **and** every other voting member's
+`match_index` is at least `last_applied`. A peer that is behind keeps
+the prefix. A node that loses its snapshot file cannot catch up from
+the leader after compact; restore `datadir` from backup.
+
+The snapshot payload is big-endian: `u32` domain count, then each
+domain (`u16` name, `u32` queues) and each queue (`qtype`, `qflags`,
+name, `u32` messages of `id`/`priority`/`data`). Inflight is stored
+as pending so failover redelivers.
+
 ## Membership
 
 Static list only (no joint consensus). `transit-server -n <id>` /

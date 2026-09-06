@@ -800,6 +800,28 @@ int t_queue_open_wal(t_queue *q, const char *path, int sync_every) {
     return 0;
 }
 
+int t_queue_each_live(const t_queue *q, t_queue_live_fn fn, void *ud) {
+    if (!q || !fn) return -1;
+    if (q->has_prio) {
+        for (size_t i = 0; i < q->pri.len; i++) {
+            t_msg *m = (t_msg *)q->pri.entries[i].data;
+            if (m && fn(m, (void *)ud) != 0) return -1;
+        }
+    } else {
+        size_t n = t_vec_len((t_vec *)&q->pending);
+        for (size_t i = 0; i < n; i++) {
+            t_msg *m = (t_msg *)t_vec_get((t_vec *)&q->pending, i);
+            if (m && fn(m, (void *)ud) != 0) return -1;
+        }
+    }
+    t_list_node *cur;
+    T_LIST_FOR_EACH((t_list *)&q->inflight, cur) {
+        t_inflight *inf = T_LIST_ENTRY(cur, t_inflight, node);
+        if (inf->msg && fn(inf->msg, (void *)ud) != 0) return -1;
+    }
+    return 0;
+}
+
 int t_queue_flush(t_queue *q) {
     if (!q || !q->wal) return -1;
     return t_wal_flush(q->wal);

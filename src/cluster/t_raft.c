@@ -13,6 +13,8 @@
 #define T_RAFT_HDR_V2 32
 #define T_RAFT_REC 25
 #define T_RAFT_VER 2
+#define T_RAFT_SNAP_VER 1
+#define T_RAFT_COMPACT_MIN_DEFAULT 64
 
 /* Internal raft representation (opaque to users) */
 struct t_raft {
@@ -29,6 +31,15 @@ struct t_raft {
     void *apply_ud;
     t_raft_replicate_cb replicate_cb;
     void *replicate_ud;
+    t_raft_snap_encode_cb snap_encode_cb;
+    t_raft_snap_apply_cb snap_apply_cb;
+    void *snap_ud;
+    uint64_t snap_index;
+    uint64_t snap_term;
+    uint8_t *snap_payload;
+    size_t snap_payload_len;
+    int snap_applied;
+    size_t compact_min;
     int applying; /* nest count while apply_cb runs */
     int free_pending;
     char *log_path;
@@ -167,19 +178,26 @@ static int raft_rewrite_log(t_raft *r) {
     return 0;
 }
 
-static void raft_truncate(t_raft *r, size_t keep) {
-    if (!r || keep > r->log_count) return;
+static void raft_truncate_from(t_raft *r, uint64_t index) {
+    if (!r) return;
+    size_t keep = 0;
+    while (keep < r->log_count && r->log[keep].index < index)
+        keep++;
     for (size_t i = keep; i < r->log_count; i++)
         free(r->log[i].data);
     r->log_count = keep;
 }
 
 static uint64_t raft_last_index(const t_raft *r) {
-    return r && r->log_count ? r->log[r->log_count - 1].index : 0;
+    if (!r) return 0;
+    if (r->log_count) return r->log[r->log_count - 1].index;
+    return r->snap_index;
 }
 
 static uint64_t raft_last_term(const t_raft *r) {
-    return r && r->log_count ? r->log[r->log_count - 1].term : 0;
+    if (!r) return 0;
+    if (r->log_count) return r->log[r->log_count - 1].term;
+    return r->snap_term;
 }
 
 t_raft *t_raft_create(const t_raft_config *cfg) {
@@ -196,6 +214,8 @@ t_raft *t_raft_create(const t_raft_config *cfg) {
     r->log_count = 0;
     r->apply_cb = NULL;
     r->apply_ud = NULL;
+    r->snap_applied = 1;
+    r->compact_min = T_RAFT_COMPACT_MIN_DEFAULT;
     r->log_path = NULL;
     t_file_init(&r->logf);
     r->election_timeout_ms = (cfg && cfg->election_timeout_ms) ? cfg->election_timeout_ms : 150;
@@ -214,6 +234,7 @@ void t_raft_destroy(t_raft *raft) {
         free(raft->log[i].data);
     }
     free(raft->log);
+    free(raft->snap_payload);
     t_file_close(&raft->logf);
     free(raft->log_path);
     free(raft);
@@ -271,7 +292,7 @@ int t_raft_append_entry(t_raft *raft, uint8_t type,
     if (raft->log_count >= SIZE_MAX) return -1;
     if (ensure_log_cap(raft, raft->log_count + 1) != 0) return -1;
     t_raft_entry *e = &raft->log[raft->log_count];
-    e->index = raft->log_count + 1;
+    e->index = raft_last_index(raft) + 1;
     e->term = raft->current_term;
     e->type = type;
     if (len && data) {
@@ -298,13 +319,17 @@ size_t t_raft_log_count(const t_raft *raft) {
 }
 
 const t_raft_entry *t_raft_get_entry(const t_raft *raft, uint64_t index) {
-    if (!raft || index == 0 || index > raft->log_count) return NULL;
-    return &raft->log[index - 1];
+    if (!raft || index == 0 || !raft->log_count) return NULL;
+    uint64_t first = raft->log[0].index;
+    uint64_t last = raft->log[raft->log_count - 1].index;
+    if (index < first || index > last) return NULL;
+    return &raft->log[index - first];
 }
 
 int t_raft_advance_commit(t_raft *raft, uint64_t commit_idx) {
     if (!raft) return -1;
-    if (commit_idx > raft->log_count) commit_idx = raft->log_count;
+    uint64_t last = raft_last_index(raft);
+    if (commit_idx > last) commit_idx = last;
     /* commit_index must be monotonic — never retreat past last_applied. */
     if (commit_idx < raft->commit_index) return -1;
     if (commit_idx != raft->commit_index) {
@@ -314,9 +339,26 @@ int t_raft_advance_commit(t_raft *raft, uint64_t commit_idx) {
     return 0;
 }
 
+static int raft_apply_pending_snap(t_raft *raft) {
+    if (!raft || raft->snap_applied || !raft->snap_payload) return 0;
+    if (raft->snap_apply_cb &&
+        raft->snap_apply_cb(raft->snap_payload, raft->snap_payload_len,
+                            raft->snap_ud) != 0)
+        return -1;
+    raft->snap_applied = 1;
+    return 0;
+}
+
 int t_raft_apply_entries(t_raft *raft) {
     if (!raft) return -1;
     raft->applying++;
+    if (raft_apply_pending_snap(raft) != 0) {
+        if (--raft->applying == 0 && raft->free_pending) {
+            t_raft_destroy(raft);
+            return -2;
+        }
+        return -1;
+    }
     while (!raft->free_pending && raft->last_applied < raft->commit_index) {
         uint64_t next = raft->last_applied + 1;
         const t_raft_entry *e = t_raft_get_entry(raft, next);
@@ -348,6 +390,200 @@ void t_raft_set_replicate_cb(t_raft *raft, t_raft_replicate_cb cb, void *ud) {
     if (!raft) return;
     raft->replicate_cb = cb;
     raft->replicate_ud = ud;
+}
+
+void t_raft_set_snapshot_cb(t_raft *raft, t_raft_snap_encode_cb enc,
+                            t_raft_snap_apply_cb apply, void *ud) {
+    if (!raft) return;
+    raft->snap_encode_cb = enc;
+    raft->snap_apply_cb = apply;
+    raft->snap_ud = ud;
+}
+
+void t_raft_set_compact_min(t_raft *raft, size_t n) {
+    if (raft) raft->compact_min = n;
+}
+
+uint64_t t_raft_snapshot_index(const t_raft *raft) {
+    return raft ? raft->snap_index : 0;
+}
+
+uint64_t t_raft_snapshot_term(const t_raft *raft) {
+    return raft ? raft->snap_term : 0;
+}
+
+static int raft_snap_path(const t_raft *r, char *out, size_t cap) {
+    if (!r || !r->log_path || !out || cap < 8) return -1;
+    int n = snprintf(out, cap, "%s.snap", r->log_path);
+    if (n < 0 || (size_t)n >= cap) return -1;
+    return 0;
+}
+
+static int raft_write_snap_file(t_raft *r, uint64_t index, uint64_t term,
+                                const uint8_t *data, size_t len) {
+    if (!r || !r->log_path) return -1;
+    if (len > 0 && !data) return -1;
+    if (len > (size_t)UINT32_MAX) return -1;
+    char path[1024], tmp[1024];
+    if (raft_snap_path(r, path, sizeof(path)) != 0) return -1;
+    int n = snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    if (n < 0 || (size_t)n >= sizeof(tmp)) return -1;
+    t_file f;
+    t_file_init(&f);
+    if (t_file_open(&f, tmp, T_FILE_READ | T_FILE_WRITE | T_FILE_CREAT | T_FILE_TRUNC) != 0)
+        return -1;
+    uint8_t hdr[28];
+    memset(hdr, 0, sizeof(hdr));
+    hdr[0] = 'T'; hdr[1] = 'R'; hdr[2] = 'F'; hdr[3] = 'S';
+    hdr[4] = T_RAFT_SNAP_VER;
+    write_le64(hdr + 8, index);
+    write_le64(hdr + 16, term);
+    write_le32(hdr + 24, (uint32_t)len);
+    uint32_t crc = t_crc32c_update(0xFFFFFFFFu, hdr + 4, 24);
+    if (len) crc = t_crc32c_update(crc, data, len);
+    crc ^= 0xFFFFFFFFu;
+    uint8_t crcb[4];
+    write_le32(crcb, crc);
+    int rc = -1;
+    if (t_file_write(&f, hdr, sizeof(hdr)) == 0 &&
+        (len == 0 || t_file_write(&f, data, len) == 0) &&
+        t_file_write(&f, crcb, 4) == 0 &&
+        t_file_sync(&f) == 0) {
+        rc = 0;
+    }
+    t_file_close(&f);
+    if (rc != 0) {
+        (void)t_file_unlink(tmp);
+        return -1;
+    }
+    if (t_file_rename(tmp, path) != 0) {
+        (void)t_file_unlink(tmp);
+        return -1;
+    }
+    return 0;
+}
+
+static int raft_load_snap_file(t_raft *r) {
+    char path[1024];
+    if (raft_snap_path(r, path, sizeof(path)) != 0) return -1;
+    t_file f;
+    t_file_init(&f);
+    if (t_file_open(&f, path, T_FILE_READ) != 0)
+        return t_file_not_found() ? 0 : -1;
+    uint64_t sz = 0;
+    if (t_file_size(&f, &sz) != 0 || sz < 32) {
+        t_file_close(&f);
+        return -1;
+    }
+    uint8_t hdr[28];
+    if (t_file_read(&f, hdr, sizeof(hdr)) != 0) {
+        t_file_close(&f);
+        return -1;
+    }
+    if (hdr[0] != 'T' || hdr[1] != 'R' || hdr[2] != 'F' || hdr[3] != 'S' ||
+        hdr[4] != T_RAFT_SNAP_VER) {
+        t_file_close(&f);
+        return -1;
+    }
+    uint64_t index = read_le64(hdr + 8);
+    uint64_t term = read_le64(hdr + 16);
+    uint32_t plen = read_le32(hdr + 24);
+    if (sz != 32ull + (uint64_t)plen) {
+        t_file_close(&f);
+        return -1;
+    }
+    uint8_t *payload = NULL;
+    if (plen) {
+        payload = (uint8_t *)malloc(plen);
+        if (!payload) {
+            t_file_close(&f);
+            return -1;
+        }
+        if (t_file_read(&f, payload, plen) != 0) {
+            free(payload);
+            t_file_close(&f);
+            return -1;
+        }
+    }
+    uint8_t crcb[4];
+    if (t_file_read(&f, crcb, 4) != 0) {
+        free(payload);
+        t_file_close(&f);
+        return -1;
+    }
+    t_file_close(&f);
+    uint32_t crc = t_crc32c_update(0xFFFFFFFFu, hdr + 4, 24);
+    if (plen) crc = t_crc32c_update(crc, payload, plen);
+    crc ^= 0xFFFFFFFFu;
+    if (crc != read_le32(crcb)) {
+        free(payload);
+        return -1;
+    }
+    r->snap_index = index;
+    r->snap_term = term;
+    r->snap_payload = payload;
+    r->snap_payload_len = plen;
+    r->snap_applied = 0;
+    r->last_applied = index;
+    if (r->commit_index < index) r->commit_index = index;
+    return 0;
+}
+
+static int raft_compact_prefix(t_raft *r, uint64_t through) {
+    if (!r || through == 0) return -1;
+    if (through > r->last_applied) return -1;
+    size_t drop = 0;
+    while (drop < r->log_count && r->log[drop].index <= through)
+        drop++;
+    for (size_t i = 0; i < drop; i++)
+        free(r->log[i].data);
+    if (drop && drop < r->log_count)
+        memmove(r->log, r->log + drop,
+                (r->log_count - drop) * sizeof(t_raft_entry));
+    r->log_count -= drop;
+    if (t_file_is_open(&r->logf) && raft_rewrite_log(r) != 0) return -1;
+    return 0;
+}
+
+int t_raft_snapshot(t_raft *raft, const uint8_t *data, size_t len) {
+    if (!raft || raft->last_applied == 0) return -1;
+    if (len > 0 && !data) return -1;
+    uint64_t idx = raft->last_applied;
+    uint64_t term = 0;
+    const t_raft_entry *e = t_raft_get_entry(raft, idx);
+    if (e) term = e->term;
+    else if (idx == raft->snap_index) term = raft->snap_term;
+    else return -1;
+    if (raft->log_path && raft_write_snap_file(raft, idx, term, data, len) != 0)
+        return -1;
+    raft->snap_index = idx;
+    raft->snap_term = term;
+    free(raft->snap_payload);
+    raft->snap_payload = NULL;
+    raft->snap_payload_len = 0;
+    raft->snap_applied = 1;
+    return raft_compact_prefix(raft, idx);
+}
+
+int t_raft_maybe_snapshot(t_raft *raft, const uint64_t *matches, size_t nmatches,
+                          size_t cluster_n) {
+    if (!raft || raft->last_applied == 0) return 0;
+    if (raft->last_applied <= raft->snap_index) return 0;
+    if (raft->log_count < raft->compact_min) return 0;
+    if (cluster_n == 0) cluster_n = 1;
+    if (cluster_n > 1) {
+        if (!matches || nmatches < cluster_n - 1) return 0;
+        for (size_t i = 0; i < nmatches; i++) {
+            if (matches[i] < raft->last_applied) return 0;
+        }
+    }
+    if (!raft->snap_encode_cb) return 0;
+    uint8_t *data = NULL;
+    size_t len = 0;
+    if (raft->snap_encode_cb(&data, &len, raft->snap_ud) != 0) return -1;
+    int rc = t_raft_snapshot(raft, data, len);
+    free(data);
+    return rc;
 }
 
 int t_raft_replicate(t_raft *raft, uint64_t index) {
@@ -463,6 +699,7 @@ int t_raft_open_log(t_raft *raft, const char *path, int sync_every) {
     }
     raft->log_path = dup;
     raft->sync_every = sync_every < 0 ? 0 : sync_every;
+    if (raft_load_snap_file(raft) != 0) return -1;
     uint64_t sz = 0;
     if (t_file_size(&raft->logf, &sz) != 0) {
         t_file_close(&raft->logf);
@@ -516,6 +753,14 @@ int t_raft_open_log(t_raft *raft, const char *path, int sync_every) {
         if (len) calc = t_crc32c_update(calc, data, len);
         calc ^= 0xFFFFFFFFu;
         if (calc != crc) {
+            free(data);
+            return -1;
+        }
+        if (index <= raft->snap_index) {
+            free(data);
+            continue;
+        }
+        if (index != raft_last_index(raft) + 1) {
             free(data);
             return -1;
         }
@@ -575,10 +820,17 @@ static int raft_on_append_req(t_raft *r, const t_wire_append_req *req,
     r->state = T_NODE_FOLLOWER;
     *out_term = r->current_term;
     if (req->prev_log_index > 0) {
-        const t_raft_entry *prev = t_raft_get_entry(r, req->prev_log_index);
-        if (!prev || prev->term != req->prev_log_term) {
-            (void)raft_sync_meta(r);
-            return 0;
+        if (req->prev_log_index == r->snap_index) {
+            if (req->prev_log_term != r->snap_term) {
+                (void)raft_sync_meta(r);
+                return 0;
+            }
+        } else {
+            const t_raft_entry *prev = t_raft_get_entry(r, req->prev_log_index);
+            if (!prev || prev->term != req->prev_log_term) {
+                (void)raft_sync_meta(r);
+                return 0;
+            }
         }
     } else if (req->prev_log_term != 0) {
         (void)raft_sync_meta(r);
@@ -588,16 +840,17 @@ static int raft_on_append_req(t_raft *r, const t_wire_append_req *req,
     for (uint32_t i = 0; i < n; i++) {
         const t_wire_cluster_entry *e = &ents[i];
         if (e->index == 0) return -1;
-        if (e->index <= r->log_count) {
-            t_raft_entry *have = &r->log[e->index - 1];
+        if (e->index <= r->snap_index) continue;
+        const t_raft_entry *have = t_raft_get_entry(r, e->index);
+        if (have) {
             if (have->term != e->term) {
                 if (e->index <= r->commit_index) return 0;
-                raft_truncate(r, (size_t)(e->index - 1));
+                raft_truncate_from(r, e->index);
                 dirty = 1;
             } else {
                 continue;
             }
-        } else if (e->index != r->log_count + 1) {
+        } else if (e->index != raft_last_index(r) + 1) {
             (void)raft_sync_meta(r);
             return 0;
         }

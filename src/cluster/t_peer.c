@@ -120,6 +120,7 @@ static void peer_try_commit(t_peer *p) {
         matches[n++] = p->matches[i].match;
     }
     (void)t_raft_majority_commit(p->raft, matches, n, peer_cluster_n(p));
+    (void)t_raft_maybe_snapshot(p->raft, matches, n, peer_cluster_n(p));
 }
 
 static void peer_note_leader(t_peer *p) {
@@ -251,8 +252,20 @@ int t_peer_campaign(t_peer *p) {
 
 static int peer_encode_append(t_peer *p, uint64_t peer_id, uint8_t *buf, size_t cap) {
     uint64_t match = peer_match_get(p, peer_id);
-    const t_raft_entry *prev = (match > 0) ? t_raft_get_entry(p->raft, match) : NULL;
-    if (match > 0 && !prev) match = 0;
+    uint64_t snap = t_raft_snapshot_index(p->raft);
+    const t_raft_entry *prev = NULL;
+    uint64_t prev_term = 0;
+    if (match > 0 && match == snap) {
+        prev_term = t_raft_snapshot_term(p->raft);
+    } else if (match > 0) {
+        prev = t_raft_get_entry(p->raft, match);
+        if (!prev) {
+            if (match < snap) return -1;
+            match = 0;
+        } else {
+            prev_term = prev->term;
+        }
+    }
     t_wire_cluster_entry ents[T_WIRE_CLUSTER_MAX_ENTS];
     uint32_t nent = 0;
     uint64_t last = t_raft_last_log_index(p->raft);
@@ -272,7 +285,7 @@ static int peer_encode_append(t_peer *p, uint64_t peer_id, uint8_t *buf, size_t 
     ar.term = t_raft_current_term(p->raft);
     ar.leader_id = t_raft_id(p->raft);
     ar.prev_log_index = match;
-    ar.prev_log_term = prev ? prev->term : 0;
+    ar.prev_log_term = prev_term;
     ar.leader_commit = t_raft_commit_index(p->raft);
     int n = t_wire_encode_append_req(buf, cap, &ar, ents, nent);
     if (n < 0)

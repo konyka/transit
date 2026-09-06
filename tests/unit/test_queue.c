@@ -285,6 +285,31 @@ T_TEST(queue_drop_priority) {
     t_queue_destroy(q);
 }
 
+static int live_count_cb(const t_msg *m, void *ud) {
+    (void)m;
+    *(int *)ud += 1;
+    return 0;
+}
+
+T_TEST(queue_each_live_pending_and_inflight) {
+    t_queue *q = t_queue_create("live.q", T_QUEUE_FIFO, 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"a", 1, 0), 0);
+    T_ASSERT_EQ(t_queue_post(q, (const uint8_t *)"b", 1, 0), 0);
+    int n = 0;
+    T_ASSERT_EQ(t_queue_each_live(q, live_count_cb, &n), 0);
+    T_ASSERT_EQ(n, 2);
+    t_msg msg;
+    T_ASSERT_EQ(t_queue_consume(q, &msg), 0);
+    n = 0;
+    T_ASSERT_EQ(t_queue_each_live(q, live_count_cb, &n), 0);
+    T_ASSERT_EQ(n, 2);
+    T_ASSERT_EQ(t_queue_ack(q, msg.msg_id), 0);
+    n = 0;
+    T_ASSERT_EQ(t_queue_each_live(q, live_count_cb, &n), 0);
+    T_ASSERT_EQ(n, 1);
+    t_queue_destroy(q);
+}
+
 T_TEST(router_unbind) {
     t_router *r = t_router_create();
     int target = 1;

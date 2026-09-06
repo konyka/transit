@@ -41,6 +41,8 @@ July 2026 review.
   hot path is not a syscall per message; tests use `sync_every=1`.
   Clustered brokers use the Raft log as the WAL (one append, no
   per-queue double-write on apply). Majority commit is O(peers).
+  Applied prefix is snapshotted (`TRFS`) and dropped only after every
+  peer has the prefix, so restart is O(live messages + tail).
 - Protocol `PUSH` takes a per-session credit (`t_flowcontrol`, default 64,
   no timed refill). FIFO/priority consume into inflight; `CONFIRM` acks and
   `REJECT` requeues. `CONFIRM`/`REJECT` skip the token bucket so

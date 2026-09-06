@@ -8,9 +8,12 @@
 #include "t_raft.h"
 #include "t_raft_cmd.h"
 #include "t_wire.h"
+#include "t_endian.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stddef.h>
+#include <limits.h>
 #if T_PLATFORM_WINDOWS
 #include <windows.h>
 #else
@@ -284,10 +287,16 @@ static size_t broker_cluster_n(const t_broker *b) {
 
 static void broker_on_raft(const t_raft_entry *entry, void *ud);
 
+static int broker_snap_encode_cb(uint8_t **out, size_t *len, void *ud);
+static int broker_snap_apply_cb(const uint8_t *data, size_t len, void *ud);
+
 int t_broker_set_raft(t_broker *broker, t_raft *raft) {
     if (!broker || broker->free_pending) return -1;
     broker->raft = raft;
-    if (raft) t_raft_set_apply_cb(raft, broker_on_raft, broker);
+    if (raft) {
+        t_raft_set_apply_cb(raft, broker_on_raft, broker);
+        t_raft_set_snapshot_cb(raft, broker_snap_encode_cb, broker_snap_apply_cb, broker);
+    }
     return 0;
 }
 
@@ -439,6 +448,7 @@ static int broker_propose(t_broker *broker, uint8_t type,
     int rc = t_raft_majority_commit(r, NULL, 0, broker_cluster_n(broker));
     if (rc == -2) return -1;
     if (t_raft_last_applied(r) < idx) return -1;
+    (void)t_raft_maybe_snapshot(r, NULL, 0, broker_cluster_n(broker));
     return 0;
 }
 
@@ -606,4 +616,306 @@ size_t t_broker_total_delivered(const t_broker *broker) {
         sum += t_domain_total_delivered((t_domain *)v);
     }
     return sum;
+}
+
+static int snap_put_u8(uint8_t **p, const uint8_t *end, uint8_t v) {
+    if (*p >= end) return -1;
+    **p = v;
+    (*p)++;
+    return 0;
+}
+
+static int snap_put_u16(uint8_t **p, const uint8_t *end, uint16_t v) {
+    if ((size_t)(end - *p) < 2) return -1;
+    uint16_t be = htons(v);
+    memcpy(*p, &be, 2);
+    *p += 2;
+    return 0;
+}
+
+static int snap_put_u32(uint8_t **p, const uint8_t *end, uint32_t v) {
+    if ((size_t)(end - *p) < 4) return -1;
+    uint32_t be = htonl(v);
+    memcpy(*p, &be, 4);
+    *p += 4;
+    return 0;
+}
+
+static int snap_put_u64(uint8_t **p, const uint8_t *end, uint64_t v) {
+    if ((size_t)(end - *p) < 8) return -1;
+    uint32_t hi = htonl((uint32_t)(v >> 32));
+    uint32_t lo = htonl((uint32_t)v);
+    memcpy(*p, &hi, 4);
+    memcpy(*p + 4, &lo, 4);
+    *p += 8;
+    return 0;
+}
+
+static int snap_put_bytes(uint8_t **p, const uint8_t *end, const void *src, size_t n) {
+    if (n > 0 && !src) return -1;
+    if ((size_t)(end - *p) < n) return -1;
+    if (n) memcpy(*p, src, n);
+    *p += n;
+    return 0;
+}
+
+static int snap_get_u8(const uint8_t **p, const uint8_t *end, uint8_t *out) {
+    if (*p >= end) return -1;
+    *out = **p;
+    (*p)++;
+    return 0;
+}
+
+static int snap_get_u16(const uint8_t **p, const uint8_t *end, uint16_t *out) {
+    if ((size_t)(end - *p) < 2) return -1;
+    uint16_t be;
+    memcpy(&be, *p, 2);
+    *out = ntohs(be);
+    *p += 2;
+    return 0;
+}
+
+static int snap_get_u32(const uint8_t **p, const uint8_t *end, uint32_t *out) {
+    if ((size_t)(end - *p) < 4) return -1;
+    uint32_t be;
+    memcpy(&be, *p, 4);
+    *out = ntohl(be);
+    *p += 4;
+    return 0;
+}
+
+static int snap_get_u64(const uint8_t **p, const uint8_t *end, uint64_t *out) {
+    if ((size_t)(end - *p) < 8) return -1;
+    uint32_t hi_be, lo_be;
+    memcpy(&hi_be, *p, 4);
+    memcpy(&lo_be, *p + 4, 4);
+    *out = ((uint64_t)ntohl(hi_be) << 32) | (uint64_t)ntohl(lo_be);
+    *p += 8;
+    return 0;
+}
+
+typedef struct {
+    size_t nmsg;
+    size_t bytes;
+} snap_msg_acc;
+
+static int snap_acc_msg(const t_msg *m, void *ud) {
+    snap_msg_acc *a = (snap_msg_acc *)ud;
+    if (!m || m->data_len > T_QUEUE_MAX_PAYLOAD) return -1;
+    a->nmsg++;
+    a->bytes += 8u + 1u + 4u + m->data_len;
+    return 0;
+}
+
+typedef struct {
+    uint8_t *p;
+    uint8_t *end;
+    int err;
+} snap_msg_w;
+
+static int snap_write_msg(const t_msg *m, void *ud) {
+    snap_msg_w *w = (snap_msg_w *)ud;
+    if (!m || w->err) return -1;
+    if (snap_put_u64(&w->p, w->end, m->msg_id) != 0 ||
+        snap_put_u8(&w->p, w->end, (uint8_t)(m->priority < 0 ? 0 :
+                    (m->priority > 255 ? 255 : m->priority))) != 0 ||
+        snap_put_u32(&w->p, w->end, (uint32_t)m->data_len) != 0 ||
+        snap_put_bytes(&w->p, w->end, m->data, m->data_len) != 0) {
+        w->err = 1;
+        return -1;
+    }
+    return 0;
+}
+
+typedef struct {
+    uint8_t *buf;
+    size_t   len;
+    size_t   cap;
+} snap_buf;
+
+static int snap_buf_reserve(snap_buf *b, size_t add) {
+    if (add > SIZE_MAX - b->len) return -1;
+    size_t need = b->len + add;
+    if (need <= b->cap) return 0;
+    size_t cap = b->cap ? b->cap : 256;
+    while (cap < need) {
+        if (cap > SIZE_MAX / 2) return -1;
+        cap *= 2;
+    }
+    uint8_t *n = (uint8_t *)realloc(b->buf, cap);
+    if (!n) return -1;
+    b->buf = n;
+    b->cap = cap;
+    return 0;
+}
+
+typedef struct {
+    snap_buf *b;
+    int err;
+} snap_qctx;
+
+static void snap_write_queue(void *queue, void *ud) {
+    snap_qctx *c = (snap_qctx *)ud;
+    t_queue *q = (t_queue *)queue;
+    if (!q || c->err) return;
+    const char *qn = t_queue_name(q);
+    size_t nlen = qn ? strlen(qn) : 0;
+    if (nlen == 0 || nlen > T_WIRE_MAX_NAME ||
+        !t_wire_name_valid(qn, nlen)) {
+        c->err = 1;
+        return;
+    }
+    snap_msg_acc acc = {0, 0};
+    if (t_queue_each_live(q, snap_acc_msg, &acc) != 0) {
+        c->err = 1;
+        return;
+    }
+    size_t qneed = 1u + 1u + 2u + nlen + 4u + acc.bytes;
+    if (snap_buf_reserve(c->b, qneed) != 0) {
+        c->err = 1;
+        return;
+    }
+    uint8_t *p = c->b->buf + c->b->len;
+    uint8_t *end = c->b->buf + c->b->cap;
+    if (snap_put_u8(&p, end, (uint8_t)t_queue_get_type(q)) != 0 ||
+        snap_put_u8(&p, end, (uint8_t)t_queue_get_flags(q)) != 0 ||
+        snap_put_u16(&p, end, (uint16_t)nlen) != 0 ||
+        snap_put_bytes(&p, end, qn, nlen) != 0 ||
+        snap_put_u32(&p, end, (uint32_t)acc.nmsg) != 0) {
+        c->err = 1;
+        return;
+    }
+    snap_msg_w w = { p, end, 0 };
+    if (t_queue_each_live(q, snap_write_msg, &w) != 0 || w.err) {
+        c->err = 1;
+        return;
+    }
+    c->b->len = (size_t)(w.p - c->b->buf);
+}
+
+int t_broker_snapshot_encode(const t_broker *broker, uint8_t **out, size_t *len) {
+    if (!broker || !out || !len) return -1;
+    *out = NULL;
+    *len = 0;
+    snap_buf b;
+    memset(&b, 0, sizeof(b));
+    if (snap_buf_reserve(&b, 4) != 0) return -1;
+    b.len = 4;
+    uint32_t ndom = 0;
+    t_map_iter dit = t_map_iter_begin((t_map *)&broker->domains);
+    const char *dk;
+    void *dv;
+    while (t_map_iter_next(&dit, &dk, &dv)) {
+        t_domain *d = (t_domain *)dv;
+        const char *dn = t_domain_name(d);
+        size_t dlen = dn ? strlen(dn) : 0;
+        if (dlen == 0 || dlen > T_WIRE_MAX_NAME) {
+            free(b.buf);
+            return -1;
+        }
+        uint32_t nq = (uint32_t)t_domain_queue_count(d);
+        size_t hdr = 2 + dlen + 4;
+        if (snap_buf_reserve(&b, hdr) != 0) {
+            free(b.buf);
+            return -1;
+        }
+        uint8_t *p = b.buf + b.len;
+        uint8_t *end = b.buf + b.cap;
+        if (snap_put_u16(&p, end, (uint16_t)dlen) != 0 ||
+            snap_put_bytes(&p, end, dn, dlen) != 0 ||
+            snap_put_u32(&p, end, nq) != 0) {
+            free(b.buf);
+            return -1;
+        }
+        b.len = (size_t)(p - b.buf);
+        snap_qctx qc = { &b, 0 };
+        t_domain_foreach_queue(d, snap_write_queue, &qc);
+        if (qc.err) {
+            free(b.buf);
+            return -1;
+        }
+        ndom++;
+    }
+    uint8_t *hp = b.buf;
+    if (snap_put_u32(&hp, b.buf + b.cap, ndom) != 0) {
+        free(b.buf);
+        return -1;
+    }
+    *out = b.buf;
+    *len = b.len;
+    return 0;
+}
+
+int t_broker_snapshot_apply(t_broker *broker, const uint8_t *data, size_t len) {
+    if (!broker || broker->free_pending) return -1;
+    if (len > 0 && !data) return -1;
+    if (t_broker_total_queues(broker) != 0) return -1;
+    const uint8_t *p = data;
+    const uint8_t *end = data + len;
+    uint32_t ndom = 0;
+    if (snap_get_u32(&p, end, &ndom) != 0) return -1;
+    broker->applying++;
+    int rc = -1;
+    for (uint32_t i = 0; i < ndom; i++) {
+        uint16_t dlen = 0;
+        if (snap_get_u16(&p, end, &dlen) != 0 || dlen == 0 || dlen > T_WIRE_MAX_NAME)
+            goto out;
+        if ((size_t)(end - p) < dlen) goto out;
+        char dname[T_WIRE_MAX_NAME + 1];
+        memcpy(dname, p, dlen);
+        dname[dlen] = '\0';
+        p += dlen;
+        uint32_t nq = 0;
+        if (snap_get_u32(&p, end, &nq) != 0) goto out;
+        for (uint32_t q = 0; q < nq; q++) {
+            uint8_t qtype = 0, qflags = 0;
+            uint16_t nlen = 0;
+            if (snap_get_u8(&p, end, &qtype) != 0 ||
+                snap_get_u8(&p, end, &qflags) != 0 ||
+                snap_get_u16(&p, end, &nlen) != 0 ||
+                nlen == 0 || nlen > T_WIRE_MAX_NAME)
+                goto out;
+            if ((size_t)(end - p) < nlen) goto out;
+            char qname[T_WIRE_MAX_NAME + 1];
+            memcpy(qname, p, nlen);
+            qname[nlen] = '\0';
+            p += nlen;
+            if (!t_wire_name_valid(qname, nlen)) goto out;
+            if (broker_create_queue_local(broker, dname, qname, (int)qtype,
+                                          (int)qflags) != 0)
+                goto out;
+            t_domain *dom = t_broker_get_domain(broker, dname);
+            t_queue *qq = dom ? (t_queue *)t_domain_get_queue(dom, qname) : NULL;
+            if (!qq) goto out;
+            uint32_t nmsg = 0;
+            if (snap_get_u32(&p, end, &nmsg) != 0) goto out;
+            for (uint32_t m = 0; m < nmsg; m++) {
+                uint64_t id = 0;
+                uint8_t pri = 0;
+                uint32_t dlenm = 0;
+                if (snap_get_u64(&p, end, &id) != 0 ||
+                    snap_get_u8(&p, end, &pri) != 0 ||
+                    snap_get_u32(&p, end, &dlenm) != 0)
+                    goto out;
+                if (dlenm > T_QUEUE_MAX_PAYLOAD || (size_t)(end - p) < dlenm)
+                    goto out;
+                if (t_queue_restore(qq, id, dlenm ? p : NULL, dlenm, (int)pri) != 0)
+                    goto out;
+                p += dlenm;
+            }
+        }
+    }
+    if (p != end) goto out;
+    rc = 0;
+out:
+    broker->applying--;
+    return rc;
+}
+
+static int broker_snap_encode_cb(uint8_t **out, size_t *len, void *ud) {
+    return t_broker_snapshot_encode((const t_broker *)ud, out, len);
+}
+
+static int broker_snap_apply_cb(const uint8_t *data, size_t len, void *ud) {
+    return t_broker_snapshot_apply((t_broker *)ud, data, len);
 }

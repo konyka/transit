@@ -44,6 +44,9 @@ message bus.
 - Client leader redirect: follower `OPEN`/`POST`/`JOIN` return `T_ERR_AGAIN`
   with `host_clientport` only when the leader's client port is known.
   `t_client_parse_leader_hint` / `t_client_redial_leader` follow that hint.
+- Raft snapshot: `raft.log.snap` holds applied queue state. Restart
+  replays the tail only. Prefix compact waits until every peer's
+  `match_index` covers `last_applied`. See `docs/Raft.md`.
 
 ## Remaining (priority order)
 

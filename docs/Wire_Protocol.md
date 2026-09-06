@@ -156,8 +156,9 @@ u8 rpc   /* 1 VoteReq, 2 VoteResp, 3 AppendReq, 4 AppendResp */
 `AppendResp`: `u64 term`, `u8 success`, `u64 match_index`.
 
 Handle with `t_raft_rpc`. Durable term/vote/`commit_index`/entries:
-`t_raft_open_log` (header v2). Queue `PUT`/`ACK` command layouts are in
-`docs/Raft.md`.
+`t_raft_open_log` (header v2). Optional `raft.log.snap` (`TRFS`) holds
+applied queue state so restart skips the compacted prefix. Queue
+`PUT`/`ACK` command layouts are in `docs/Raft.md`.
 
 Follower `OPEN` / `POST` / `JOIN` on the client port return `T_ERR_AGAIN`
 when a cluster is attached and this node is not leader. The ACK name is

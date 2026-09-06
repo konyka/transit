@@ -59,5 +59,9 @@ int         t_broker_is_queue_delivering(const t_broker *broker, const char *que
 size_t      t_broker_total_queues(const t_broker *broker);
 size_t      t_broker_total_messages(const t_broker *broker);
 size_t      t_broker_total_delivered(const t_broker *broker);
+/* Encode live queue topology + pending/inflight. Caller frees *out. */
+int         t_broker_snapshot_encode(const t_broker *broker, uint8_t **out, size_t *len);
+/* Apply a snapshot to an empty broker. Fail closed if any queue already exists. */
+int         t_broker_snapshot_apply(t_broker *broker, const uint8_t *data, size_t len);
 
 #endif /* T_BROKER_H */

@@ -47,6 +47,9 @@ const char   *t_queue_wal_path(const t_queue *q);
 /* Inject a recovered message; does not append to the WAL. */
 int           t_queue_restore(t_queue *q, uint64_t msg_id, const uint8_t *data,
                               size_t len, int priority);
+/* Visit pending and inflight messages. fn != 0 aborts. */
+typedef int (*t_queue_live_fn)(const t_msg *msg, void *ud);
+int           t_queue_each_live(const t_queue *q, t_queue_live_fn fn, void *ud);
 
 int           t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority);
 /* out_msg borrows inflight payload; valid until ack/nack/requeue/destroy. */

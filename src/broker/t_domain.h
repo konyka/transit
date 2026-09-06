@@ -27,6 +27,8 @@ int      t_domain_create_queue(t_domain *domain, const char *queue_name, int typ
 int      t_domain_delete_queue(t_domain *domain, const char *queue_name);
 size_t   t_domain_queue_count(const t_domain *domain);
 void    *t_domain_get_queue(t_domain *domain, const char *queue_name);
+typedef void (*t_domain_queue_fn)(void *queue, void *ud);
+void     t_domain_foreach_queue(t_domain *domain, t_domain_queue_fn fn, void *ud);
 
 /* Publish/subscribe within a domain */
 int      t_domain_publish(t_domain *domain, const char *queue_name,
