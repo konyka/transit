@@ -796,6 +796,10 @@ static int32_t handle_confirm(t_server_conn *sc, const t_proto_msg *msg) {
         }
         free(inf->name);
         free(inf);
+    } else {
+        t_queue *q = server_lookup_queue(sc->srv->broker, name);
+        if (!q || t_queue_get_type(q) != T_QUEUE_BROADCAST)
+            return T_ERR_NOTFOUND;
     }
     if (sc->fc) t_fc_release(sc->fc, 1);
     server_flush_pull(sc->srv, name);

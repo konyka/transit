@@ -100,6 +100,9 @@ message bus.
   take the backlog. A producer bit keeps the open.
 - `t_client_last_push_priority` exposes the last `PUSH` priority
   (stub `post` included) so priority-queue consumers can see it.
+- Unknown `CONFIRM`/`REJECT` on a FIFO/priority queue is
+  `T_ERR_NOTFOUND` and does not release PUSH credit. Broadcast still
+  returns a credit (`PUSH` is not inflight).
 
 ## Remaining (priority order)
 

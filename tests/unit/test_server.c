@@ -2030,12 +2030,23 @@ T_TEST(server_psk_rejects_wrong_key) {
 }
 
 static volatile int g_raw_push_n;
+static volatile int g_raw_ack_n;
+static volatile int g_raw_ack_status;
 static uint64_t g_raw_push_ids[8];
 
 static void raw_on_push(t_conn *conn, const t_proto_msg *msg, void *ud) {
     (void)conn;
     (void)ud;
-    if (!msg || msg->header.type != T_MSG_PUSH) return;
+    if (!msg) return;
+    if (msg->header.type == T_MSG_ACK) {
+        t_wire_ack a;
+        if (t_wire_decode_ack(msg->payload, msg->payload_len, &a) == 0) {
+            g_raw_ack_status = a.status;
+            g_raw_ack_n++;
+        }
+        return;
+    }
+    if (msg->header.type != T_MSG_PUSH) return;
     t_wire_push p;
     if (t_wire_decode_push(msg->payload, msg->payload_len, &p) != 0) return;
     if (g_raw_push_n < (int)(sizeof(g_raw_push_ids) / sizeof(g_raw_push_ids[0])))
@@ -2043,9 +2054,9 @@ static void raw_on_push(t_conn *conn, const t_proto_msg *msg, void *ud) {
     g_raw_push_n++;
 }
 
-static int raw_send_open_consumer(t_conn *conn, const char *name) {
+static int raw_send_open_consumer_type(t_conn *conn, const char *name, uint8_t qtype) {
     uint8_t buf[3 + 2 + T_WIRE_MAX_NAME];
-    int n = t_wire_encode_open(buf, sizeof(buf), T_QUEUE_FIFO, T_QUEUE_FLAG_NONE,
+    int n = t_wire_encode_open(buf, sizeof(buf), qtype, T_QUEUE_FLAG_NONE,
                                T_WIRE_MODE_CONSUMER, name);
     if (n < 0) return -1;
     t_proto_msg m;
@@ -2053,6 +2064,10 @@ static int raw_send_open_consumer(t_conn *conn, const char *name) {
     m.payload = buf;
     m.payload_len = (size_t)n;
     return t_conn_send(conn, &m);
+}
+
+static int raw_send_open_consumer(t_conn *conn, const char *name) {
+    return raw_send_open_consumer_type(conn, name, (uint8_t)T_QUEUE_FIFO);
 }
 
 static int raw_send_confirm(t_conn *conn, uint64_t msg_id, const char *name) {
@@ -2113,6 +2128,63 @@ T_TEST(server_push_credits_cap) {
     T_ASSERT_EQ(raw_send_confirm(cons, g_raw_push_ids[3], "jobs"), 0);
     T_ASSERT(wait_flag_ge(&g_raw_push_n, 5, 500));
     T_ASSERT_EQ(g_raw_push_n, 5);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_conn_destroy(cons);
+    t_client_destroy(prod);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_unknown_confirm_no_credit) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    cfg.push_credits = 1;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    int cfd = t_socket_dial_ipv4("127.0.0.1", port);
+    T_ASSERT(cfd >= 0);
+    t_conn *cons = t_conn_create(cfd, loop);
+    T_ASSERT_NOT_NULL(cons);
+    g_raw_push_n = 0;
+    g_raw_ack_n = 0;
+    t_conn_set_on_msg(cons, raw_on_push, NULL);
+    T_ASSERT_EQ(raw_send_open_consumer(cons, "jobs"), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_ack_n, 1, 500));
+    T_ASSERT_EQ(g_raw_ack_status, 0);
+
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    unsigned pseq = t_client_ack_seq(prod);
+    T_ASSERT_EQ(t_client_open_queue(prod, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    T_ASSERT(wait_ack_status(prod, pseq, 0, 500));
+    T_ASSERT_EQ(t_client_post(prod, "jobs", (const uint8_t *)"a", 1, 0), 0);
+    T_ASSERT_EQ(t_client_post(prod, "jobs", (const uint8_t *)"b", 1, 0), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_push_n, 1, 500));
+    T_ASSERT_EQ(g_raw_push_n, 1);
+
+    int acks = g_raw_ack_n;
+    T_ASSERT_EQ(raw_send_confirm(cons, 0xdeadbeefULL, "jobs"), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_ack_n, acks + 1, 500));
+    T_ASSERT_EQ(g_raw_ack_status, (int)T_ERR_NOTFOUND);
+    T_ASSERT_EQ(g_raw_push_n, 1);
+
+    T_ASSERT_EQ(raw_send_confirm(cons, g_raw_push_ids[0], "jobs"), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_push_n, 2, 500));
+    T_ASSERT_EQ(g_raw_push_n, 2);
 
     t_evloop_stop(loop);
     T_ASSERT_EQ(t_thread_join(&th), 0);
@@ -2263,6 +2335,117 @@ T_TEST(server_reject_requeues) {
     T_ASSERT(wait_flag_ge(&g_raw_push_n, 2, 500));
     T_ASSERT_EQ(g_raw_push_n, 2);
     T_ASSERT_EQ((long long)g_raw_push_ids[1], (long long)first);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_conn_destroy(cons);
+    t_client_destroy(prod);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_unknown_reject_no_credit) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    cfg.push_credits = 1;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    int cfd = t_socket_dial_ipv4("127.0.0.1", port);
+    T_ASSERT(cfd >= 0);
+    t_conn *cons = t_conn_create(cfd, loop);
+    T_ASSERT_NOT_NULL(cons);
+    g_raw_push_n = 0;
+    g_raw_ack_n = 0;
+    t_conn_set_on_msg(cons, raw_on_push, NULL);
+    T_ASSERT_EQ(raw_send_open_consumer(cons, "jobs"), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_ack_n, 1, 500));
+    T_ASSERT_EQ(g_raw_ack_status, 0);
+
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    unsigned pseq = t_client_ack_seq(prod);
+    T_ASSERT_EQ(t_client_open_queue(prod, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    T_ASSERT(wait_ack_status(prod, pseq, 0, 500));
+    T_ASSERT_EQ(t_client_post(prod, "jobs", (const uint8_t *)"a", 1, 0), 0);
+    T_ASSERT_EQ(t_client_post(prod, "jobs", (const uint8_t *)"b", 1, 0), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_push_n, 1, 500));
+    T_ASSERT_EQ(g_raw_push_n, 1);
+
+    int acks = g_raw_ack_n;
+    T_ASSERT_EQ(raw_send_reject(cons, 0xdeadbeefULL, "jobs"), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_ack_n, acks + 1, 500));
+    T_ASSERT_EQ(g_raw_ack_status, (int)T_ERR_NOTFOUND);
+    T_ASSERT_EQ(g_raw_push_n, 1);
+
+    T_ASSERT_EQ(raw_send_reject(cons, g_raw_push_ids[0], "jobs"), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_push_n, 2, 500));
+    T_ASSERT_EQ(g_raw_push_n, 2);
+    T_ASSERT_EQ((long long)g_raw_push_ids[1], (long long)g_raw_push_ids[0]);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_conn_destroy(cons);
+    t_client_destroy(prod);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(server_unknown_confirm_broadcast_credits) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    cfg.push_credits = 1;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    int cfd = t_socket_dial_ipv4("127.0.0.1", port);
+    T_ASSERT(cfd >= 0);
+    t_conn *cons = t_conn_create(cfd, loop);
+    T_ASSERT_NOT_NULL(cons);
+    g_raw_push_n = 0;
+    g_raw_ack_n = 0;
+    t_conn_set_on_msg(cons, raw_on_push, NULL);
+    T_ASSERT_EQ(raw_send_open_consumer_type(cons, "bc.q", (uint8_t)T_QUEUE_BROADCAST), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_ack_n, 1, 500));
+    T_ASSERT_EQ(g_raw_ack_status, 0);
+
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_follow(prod, "bc.q", T_CLIENT_OPEN_PRODUCER, 500), 0);
+    T_ASSERT_EQ(t_client_post(prod, "bc.q", (const uint8_t *)"a", 1, 0), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_push_n, 1, 500));
+    T_ASSERT_EQ(g_raw_push_n, 1);
+
+    int acks = g_raw_ack_n;
+    T_ASSERT_EQ(raw_send_confirm(cons, 0xdeadbeefULL, "bc.q"), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_ack_n, acks + 1, 500));
+    T_ASSERT_EQ(g_raw_ack_status, 0);
+
+    T_ASSERT_EQ(t_client_post(prod, "bc.q", (const uint8_t *)"b", 1, 0), 0);
+    T_ASSERT(wait_flag_ge(&g_raw_push_n, 2, 500));
+    T_ASSERT_EQ(g_raw_push_n, 2);
 
     t_evloop_stop(loop);
     T_ASSERT_EQ(t_thread_join(&th), 0);

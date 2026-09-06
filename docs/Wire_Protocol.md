@@ -118,11 +118,13 @@ attached it proposes an `ACK` command and succeeds only after majority
 commit and apply (`docs/Raft.md`). `REJECT` proposes `NACK` the same
 way (local `t_queue_nack` when Raft is not attached) and the server
 then tries to `PUSH` again. A Raft `REJECT` that cannot majority-commit
-returns `T_ERR_AGAIN` and keeps session inflight. Unknown ids still
-return a credit (capped at the window) and `ACK` `T_OK`. Disconnect
+returns `T_ERR_AGAIN` and keeps session inflight. Unknown ids on a
+FIFO/priority queue return `T_ERR_NOTFOUND` and do not release a
+credit (a duplicate `CONFIRM` must not enlarge the window). Broadcast
+`PUSH` is not inflight — confirm still returns a credit and `ACK`
+`T_OK`. Disconnect
 nacks leftover inflight locally. These frames skip the per-connection token
-bucket. Broadcast `PUSH` is not inflight — confirm only returns a
-credit. The TCP client (`t_client_dial`) sends `CONFIRM` automatically
+bucket. The TCP client (`t_client_dial`) sends `CONFIRM` automatically
 after a decoded `PUSH` that a subscriber callback received, unless
 `t_client_set_auto_confirm(client, 0)`. A `PUSH` with no matching
 callback is left unsettled.
