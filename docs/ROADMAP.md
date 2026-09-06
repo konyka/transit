@@ -110,6 +110,9 @@ message bus.
   Subscribe then `post_follow` (or produce then `subscribe_follow`)
   actually `OPEN`s the other half. `unsubscribe` of a mixed open
   `CLOSE`s and re-`OPEN`s producer so leftover consumer is dropped.
+- Leader `redial` keeps OPEN flags and `JOIN` triples. A consumer
+  `open_follow` replays `JOIN` so a group member is not dropped after
+  the hop (empty group would hold messages forever).
 
 ## Remaining (priority order)
 

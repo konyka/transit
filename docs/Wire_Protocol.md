@@ -194,8 +194,9 @@ valid name character). Empty name if the leader is unknown or its client
 listen port was not configured (`id@host:peer` without `/client`). The
 cluster peer port is never used as a hint. `t_client_parse_leader_hint`
 and `t_client_redial_leader` follow a valid hint; the new session must
-`OPEN` again. Subscriber callbacks stay across the hop (`subscribe_follow`
-registers before `OPEN`). A same-peer hint (already dialed host/port) is not
+`OPEN` again. Subscriber callbacks, remembered `JOIN`s, and local OPEN
+flags stay across the hop (opens are marked unacked). `open_follow` of a
+consumer replays that queue's `JOIN`. A same-peer hint (already dialed host/port) is not
 followed: that is retry-later, not a redirect. `t_client_open_follow`,
 `t_client_join_follow`, `t_client_post_follow`,
 `t_client_close_follow`, `t_client_confirm_follow`,
@@ -273,7 +274,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_last_status()` — last decoded `ACK` status. Starts at `0`
   (same as `T_OK_CODE`); do not treat that as “an ACK arrived”.
 - `t_client_join(client, group, consumer_id, queue)` — TCP only
-  (`t_client_connect` stub returns -1). Wait on `ack_seq` like `OPEN`.
+  (`t_client_connect` stub returns -1). Remembers the triple. Wait on
+  `ack_seq` like `OPEN`.
 - `t_client_ack_seq()` — monotonic count of decoded `ACK` frames. Wait
   for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`/`JOIN`/
   `CONFIRM`/`REJECT`, then read
@@ -290,8 +292,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   only after `T_OK`. Already-acked with the requested mode bits is a
   no-op; extra bits send a merged `OPEN` (subscribe then `post_follow`
   must add producer). No hint or a same-peer hint is fail-closed.
-- `t_client_join_follow` — consumer `OPEN` (via `open_follow`) then
-  `JOIN`. Follows a different client-port hint once. TCP only.
+- `t_client_join` / `t_client_join_follow` — remember the group
+  triple. `open_follow` of a consumer waits for a replayed `JOIN` so
+  a redial does not leave the group empty. `CLOSE` forgets it.
 - `t_client_post_follow` — producer `OPEN` if needed, `POST`, follow
   a different client-port hint once. In-process stub opens locally
   and fans out (no ACK wait).

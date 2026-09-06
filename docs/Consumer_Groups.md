@@ -63,7 +63,9 @@ from the queue metadata so an outsider cannot steal. After a
 Raft apply or snapshot restore the same restore runs. Clustered
 first bind appends `T_RAFT_CMD_JOIN`. Unclustered durable queues
 append a WAL `JOIN` record so restart keeps the name. Consumer ids
-stay session-local (clients re-`JOIN` after failover).
+stay session-local on the server (clients re-`JOIN` after failover).
+The TCP client remembers the last `JOIN` triple per queue and
+`open_follow` replays it after a leader redial.
 
 ## Hot path
 

@@ -26,6 +26,12 @@ typedef struct t_client_subscription {
     void *ud;
 } t_client_subscription;
 
+typedef struct t_client_join_entry {
+    char *queue;
+    char *group;
+    char *consumer;
+} t_client_join_entry;
+
 struct t_client {
     char *id;
     int connected;
@@ -37,6 +43,10 @@ struct t_client {
     t_client_subscription *subs;
     size_t subs_cap;
     size_t subs_count;
+
+    t_client_join_entry *joins;
+    size_t joins_cap;
+    size_t joins_count;
 
     size_t published;
     size_t consumed;
@@ -103,6 +113,8 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud);
 static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen);
 static int client_queue_flags(const t_client *c, const char *name);
 static int client_norm_flags(int flags);
+static void client_forget_join(t_client *c, const char *queue_name);
+static int client_replay_join(t_client *c, const char *queue_name, int timeout_ms);
 
 static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen) {
     if (!c || !c->conn) return -1;
@@ -300,6 +312,12 @@ void t_client_destroy(t_client *client) {
         free(client->subs[i].queue);
     }
     free(client->subs);
+    for (size_t i = 0; i < client->joins_count; ++i) {
+        free(client->joins[i].queue);
+        free(client->joins[i].group);
+        free(client->joins[i].consumer);
+    }
+    free(client->joins);
     if (client->psk) {
         t_hmac_wipe(client->psk, client->psk_len);
         free(client->psk);
@@ -478,8 +496,114 @@ static void client_clear_subs(t_client *client) {
     client->subs_cap = 0;
 }
 
+static void client_clear_joins(t_client *client) {
+    for (size_t i = 0; i < client->joins_count; ++i) {
+        free(client->joins[i].queue);
+        free(client->joins[i].group);
+        free(client->joins[i].consumer);
+    }
+    free(client->joins);
+    client->joins = NULL;
+    client->joins_count = 0;
+    client->joins_cap = 0;
+}
+
+static void client_unack_opens(t_client *client) {
+    for (size_t i = 0; i < client->queues_size; ++i)
+        client->queues[i].acked = 0;
+    client->last_push_id = 0;
+    client->last_push_priority = 0;
+    client->last_push_queue[0] = '\0';
+    client->push_settled = 1;
+}
+
+static int client_ensure_joins_cap(t_client *c, size_t need) {
+    if (c->joins_count >= need) return 0;
+    size_t new_cap = (c->joins_cap == 0) ? 4 : c->joins_cap;
+    while (need > new_cap) {
+        if (new_cap > SIZE_MAX / 2) return -1;
+        new_cap *= 2;
+    }
+    if (new_cap > SIZE_MAX / sizeof(t_client_join_entry)) return -1;
+    t_client_join_entry *n = (t_client_join_entry *)realloc(
+        c->joins, new_cap * sizeof(t_client_join_entry));
+    if (!n) return -1;
+    c->joins = n;
+    c->joins_cap = new_cap;
+    return 0;
+}
+
+static void client_forget_join(t_client *c, const char *queue_name) {
+    if (!c || !queue_name) return;
+    for (size_t i = 0; i < c->joins_count; ++i) {
+        if (c->joins[i].queue && strcmp(c->joins[i].queue, queue_name) == 0) {
+            free(c->joins[i].queue);
+            free(c->joins[i].group);
+            free(c->joins[i].consumer);
+            for (size_t j = i; j + 1 < c->joins_count; ++j)
+                c->joins[j] = c->joins[j + 1];
+            c->joins_count--;
+            return;
+        }
+    }
+}
+
+static int client_remember_join(t_client *c, const char *group,
+                                const char *consumer, const char *queue) {
+    if (!c || !group || !consumer || !queue) return -1;
+    for (size_t i = 0; i < c->joins_count; ++i) {
+        if (c->joins[i].queue && strcmp(c->joins[i].queue, queue) == 0) {
+            char *g = strdup(group);
+            char *cid = strdup(consumer);
+            if (!g || !cid) {
+                free(g);
+                free(cid);
+                return -1;
+            }
+            free(c->joins[i].group);
+            free(c->joins[i].consumer);
+            c->joins[i].group = g;
+            c->joins[i].consumer = cid;
+            return 0;
+        }
+    }
+    if (client_ensure_joins_cap(c, c->joins_count + 1) != 0) return -1;
+    char *q = strdup(queue);
+    char *g = strdup(group);
+    char *cid = strdup(consumer);
+    if (!q || !g || !cid) {
+        free(q);
+        free(g);
+        free(cid);
+        return -1;
+    }
+    c->joins[c->joins_count].queue = q;
+    c->joins[c->joins_count].group = g;
+    c->joins[c->joins_count].consumer = cid;
+    c->joins_count++;
+    return 0;
+}
+
+static int client_replay_join(t_client *c, const char *queue_name, int timeout_ms) {
+    if (!c || !queue_name) return -1;
+    int flags = client_queue_flags(c, queue_name);
+    if (flags < 0 || (flags & T_CLIENT_OPEN_CONSUMER) == 0) return 0;
+    const t_client_join_entry *e = NULL;
+    for (size_t i = 0; i < c->joins_count; ++i) {
+        if (c->joins[i].queue && strcmp(c->joins[i].queue, queue_name) == 0) {
+            e = &c->joins[i];
+            break;
+        }
+    }
+    if (!e) return 0;
+    unsigned seq = t_client_ack_seq(c);
+    if (t_client_join(c, e->group, e->consumer, queue_name) != 0) return -1;
+    return client_wait_status(c, seq, timeout_ms) == 0 ? 0 : -1;
+}
+
 static void client_clear_session(t_client *client) {
     client_clear_subs(client);
+    client_clear_joins(client);
     client_clear_opens(client);
 }
 
@@ -494,7 +618,7 @@ int t_client_redial_leader(t_client *client) {
         strcmp(client->dial_host, host) == 0)
         return -1;
     client_drop_conn(client);
-    client_clear_opens(client);
+    client_unack_opens(client);
     return t_client_dial(client, client->loop, host, port);
 }
 
@@ -525,11 +649,13 @@ int t_client_open_follow(t_client *client, const char *queue_name, int flags,
     unsigned seq = t_client_ack_seq(client);
     if (t_client_open_queue(client, queue_name, flags) != 0) return -1;
     int wr = client_wait_status(client, seq, timeout_ms);
-    if (wr <= 0) return wr;
+    if (wr < 0) return wr;
+    if (wr == 0) return client_replay_join(client, queue_name, timeout_ms);
     if (t_client_redial_leader(client) != 0) return -1;
     seq = t_client_ack_seq(client);
     if (t_client_open_queue(client, queue_name, flags) != 0) return -1;
-    return client_wait_status(client, seq, timeout_ms) == 0 ? 0 : -1;
+    if (client_wait_status(client, seq, timeout_ms) != 0) return -1;
+    return client_replay_join(client, queue_name, timeout_ms);
 }
 
 int t_client_join_follow(t_client *client, const char *group,
@@ -745,6 +871,7 @@ int t_client_close_queue(t_client *client, const char *queue_name) {
             for (size_t j = i; j + 1 < client->queues_size; ++j)
                 client->queues[j] = client->queues[j + 1];
             client->queues_size--;
+            client_forget_join(client, queue_name);
             (void)t_client_unsubscribe(client, queue_name);
             return 0;
         }
@@ -833,7 +960,13 @@ int t_client_join(t_client *client, const char *group,
     uint8_t buf[6 + 3 * T_WIRE_MAX_NAME];
     int n = t_wire_encode_join(buf, sizeof(buf), group, consumer_id, queue_name);
     if (n < 0) return -1;
-    return client_send_payload(client, T_MSG_JOIN, buf, (size_t)n);
+    if (client_remember_join(client, group, consumer_id, queue_name) != 0)
+        return -1;
+    if (client_send_payload(client, T_MSG_JOIN, buf, (size_t)n) != 0) {
+        client_forget_join(client, queue_name);
+        return -1;
+    }
+    return 0;
 }
 
 static int client_add_sub(t_client *client, const char *queue_name,
