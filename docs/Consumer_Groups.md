@@ -46,13 +46,23 @@ Membership:
 | Same conn, other id | `T_ERR_BUSY` |
 | `CLOSE` / disconnect | member removed |
 
-The group object stays while any session still has the queue open.
-An empty group refuses dispatch: `server_flush_pull` will not fall
-back to OPEN-only consumers. The message remains pending. PUSH
-credits still gate each send.
+The first successful `JOIN` also writes the group name on the
+queue (`t_queue_set_group`). That name stays until the queue is
+deleted. A later `JOIN` with a different name is `T_ERR_BUSY`
+even after every session has disconnected.
 
-When the last network `OPEN` on that queue is dropped, the group
-is destroyed with the open-ref.
+The live `t_cgroup` object stays while any session still has the
+queue open. An empty group refuses dispatch: `server_flush_pull`
+will not fall back to OPEN-only consumers. The message remains
+pending. PUSH credits still gate each send.
+
+When the last network `OPEN` on that queue is dropped, the live
+group object is destroyed with the open-ref. The sticky name is
+not. The next consumer `OPEN` or flush recreates an empty group
+from the queue metadata so an outsider cannot steal. After a
+Raft apply or snapshot restore the same restore runs. Clustered
+first bind appends `T_RAFT_CMD_JOIN`; consumer ids stay
+session-local (clients re-`JOIN` after failover).
 
 ## Hot path
 
@@ -76,5 +86,7 @@ credit (existing competing-consumer behavior).
 4. `server_join_round_robin` — two members, two posts, 1+1
 5. `server_join_duplicate_consumer` — EXISTS / BUSY / idempotent
 6. `server_join_empty_holds` — outsider OPEN does not steal
-7. `client_join_stub_fails`
-8. `client_join_follow_to_leader` / `client_join_follow_no_hint_stays`
+7. `server_join_survives_last_close` — name survives last OPEN
+8. `client_join_stub_fails`
+9. `client_join_follow_to_leader` / `client_join_follow_no_hint_stays`
+10. `queue_set_group_sticky` / `broker_raft_join_two_nodes`

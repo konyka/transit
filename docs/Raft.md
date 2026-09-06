@@ -92,6 +92,24 @@ like `CONFIRM`. Without a majority the client gets `T_ERR_AGAIN` and
 the message stays inflight. Disconnect nacks stay local (session
 recovery, not a cluster mutation).
 
+`JOIN` (`type = 6`):
+
+```
+u8  type
+u16 name_len
+u8  name[name_len]
+u16 group_len
+u8  group[group_len]
+```
+
+The first successful `JOIN` binds `group` on the queue. Apply calls
+`t_queue_set_group` (same name is idempotent; a different name is
+ignored so the first bind wins). Live consumer membership stays
+session-local: after failover clients re-`JOIN`. The name is enough
+for an empty restored group to hold messages instead of falling
+back to OPEN-only consumers. Leader `JOIN` of an unbound queue
+proposes and waits for apply like `CREATE`.
+
 ## Commit
 
 `t_raft_majority_commit` counts self plus peer `match_index` values.
@@ -143,8 +161,9 @@ to `last_included_index`. A corrupt snapshot is rejected.
 
 The snapshot payload is big-endian: `u32` domain count, then each
 domain (`u16` name, `u32` queues) and each queue (`qtype`, `qflags`,
-name, `u32` messages of `id`/`priority`/`data`). Inflight is stored
-as pending so failover redelivers.
+name, `u16` group_len + group bytes (`0` if unbound), `u32` messages
+of `id`/`priority`/`data`). Inflight is stored as pending so failover
+redelivers. File version is 2; an older `TRFS` file is rejected.
 
 ## Membership
 

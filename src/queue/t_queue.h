@@ -40,6 +40,9 @@ void          t_queue_destroy(t_queue *q);
 const char   *t_queue_name(const t_queue *q);
 t_qtype       t_queue_get_type(const t_queue *q);
 int           t_queue_get_flags(const t_queue *q);
+/* First bind wins. Same name is idempotent. A different name fails closed. */
+int           t_queue_set_group(t_queue *q, const char *group);
+const char   *t_queue_group(const t_queue *q);
 /* Attach an append-only WAL and replay live records into pending. */
 int           t_queue_open_wal(t_queue *q, const char *path, int sync_every);
 int           t_queue_flush(t_queue *q);

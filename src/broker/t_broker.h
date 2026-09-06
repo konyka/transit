@@ -49,6 +49,11 @@ void        t_broker_set_applied_cb(t_broker *broker, t_broker_applied_cb cb, vo
 /* Raft propose: 0 = applied, 1 = appended (await majority), -1 = fail. */
 int         t_broker_ack(t_broker *broker, const char *queue_name, uint64_t msg_id);
 int         t_broker_nack(t_broker *broker, const char *queue_name, uint64_t msg_id);
+/* First JOIN binds the group name on the queue (sticky until delete).
+   Same name is idempotent. A different name fails closed.
+   Raft: 0 = applied, 1 = pending, -1 = fail. */
+int         t_broker_join_group(t_broker *broker, const char *queue_name,
+                                const char *group);
 
 int         t_broker_publish(t_broker *broker, const char *queue_name,
                               const uint8_t *data, size_t len, int priority);

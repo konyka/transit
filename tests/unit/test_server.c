@@ -1788,6 +1788,88 @@ T_TEST(server_join_empty_holds) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(server_join_survives_last_close) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *member = t_client_create("m");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(member, loop, "127.0.0.1", port), 0);
+
+    unsigned pseq = t_client_ack_seq(prod);
+    T_ASSERT_EQ(t_client_open_queue(prod, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    T_ASSERT(wait_ack_status(prod, pseq, 0, 500));
+    unsigned mseq = t_client_ack_seq(member);
+    T_ASSERT_EQ(t_client_open_queue(member, "jobs", T_CLIENT_OPEN_CONSUMER), 0);
+    T_ASSERT(wait_ack_status(member, mseq, 0, 500));
+    mseq = t_client_ack_seq(member);
+    T_ASSERT_EQ(t_client_join(member, "workers", "m1", "jobs"), 0);
+    T_ASSERT(wait_ack_status(member, mseq, 0, 500));
+    T_ASSERT_EQ(t_client_disconnect(member), 0);
+    T_ASSERT_EQ(t_client_disconnect(prod), 0);
+    t_time_sleep_ms(40);
+
+    t_client *outsider = t_client_create("o");
+    t_client *prod2 = t_client_create("p2");
+    T_ASSERT_EQ(t_client_dial(outsider, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(prod2, loop, "127.0.0.1", port), 0);
+    unsigned oseq = t_client_ack_seq(outsider);
+    T_ASSERT_EQ(t_client_open_queue(outsider, "jobs", T_CLIENT_OPEN_CONSUMER), 0);
+    T_ASSERT(wait_ack_status(outsider, oseq, 0, 500));
+    T_ASSERT_EQ(t_client_subscribe(outsider, "jobs", on_net_msg, NULL), 0);
+    oseq = t_client_ack_seq(outsider);
+    T_ASSERT_EQ(t_client_join(outsider, "other", "o1", "jobs"), 0);
+    T_ASSERT(wait_ack_status(outsider, oseq, (int)T_ERR_BUSY, 500));
+
+    unsigned p2seq = t_client_ack_seq(prod2);
+    T_ASSERT_EQ(t_client_open_queue(prod2, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
+    T_ASSERT(wait_ack_status(prod2, p2seq, 0, 500));
+    g_got = 0;
+    T_ASSERT_EQ(t_client_post(prod2, "jobs", (const uint8_t *)"hold", 4, 0), 0);
+    t_time_sleep_ms(80);
+    T_ASSERT_EQ(g_got, 0);
+    t_domain *d = t_broker_get_domain(b, "default");
+    t_queue *q = (t_queue *)t_domain_get_queue(d, "jobs");
+    T_ASSERT_NOT_NULL(q);
+    T_ASSERT(strcmp(t_queue_group(q), "workers") == 0);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
+
+    t_client *rejoin = t_client_create("r");
+    T_ASSERT_EQ(t_client_dial(rejoin, loop, "127.0.0.1", port), 0);
+    unsigned rseq = t_client_ack_seq(rejoin);
+    T_ASSERT_EQ(t_client_open_queue(rejoin, "jobs", T_CLIENT_OPEN_CONSUMER), 0);
+    T_ASSERT(wait_ack_status(rejoin, rseq, 0, 500));
+    T_ASSERT_EQ(t_client_subscribe(rejoin, "jobs", on_net_msg, NULL), 0);
+    rseq = t_client_ack_seq(rejoin);
+    T_ASSERT_EQ(t_client_join(rejoin, "workers", "m2", "jobs"), 0);
+    T_ASSERT(wait_ack_status(rejoin, rseq, 0, 500));
+    T_ASSERT(wait_flag_ge(&g_got, 1, 500));
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(prod);
+    t_client_destroy(member);
+    t_client_destroy(outsider);
+    t_client_destroy(prod2);
+    t_client_destroy(rejoin);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
 int main(void) {
     return t_run_all_tests();
 }

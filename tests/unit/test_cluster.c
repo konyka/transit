@@ -392,6 +392,26 @@ T_TEST(raft_cmd_put_ack_roundtrip) {
     T_ASSERT_EQ((int)out.type, T_RAFT_CMD_NACK);
     T_ASSERT_EQ((int)out.msg_id, 42);
     T_ASSERT_EQ(t_raft_cmd_encode_nack(buf, sizeof(buf), &ack), -1);
+
+    t_raft_cmd jn;
+    memset(&jn, 0, sizeof(jn));
+    jn.type = T_RAFT_CMD_JOIN;
+    jn.name = "jobs";
+    jn.name_len = 4;
+    jn.group = "workers";
+    jn.group_len = 7;
+    n = t_raft_cmd_encode_join(buf, sizeof(buf), &jn);
+    T_ASSERT(n > 0);
+    T_ASSERT_EQ(t_raft_cmd_decode(buf, (size_t)n, &out), 0);
+    T_ASSERT_EQ((int)out.type, T_RAFT_CMD_JOIN);
+    T_ASSERT_EQ((int)out.name_len, 4);
+    T_ASSERT(memcmp(out.name, "jobs", 4) == 0);
+    T_ASSERT_EQ((int)out.group_len, 7);
+    T_ASSERT(memcmp(out.group, "workers", 7) == 0);
+    T_ASSERT_EQ(t_raft_cmd_decode(buf, (size_t)n - 1, &out), -1);
+    T_ASSERT_EQ(t_raft_cmd_encode_join(buf, sizeof(buf), &ack), -1);
+    jn.group_len = 0;
+    T_ASSERT_EQ(t_raft_cmd_encode_join(buf, sizeof(buf), &jn), -1);
 }
 
 T_TEST(raft_majority_commit_single_node) {
@@ -683,6 +703,39 @@ T_TEST(broker_raft_create_delete_two_nodes) {
     t_cluster_destroy(c);
 }
 
+T_TEST(broker_raft_join_two_nodes) {
+    t_broker *b1 = t_broker_create("n1");
+    t_broker *b2 = t_broker_create("n2");
+    t_cluster *c = t_cluster_create(1);
+    t_raft_config a = {1, 150, 50};
+    t_raft_config b = {2, 150, 50};
+    t_raft *r1 = t_raft_create(&a);
+    t_raft *r2 = t_raft_create(&b);
+    T_ASSERT_EQ(t_cluster_add_node(c, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(c, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(c, 1), 0);
+    T_ASSERT_EQ(t_raft_become_candidate(r1), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r1), 0);
+    raft_repl_ctx cx = { r2 };
+    t_raft_set_replicate_cb(r1, test_inproc_repl, &cx);
+    T_ASSERT_EQ(t_broker_set_cluster(b1, c), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b1, r1), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b2, r2), 0);
+    T_ASSERT_EQ(t_broker_start(b1), 0);
+    T_ASSERT_EQ(t_broker_start(b2), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b1, "default", "jobs", 0, 0), 0);
+    T_ASSERT_EQ(t_broker_join_group(b1, "jobs", "workers"), 0);
+    T_ASSERT_EQ(t_broker_join_group(b1, "jobs", "workers"), 0);
+    T_ASSERT_EQ(t_broker_join_group(b1, "jobs", "other"), -1);
+    T_ASSERT(strcmp(t_queue_group(broker_q(b1, "jobs")), "workers") == 0);
+    T_ASSERT(strcmp(t_queue_group(broker_q(b2, "jobs")), "workers") == 0);
+    t_broker_destroy(b1);
+    t_broker_destroy(b2);
+    t_raft_destroy(r1);
+    t_raft_destroy(r2);
+    t_cluster_destroy(c);
+}
+
 T_TEST(broker_raft_single_node_commits) {
     t_broker *b = t_broker_create("n1");
     t_cluster *c = t_cluster_create(1);
@@ -710,6 +763,9 @@ T_TEST(broker_snapshot_roundtrip) {
     T_ASSERT_EQ(t_broker_publish(b, "jobs", (const uint8_t *)"hi", 2, 7), 0);
     uint8_t *snap = NULL;
     size_t slen = 0;
+    T_ASSERT_EQ(t_broker_join_group(b, "jobs", "workers"), 0);
+    T_ASSERT_EQ(t_broker_join_group(b, "jobs", "workers"), 0);
+    T_ASSERT_EQ(t_broker_join_group(b, "jobs", "other"), -1);
     T_ASSERT_EQ(t_broker_snapshot_encode(b, &snap, &slen), 0);
     T_ASSERT(slen > 0);
     t_broker *b2 = t_broker_create("n2");
@@ -718,6 +774,7 @@ T_TEST(broker_snapshot_roundtrip) {
     T_ASSERT_EQ(t_broker_snapshot_apply(b2, snap, slen), 0);
     t_queue *q = broker_q(b2, "jobs");
     T_ASSERT_NOT_NULL(q);
+    T_ASSERT(strcmp(t_queue_group(q), "workers") == 0);
     T_ASSERT_EQ((int)t_queue_pending_count(q), 1);
     t_msg m;
     T_ASSERT_EQ(t_queue_consume(q, &m), 0);

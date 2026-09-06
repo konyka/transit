@@ -446,6 +446,13 @@ static void broker_on_raft(const t_raft_entry *entry, void *ud) {
                                         (int)cmd.qflags);
     } else if (cmd.type == T_RAFT_CMD_DELETE) {
         (void)broker_delete_queue_local(b, "default", name);
+    } else if (cmd.type == T_RAFT_CMD_JOIN) {
+        char group[T_WIRE_MAX_NAME + 1];
+        if (t_wire_name_copy(group, sizeof(group), cmd.group, cmd.group_len) == 0) {
+            t_domain *d = broker_find_queue_domain(b, name);
+            t_queue *q = d ? (t_queue *)t_domain_get_queue(d, name) : NULL;
+            if (q) (void)t_queue_set_group(q, group);
+        }
     }
     b->applying--;
     if (b->applied_cb && b->raft)
@@ -560,6 +567,38 @@ int t_broker_ack(t_broker *broker, const char *queue_name, uint64_t msg_id) {
     broker_reap_domains(broker);
     if (broker_try_complete_destroy(broker)) return -1;
     return r;
+}
+
+int t_broker_join_group(t_broker *broker, const char *queue_name,
+                        const char *group) {
+    if (!broker || broker->free_pending || !queue_name || !group || !group[0])
+        return -1;
+    t_domain *d = broker_find_queue_domain(broker, queue_name);
+    if (!d) return -1;
+    t_queue *q = (t_queue *)t_domain_get_queue(d, queue_name);
+    if (!q) return -1;
+    if (t_queue_get_type(q) == T_QUEUE_BROADCAST) return -1;
+    const char *have = t_queue_group(q);
+    if (have) return strcmp(have, group) == 0 ? 0 : -1;
+    if (broker->raft && !broker->applying) {
+        if (!t_broker_is_leader(broker)) return -1;
+        t_raft_cmd cmd;
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.type = T_RAFT_CMD_JOIN;
+        cmd.name = queue_name;
+        cmd.name_len = (uint16_t)strlen(queue_name);
+        cmd.group = group;
+        cmd.group_len = (uint16_t)strlen(group);
+        uint8_t buf[600];
+        int n = t_raft_cmd_encode_join(buf, sizeof(buf), &cmd);
+        if (n < 0) return -1;
+        int r = broker_propose(broker, T_RAFT_CMD_JOIN, buf, (size_t)n);
+        t_dispatch_reap_deferred();
+        broker_reap_domains(broker);
+        if (broker_try_complete_destroy(broker)) return -1;
+        return r;
+    }
+    return t_queue_set_group(q, group);
 }
 
 int t_broker_nack(t_broker *broker, const char *queue_name, uint64_t msg_id) {
@@ -812,7 +851,13 @@ static void snap_write_queue(void *queue, void *ud) {
         c->err = 1;
         return;
     }
-    size_t qneed = 1u + 1u + 2u + nlen + 4u + acc.bytes;
+    const char *gn = t_queue_group(q);
+    size_t glen = gn ? strlen(gn) : 0;
+    if (glen > T_WIRE_MAX_NAME || (glen > 0 && !t_wire_name_valid(gn, glen))) {
+        c->err = 1;
+        return;
+    }
+    size_t qneed = 1u + 1u + 2u + nlen + 2u + glen + 4u + acc.bytes;
     if (snap_buf_reserve(c->b, qneed) != 0) {
         c->err = 1;
         return;
@@ -823,6 +868,8 @@ static void snap_write_queue(void *queue, void *ud) {
         snap_put_u8(&p, end, (uint8_t)t_queue_get_flags(q)) != 0 ||
         snap_put_u16(&p, end, (uint16_t)nlen) != 0 ||
         snap_put_bytes(&p, end, qn, nlen) != 0 ||
+        snap_put_u16(&p, end, (uint16_t)glen) != 0 ||
+        (glen > 0 && snap_put_bytes(&p, end, gn, glen) != 0) ||
         snap_put_u32(&p, end, (uint32_t)acc.nmsg) != 0) {
         c->err = 1;
         return;
@@ -969,6 +1016,18 @@ int t_broker_snapshot_apply(t_broker *broker, const uint8_t *data, size_t len) {
             t_domain *dom = t_broker_get_domain(broker, dname);
             t_queue *qq = dom ? (t_queue *)t_domain_get_queue(dom, qname) : NULL;
             if (!qq) goto out;
+            uint16_t glen = 0;
+            if (snap_get_u16(&p, end, &glen) != 0 || glen > T_WIRE_MAX_NAME)
+                goto out;
+            if (glen) {
+                if ((size_t)(end - p) < glen) goto out;
+                char gname[T_WIRE_MAX_NAME + 1];
+                memcpy(gname, p, glen);
+                gname[glen] = '\0';
+                p += glen;
+                if (!t_wire_name_valid(gname, glen)) goto out;
+                if (t_queue_set_group(qq, gname) != 0) goto out;
+            }
             uint32_t nmsg = 0;
             if (snap_get_u32(&p, end, &nmsg) != 0) goto out;
             for (uint32_t m = 0; m < nmsg; m++) {

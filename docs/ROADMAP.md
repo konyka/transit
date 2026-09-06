@@ -65,6 +65,11 @@ message bus.
   replays the tail only. Prefix compact waits until every peer's
   `match_index` covers `last_applied`. A lagging peer is caught up
   with `InstallSnapshot`. See `docs/Raft.md`.
+- Sticky consumer-group name on the queue: first `JOIN` binds
+  `t_queue_set_group` (Raft `JOIN` type 6 + snapshot v2). The live
+  group object may drop with the last `OPEN`; the name does not,
+  so an OPEN-only consumer cannot steal after disconnect or
+  failover. See `docs/Consumer_Groups.md`.
 
 ## Remaining (priority order)
 

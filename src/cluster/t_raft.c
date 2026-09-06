@@ -13,7 +13,7 @@
 #define T_RAFT_HDR_V2 32
 #define T_RAFT_REC 25
 #define T_RAFT_VER 2
-#define T_RAFT_SNAP_VER 1
+#define T_RAFT_SNAP_VER 2
 #define T_RAFT_COMPACT_MIN_DEFAULT 64
 
 /* Internal raft representation (opaque to users) */

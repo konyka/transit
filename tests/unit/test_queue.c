@@ -310,6 +310,24 @@ T_TEST(queue_each_live_pending_and_inflight) {
     t_queue_destroy(q);
 }
 
+T_TEST(queue_set_group_sticky) {
+    t_queue *q = t_queue_create("jobs", T_QUEUE_FIFO, 0);
+    T_ASSERT_NULL(t_queue_group(q));
+    T_ASSERT_EQ(t_queue_set_group(q, "workers"), 0);
+    T_ASSERT(strcmp(t_queue_group(q), "workers") == 0);
+    T_ASSERT_EQ(t_queue_set_group(q, "workers"), 0);
+    T_ASSERT_EQ(t_queue_set_group(q, "other"), -1);
+    T_ASSERT(strcmp(t_queue_group(q), "workers") == 0);
+    T_ASSERT_EQ(t_queue_set_group(q, ""), -1);
+    T_ASSERT_EQ(t_queue_set_group(q, NULL), -1);
+    t_queue_destroy(q);
+
+    t_queue *bc = t_queue_create("fan", T_QUEUE_BROADCAST, 0);
+    T_ASSERT_EQ(t_queue_set_group(bc, "g"), -1);
+    T_ASSERT_NULL(t_queue_group(bc));
+    t_queue_destroy(bc);
+}
+
 T_TEST(router_unbind) {
     t_router *r = t_router_create();
     int target = 1;

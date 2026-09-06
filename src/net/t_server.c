@@ -37,6 +37,8 @@ typedef struct t_server_wait {
     uint8_t        credit;
     int64_t        expire_at_ms;
     char           name[T_WIRE_MAX_NAME + 1];
+    char           group[T_WIRE_MAX_NAME + 1];
+    char           consumer[T_WIRE_MAX_NAME + 1];
 } t_server_wait;
 
 struct t_server_conn {
@@ -125,8 +127,11 @@ static uint64_t server_raft_index(t_broker *b) {
 }
 
 static int32_t finish_open(t_server_conn *sc, const char *name, uint8_t omode);
+static int32_t finish_join(t_server_conn *sc, const char *queue,
+                           const char *group, const char *consumer);
 static void server_flush_pull(t_server *srv, const char *name);
 static void server_wait_tick(void *ud);
+static int server_restore_group(t_server *srv, const char *name);
 
 static int64_t server_wait_ttl_ms(t_broker *b) {
     t_raft *r = b ? t_broker_raft(b) : NULL;
@@ -159,6 +164,13 @@ static void server_wait_ack_ok(t_server *srv, t_server_wait *w) {
             (void)send_ack(sc, T_MSG_OPEN_QUEUE, T_OK_CODE, w->name);
         else
             (void)send_ack(sc, T_MSG_OPEN_QUEUE, st, w->name);
+        return;
+    }
+    if (w->type == T_MSG_JOIN) {
+        int32_t st = finish_join(sc, w->name, w->group, w->consumer);
+        (void)send_ack(sc, T_MSG_JOIN, st, w->name);
+        if (st == T_OK_CODE)
+            server_flush_pull(srv, w->name);
         return;
     }
     if (w->credit && sc->fc) t_fc_release(sc->fc, 1);
@@ -214,7 +226,8 @@ static void server_wait_tick(void *ud) {
 }
 
 static int server_wait_add(t_server_conn *sc, uint16_t type, const char *name,
-                           uint64_t index, uint8_t mode, uint8_t credit) {
+                           uint64_t index, uint8_t mode, uint8_t credit,
+                           const char *group, const char *consumer) {
     if (!sc || !sc->srv || !name || index == 0) return -1;
     t_server_wait *w = (t_server_wait *)calloc(1, sizeof(*w));
     if (!w) return -1;
@@ -231,6 +244,24 @@ static int server_wait_add(t_server_conn *sc, uint16_t type, const char *name,
     }
     memcpy(w->name, name, nlen);
     w->name[nlen] = '\0';
+    if (group) {
+        size_t glen = strlen(group);
+        if (glen > T_WIRE_MAX_NAME) {
+            free(w);
+            return -1;
+        }
+        memcpy(w->group, group, glen);
+        w->group[glen] = '\0';
+    }
+    if (consumer) {
+        size_t clen = strlen(consumer);
+        if (clen > T_WIRE_MAX_NAME) {
+            free(w);
+            return -1;
+        }
+        memcpy(w->consumer, consumer, clen);
+        w->consumer[clen] = '\0';
+    }
     if (t_vec_push(&sc->srv->waits, w) != 0) {
         free(w);
         return -1;
@@ -409,8 +440,25 @@ static t_server_conn *server_pick_group_consumer(t_cgroup *cg) {
     return NULL;
 }
 
+static int server_restore_group(t_server *srv, const char *name) {
+    if (!srv || !name) return -1;
+    if (t_map_get(&srv->groups, name)) return 0;
+    t_queue *q = server_lookup_queue(srv->broker, name);
+    if (!q) return 0;
+    const char *g = t_queue_group(q);
+    if (!g) return 0;
+    t_cgroup *cg = t_cgroup_create(g);
+    if (!cg) return -1;
+    if (t_map_insert(&srv->groups, name, cg) != 0) {
+        t_cgroup_destroy(cg);
+        return -1;
+    }
+    return 0;
+}
+
 static t_server_conn *server_pick_pull_consumer(t_server *srv, const char *name) {
     if (!srv || !name) return NULL;
+    (void)server_restore_group(srv, name);
     t_cgroup *cg = (t_cgroup *)t_map_get(&srv->groups, name);
     if (cg)
         return server_pick_group_consumer(cg);
@@ -431,6 +479,10 @@ static void server_flush_pull(t_server *srv, const char *name) {
     if (!q) return;
     if (t_queue_get_type(q) == T_QUEUE_BROADCAST) return;
     if (t_queue_consumer_count(q) > 0) return;
+    if (t_queue_group(q) && server_restore_group(srv, name) != 0)
+        return;
+    if (t_queue_group(q) && !t_map_get(&srv->groups, name))
+        return;
     while (t_queue_pending_count(q) > 0) {
         t_server_conn *sc = server_pick_pull_consumer(srv, name);
         if (!sc) break;
@@ -567,7 +619,7 @@ static int32_t handle_open(t_server_conn *sc, const t_proto_msg *msg) {
         }
         if (cr == 1) {
             if (server_wait_add(sc, T_MSG_OPEN_QUEUE, name, server_raft_index(b),
-                                o.mode, 0) != 0)
+                                o.mode, 0, NULL, NULL) != 0)
                 return T_ERR_GENERIC;
             return T_OK_CODE;
         }
@@ -613,8 +665,10 @@ static int32_t finish_open(t_server_conn *sc, const char *name, uint8_t omode) {
                 return T_ERR_BUSY;
             return T_ERR_GENERIC;
         }
-        if (!push)
+        if (!push) {
+            (void)server_restore_group(sc->srv, name);
             server_flush_pull(sc->srv, name);
+        }
     }
     return T_OK_CODE;
 }
@@ -667,7 +721,7 @@ static int32_t handle_post(t_server_conn *sc, const t_proto_msg *msg) {
         return t_broker_raft(sc->srv->broker) ? T_ERR_AGAIN : T_ERR_GENERIC;
     if (pr == 1) {
         if (server_wait_add(sc, T_MSG_POST, name, server_raft_index(sc->srv->broker),
-                            0, 0) != 0)
+                            0, 0, NULL, NULL) != 0)
             return T_ERR_GENERIC;
         return T_OK_CODE;
     }
@@ -703,7 +757,8 @@ static int32_t handle_confirm(t_server_conn *sc, const t_proto_msg *msg) {
                 free(inf->name);
                 free(inf);
                 if (server_wait_add(sc, T_MSG_REJECT, name,
-                                    server_raft_index(sc->srv->broker), 0, 1) != 0)
+                                    server_raft_index(sc->srv->broker), 0, 1,
+                                    NULL, NULL) != 0)
                     return T_ERR_GENERIC;
                 return T_OK_CODE;
             }
@@ -721,7 +776,8 @@ static int32_t handle_confirm(t_server_conn *sc, const t_proto_msg *msg) {
                 free(inf->name);
                 free(inf);
                 if (server_wait_add(sc, (uint16_t)msg->header.type, name,
-                                    server_raft_index(sc->srv->broker), 0, 1) != 0)
+                                    server_raft_index(sc->srv->broker), 0, 1,
+                                    NULL, NULL) != 0)
                     return T_ERR_GENERIC;
                 return T_OK_CODE;
             }
@@ -756,6 +812,49 @@ static int32_t handle_auth(t_server_conn *sc, const t_proto_msg *msg) {
     return T_OK_CODE;
 }
 
+static int32_t finish_join(t_server_conn *sc, const char *queue,
+                           const char *group, const char *consumer) {
+    if (!sc || !queue || !group || !consumer || !group[0] || !consumer[0])
+        return T_ERR_INVALID;
+    uintptr_t mode = (uintptr_t)t_map_get(&sc->opened, queue);
+    if ((mode & T_WIRE_MODE_CONSUMER) == 0)
+        return T_ERR_PERMISSION;
+    t_queue *q = server_lookup_queue(sc->srv->broker, queue);
+    if (!q) return T_ERR_NOTFOUND;
+    if (t_queue_get_type(q) == T_QUEUE_BROADCAST)
+        return T_ERR_INVALID;
+    const char *bound = t_queue_group(q);
+    if (bound && strcmp(bound, group) != 0)
+        return T_ERR_BUSY;
+    if (!bound && t_queue_set_group(q, group) != 0)
+        return T_ERR_GENERIC;
+    if (server_restore_group(sc->srv, queue) != 0)
+        return T_ERR_NOMEM;
+    t_cgroup *cg = (t_cgroup *)t_map_get(&sc->srv->groups, queue);
+    if (!cg) return T_ERR_GENERIC;
+    if (strcmp(t_cgroup_id(cg), group) != 0)
+        return T_ERR_BUSY;
+    char *prev = (char *)t_map_get(&sc->joined, queue);
+    if (prev) {
+        if (strcmp(prev, consumer) == 0)
+            return T_OK_CODE;
+        return T_ERR_BUSY;
+    }
+    if (t_cgroup_add_consumer(cg, consumer, server_cgroup_noop, sc) != 0)
+        return T_ERR_EXISTS;
+    char *cid = strdup(consumer);
+    if (!cid) {
+        (void)t_cgroup_remove_consumer(cg, consumer);
+        return T_ERR_NOMEM;
+    }
+    if (t_map_insert(&sc->joined, queue, cid) != 0) {
+        (void)t_cgroup_remove_consumer(cg, consumer);
+        free(cid);
+        return T_ERR_NOMEM;
+    }
+    return T_OK_CODE;
+}
+
 static int32_t handle_join(t_server_conn *sc, const t_proto_msg *msg) {
     t_wire_join j;
     if (t_wire_decode_join(msg->payload, msg->payload_len, &j) != 0)
@@ -781,9 +880,8 @@ static int32_t handle_join(t_server_conn *sc, const t_proto_msg *msg) {
 
     char *prev = (char *)t_map_get(&sc->joined, queue);
     if (prev) {
-        t_cgroup *have = (t_cgroup *)t_map_get(&sc->srv->groups, queue);
-        if (have && strcmp(t_cgroup_id(have), group) == 0 &&
-            strcmp(prev, consumer) == 0) {
+        const char *bound = t_queue_group(q);
+        if (bound && strcmp(bound, group) == 0 && strcmp(prev, consumer) == 0) {
             if (send_ack(sc, T_MSG_JOIN, T_OK_CODE, queue) != 0)
                 return T_ERR_IO;
             return T_OK_CODE;
@@ -791,30 +889,24 @@ static int32_t handle_join(t_server_conn *sc, const t_proto_msg *msg) {
         return T_ERR_BUSY;
     }
 
-    t_cgroup *cg = (t_cgroup *)t_map_get(&sc->srv->groups, queue);
-    if (cg) {
-        if (strcmp(t_cgroup_id(cg), group) != 0)
-            return T_ERR_BUSY;
-    } else {
-        cg = t_cgroup_create(group);
-        if (!cg) return T_ERR_NOMEM;
-        if (t_map_insert(&sc->srv->groups, queue, cg) != 0) {
-            t_cgroup_destroy(cg);
-            return T_ERR_NOMEM;
+    const char *bound = t_queue_group(q);
+    if (bound && strcmp(bound, group) != 0)
+        return T_ERR_BUSY;
+    if (!bound) {
+        int jr = t_broker_join_group(sc->srv->broker, queue, group);
+        if (jr < 0)
+            return t_broker_raft(sc->srv->broker) ? T_ERR_AGAIN : T_ERR_GENERIC;
+        if (jr == 1) {
+            if (server_wait_add(sc, T_MSG_JOIN, queue,
+                                server_raft_index(sc->srv->broker), 0, 0,
+                                group, consumer) != 0)
+                return T_ERR_GENERIC;
+            return T_OK_CODE;
         }
     }
-    if (t_cgroup_add_consumer(cg, consumer, server_cgroup_noop, sc) != 0)
-        return T_ERR_EXISTS;
-    char *cid = strdup(consumer);
-    if (!cid) {
-        (void)t_cgroup_remove_consumer(cg, consumer);
-        return T_ERR_NOMEM;
-    }
-    if (t_map_insert(&sc->joined, queue, cid) != 0) {
-        (void)t_cgroup_remove_consumer(cg, consumer);
-        free(cid);
-        return T_ERR_NOMEM;
-    }
+
+    int32_t st = finish_join(sc, queue, group, consumer);
+    if (st != T_OK_CODE) return st;
     if (send_ack(sc, T_MSG_JOIN, T_OK_CODE, queue) != 0)
         return T_ERR_IO;
     server_flush_pull(sc->srv, queue);

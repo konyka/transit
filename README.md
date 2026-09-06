@@ -77,7 +77,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_proto | Binary wire protocol + CRC32C |
 | test_hmac | SHA-256 / HMAC-SHA256 + AUTH MAC |
 | test_wire | Typed payload encode/decode + name rules |
-| test_queue | FIFO/priority/broadcast queues + router |
+| test_queue | FIFO/priority/broadcast queues + router + sticky group |
 | test_ratelimit | Per-connection token bucket rate limiter |
 | test_server | Protocol server: bind, pub/sub, JOIN groups, rate limit, PUSH credits |
 | test_session | Session lifecycle + activity tracking |

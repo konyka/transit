@@ -57,6 +57,7 @@ struct t_queue {
     size_t total_published;
     size_t total_consumed;
     t_wal *wal;
+    char *group;           /* sticky consumer group; NULL if none */
 };
 
 /* Helpers */
@@ -212,6 +213,7 @@ t_queue *t_queue_create(const char *name, t_qtype type, int flags) {
     q->total_published = 0;
     q->total_consumed = 0;
     q->wal = NULL;
+    q->group = NULL;
 
     t_vec_init(&q->pending);
     t_vec_init(&q->consumers);
@@ -270,6 +272,7 @@ void t_queue_destroy(t_queue *q) {
     t_vec_destroy(&q->consumers);
 
     /* Free name and queue struct */
+    free(q->group);
     free(q->name);
     if (q->has_prio) {
         t_pq_entry top;
@@ -291,6 +294,19 @@ t_qtype t_queue_get_type(const t_queue *q) {
 
 int t_queue_get_flags(const t_queue *q) {
     return q ? q->flags : 0;
+}
+
+int t_queue_set_group(t_queue *q, const char *group) {
+    if (!q || !group || !group[0] || q->type == T_QUEUE_BROADCAST) return -1;
+    if (q->group) return strcmp(q->group, group) == 0 ? 0 : -1;
+    char *g = strdup(group);
+    if (!g) return -1;
+    q->group = g;
+    return 0;
+}
+
+const char *t_queue_group(const t_queue *q) {
+    return q ? q->group : NULL;
 }
 
 int t_queue_post(t_queue *q, const uint8_t *data, size_t len, int priority) {

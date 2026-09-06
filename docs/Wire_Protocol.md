@@ -167,7 +167,7 @@ u8 rpc   /* 1 VoteReq, 2 VoteResp, 3 AppendReq, 4 AppendResp,
 `SnapResp`: `u64 term`, `u8 success`, `u64 match_index`.
 
 Handle with `t_raft_rpc`. Durable term/vote/`commit_index`/entries:
-`t_raft_open_log` (header v2). Optional `raft.log.snap` (`TRFS`) holds
+`t_raft_open_log` (header v2). Optional `raft.log.snap` (`TRFS` v2) holds
 applied queue state so restart skips the compacted prefix. Queue
 `PUT`/`ACK` command layouts are in `docs/Raft.md`.
 
@@ -227,6 +227,9 @@ Fail closed:
   second group name on a queue that already has one → `T_ERR_BUSY`
 - Disconnect / `CLOSE` removes the member. An empty group refuses
   dispatch; the message stays in the queue. PUSH credits still apply.
+- The group name is sticky on the queue until delete. Last `OPEN`
+  drop or failover does not release exclusivity; an OPEN-only
+  consumer still cannot steal.
 
 One group per FIFO/priority queue. Hot path is still one `consume`
 plus one `PUSH` to the session `t_cgroup_pick` returns (O(1) RR).
