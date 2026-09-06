@@ -55,6 +55,9 @@ message bus.
   majority. Disconnect nacks stay local.
 - Raft replicate is async on the evloop (same path as heartbeats).
   Clustered client ACKs wait for apply instead of blocking `peer_rpc_once`.
+  The wait is fail-closed: `T_ERR_AGAIN` after one election timeout (or
+  sooner if the node is no longer leader). Apply reports the entry
+  index so a successful majority still ACKs `T_OK`.
 - Raft snapshot: `raft.log.snap` holds applied queue state. Restart
   replays the tail only. Prefix compact waits until every peer's
   `match_index` covers `last_applied`. A lagging peer is caught up

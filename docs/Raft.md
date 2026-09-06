@@ -109,9 +109,11 @@ A leader append invokes `t_raft_replicate` (set by `t_peer`) on the
 same evloop path as heartbeats: one non-blocking dial per peer.
 `t_broker_publish` / `ack` / `nack` / create return `1` (pending) when
 the entry is appended but not yet majority-applied. The client port
-holds the ACK until apply. After `AppendResp` the leader majority-commits
-and sends another AppendRPC with the new `leader_commit`. There is no
-blocking `peer_rpc_once` on the event loop.
+holds the ACK until apply, or until one Raft election timeout elapses
+(`T_ERR_AGAIN`; the uncommitted entry stays in the log). A node that
+loses leadership fails those waits immediately. After `AppendResp` the
+leader majority-commits and sends another AppendRPC with the new
+`leader_commit`. There is no blocking `peer_rpc_once` on the event loop.
 
 ## Durable header
 

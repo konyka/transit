@@ -179,8 +179,9 @@ followed: that is retry-later, not a redirect. `t_client_open_follow`,
 `open_follow` on an already-acked queue returns immediately.
 A Raft-attached leader `POST`/`CONFIRM`/`REJECT`/`OPEN` of a missing
 queue appends first and ACKs only after majority apply (the evloop is
-not blocked). `T_ERR_AGAIN` if the node is not leader or the append
-fails.
+not blocked). `T_ERR_AGAIN` if the node is not leader, the append
+fails, or the apply wait exceeds one election timeout. The uncommitted
+entry stays in the log; client retry is at-least-once.
 
 ## Server safety switches
 

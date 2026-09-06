@@ -449,7 +449,7 @@ static void broker_on_raft(const t_raft_entry *entry, void *ud) {
     }
     b->applying--;
     if (b->applied_cb && b->raft)
-        b->applied_cb(b, t_raft_last_applied(b->raft), b->applied_ud);
+        b->applied_cb(b, entry->index, b->applied_ud);
 }
 
 static int broker_propose(t_broker *broker, uint8_t type,

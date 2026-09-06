@@ -35,6 +35,7 @@ typedef struct t_server_wait {
     uint64_t       index;
     uint8_t        mode;
     uint8_t        credit;
+    int64_t        expire_at_ms;
     char           name[T_WIRE_MAX_NAME + 1];
 } t_server_wait;
 
@@ -66,6 +67,7 @@ struct t_server {
     double           rate_refill;
     int64_t          idle_timeout_ms;
     int64_t          idle_timer_id;
+    int64_t          wait_timer_id;
     t_vec            conns;
     t_vec            waits;     /* t_server_wait*: Raft apply then ACK */
     t_map            open_refs; /* queue name -> open count */
@@ -122,6 +124,95 @@ static uint64_t server_raft_index(t_broker *b) {
     return r ? t_raft_last_log_index(r) : 0;
 }
 
+static int32_t finish_open(t_server_conn *sc, const char *name, uint8_t omode);
+static void server_flush_pull(t_server *srv, const char *name);
+static void server_wait_tick(void *ud);
+
+static int64_t server_wait_ttl_ms(t_broker *b) {
+    t_raft *r = b ? t_broker_raft(b) : NULL;
+    uint64_t to = r ? t_raft_election_timeout_ms(r) : 150;
+    if (to == 0) to = 150;
+    if (to > (uint64_t)INT64_MAX) to = (uint64_t)INT64_MAX;
+    return (int64_t)to;
+}
+
+static void server_wait_disarm(t_server *srv) {
+    if (!srv || srv->wait_timer_id < 0) return;
+    if (srv->loop) t_evloop_timer_del(srv->loop, srv->wait_timer_id);
+    srv->wait_timer_id = -1;
+}
+
+static void server_wait_arm(t_server *srv) {
+    if (!srv || !srv->loop || srv->wait_timer_id >= 0) return;
+    int64_t tick = server_wait_ttl_ms(srv->broker) / 4;
+    if (tick < 10) tick = 10;
+    if (tick > 50) tick = 50;
+    srv->wait_timer_id = t_evloop_timer_add(srv->loop, tick, 1, server_wait_tick, srv);
+}
+
+static void server_wait_ack_ok(t_server *srv, t_server_wait *w) {
+    t_server_conn *sc = w->sc;
+    if (!sc || sc->freed || !sc->conn) return;
+    if (w->type == T_MSG_OPEN_QUEUE) {
+        int32_t st = finish_open(sc, w->name, w->mode);
+        if (st == T_OK_CODE)
+            (void)send_ack(sc, T_MSG_OPEN_QUEUE, T_OK_CODE, w->name);
+        else
+            (void)send_ack(sc, T_MSG_OPEN_QUEUE, st, w->name);
+        return;
+    }
+    if (w->credit && sc->fc) t_fc_release(sc->fc, 1);
+    (void)send_ack(sc, w->type, T_OK_CODE, w->name);
+    if (w->type == T_MSG_POST || w->type == T_MSG_REJECT)
+        server_flush_pull(srv, w->name);
+}
+
+static void server_wait_ack_again(t_server_wait *w) {
+    t_server_conn *sc = w->sc;
+    if (!sc || sc->freed || !sc->conn) return;
+    if (w->credit && sc->fc) t_fc_release(sc->fc, 1);
+    (void)send_ack(sc, w->type, (int32_t)T_ERR_AGAIN, w->name);
+}
+
+static void server_wait_flush(t_server *srv, uint64_t applied_hint) {
+    if (!srv) return;
+    uint64_t applied = applied_hint;
+    t_raft *r = t_broker_raft(srv->broker);
+    if (r) {
+        uint64_t la = t_raft_last_applied(r);
+        if (la > applied) applied = la;
+    }
+    int leader = t_broker_is_leader(srv->broker);
+    int64_t now = t_time_now_ms();
+    for (size_t i = 0; i < srv->waits.len; ) {
+        t_server_wait *w = (t_server_wait *)srv->waits.items[i];
+        if (!w) {
+            (void)t_vec_remove(&srv->waits, i);
+            continue;
+        }
+        if (w->index <= applied) {
+            (void)t_vec_remove(&srv->waits, i);
+            server_wait_ack_ok(srv, w);
+            free(w);
+            continue;
+        }
+        if (!leader || now >= w->expire_at_ms) {
+            (void)t_vec_remove(&srv->waits, i);
+            server_wait_ack_again(w);
+            free(w);
+            continue;
+        }
+        i++;
+    }
+    if (srv->waits.len == 0) server_wait_disarm(srv);
+}
+
+static void server_wait_tick(void *ud) {
+    t_server *srv = (t_server *)ud;
+    if (!srv || srv->stopping) return;
+    server_wait_flush(srv, 0);
+}
+
 static int server_wait_add(t_server_conn *sc, uint16_t type, const char *name,
                            uint64_t index, uint8_t mode, uint8_t credit) {
     if (!sc || !sc->srv || !name || index == 0) return -1;
@@ -132,6 +223,7 @@ static int server_wait_add(t_server_conn *sc, uint16_t type, const char *name,
     w->index = index;
     w->mode = mode;
     w->credit = credit;
+    w->expire_at_ms = t_time_now_ms() + server_wait_ttl_ms(sc->srv->broker);
     size_t nlen = strlen(name);
     if (nlen > T_WIRE_MAX_NAME) {
         free(w);
@@ -142,6 +234,14 @@ static int server_wait_add(t_server_conn *sc, uint16_t type, const char *name,
     if (t_vec_push(&sc->srv->waits, w) != 0) {
         free(w);
         return -1;
+    }
+    if (sc->srv->wait_timer_id < 0) {
+        server_wait_arm(sc->srv);
+        if (sc->srv->wait_timer_id < 0) {
+            (void)t_vec_pop(&sc->srv->waits);
+            free(w);
+            return -1;
+        }
     }
     return 0;
 }
@@ -157,11 +257,8 @@ static void server_wait_drop_conn(t_server *srv, t_server_conn *sc) {
             i++;
         }
     }
+    if (srv->waits.len == 0) server_wait_disarm(srv);
 }
-
-static int32_t finish_open(t_server_conn *sc, const char *name, uint8_t omode);
-
-static void server_flush_pull(t_server *srv, const char *name);
 
 static int server_send_push(t_server_conn *sc, const char *queue_name, uint64_t msg_id,
                             uint8_t priority, const uint8_t *data, size_t len, int track) {
@@ -526,30 +623,7 @@ static void server_on_applied(t_broker *b, uint64_t last_applied, void *ud) {
     t_server *srv = (t_server *)ud;
     (void)b;
     if (!srv) return;
-    for (size_t i = 0; i < srv->waits.len; ) {
-        t_server_wait *w = (t_server_wait *)srv->waits.items[i];
-        if (!w || w->index > last_applied) {
-            i++;
-            continue;
-        }
-        (void)t_vec_remove(&srv->waits, i);
-        t_server_conn *sc = w->sc;
-        if (sc && !sc->freed && sc->conn) {
-            if (w->type == T_MSG_OPEN_QUEUE) {
-                int32_t st = finish_open(sc, w->name, w->mode);
-                if (st == T_OK_CODE)
-                    (void)send_ack(sc, T_MSG_OPEN_QUEUE, T_OK_CODE, w->name);
-                else
-                    (void)send_ack(sc, T_MSG_OPEN_QUEUE, st, w->name);
-            } else {
-                if (w->credit && sc->fc) t_fc_release(sc->fc, 1);
-                (void)send_ack(sc, w->type, T_OK_CODE, w->name);
-                if (w->type == T_MSG_POST || w->type == T_MSG_REJECT)
-                    server_flush_pull(srv, w->name);
-            }
-        }
-        free(w);
-    }
+    server_wait_flush(srv, last_applied);
 }
 
 static int32_t handle_close(t_server_conn *sc, const t_proto_msg *msg) {
@@ -965,6 +1039,7 @@ t_server *t_server_create(t_evloop *loop, t_broker *broker, const t_server_confi
     srv->idle_timeout_ms = cfg->idle_timeout_ms < 0 ? 0 : cfg->idle_timeout_ms;
     srv->push_credits = cfg->push_credits;
     srv->idle_timer_id = -1;
+    srv->wait_timer_id = -1;
     t_vec_init(&srv->conns);
     t_vec_init(&srv->waits);
     t_broker_set_applied_cb(broker, server_on_applied, srv);
@@ -1084,6 +1159,7 @@ void t_server_stop(t_server *srv) {
         t_evloop_timer_del(srv->loop, srv->idle_timer_id);
         srv->idle_timer_id = -1;
     }
+    server_wait_disarm(srv);
     while (srv->conns.len > 0) {
         t_server_conn *sc = (t_server_conn *)srv->conns.items[0];
         if (sc && sc->conn) {
