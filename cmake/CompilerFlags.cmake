@@ -10,6 +10,10 @@ message(STATUS "Configuring compiler flags for platform: ${CMAKE_SYSTEM_NAME}")
 if(MSVC)
     # MSVC flags
     add_compile_options(/W4 /WX)
+    # Real cl only: clang-cl errors on unused /Zc:preprocessor under /WX.
+    if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
+        add_compile_options(/Zc:preprocessor)
+    endif()
     # C99 constructs Clang -Werror already accepts; MSVC /W4 still flags them.
     add_compile_options(/wd4204 /wd4221 /wd4244 /wd4267)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)

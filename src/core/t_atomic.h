@@ -12,7 +12,59 @@ typedef enum t_memory_order {
     T_MEMORY_SEQ_CST
 } t_memory_order;
 
-#if T_C11 && !defined(__STDC_NO_ATOMICS__)
+/* Real cl.exe: Interlocked first. /std:c11 sets T_C11, and VS 2026 may
+ * omit __STDC_NO_ATOMICS__ while stdatomic still needs /experimental:c11atomics.
+ * clang-cl has __clang__ and keeps the C11 path below. */
+#if defined(_MSC_VER) && !defined(__clang__)
+    #include <intrin.h>
+
+    typedef volatile int t_atomic_int;
+    typedef volatile unsigned int t_atomic_uint;
+    typedef volatile long t_atomic_long;
+    typedef volatile unsigned long t_atomic_ulong;
+    typedef void *volatile t_atomic_ptr;
+
+    #define T_ATOMIC_INIT(val) (val)
+
+    T_ALWAYS_INLINE int t_atomic_load_int(t_atomic_int *a) {
+        return (int)_InterlockedCompareExchange((volatile long *)a, 0, 0);
+    }
+    T_ALWAYS_INLINE void t_atomic_store_int(t_atomic_int *a, int val) {
+        (void)_InterlockedExchange((volatile long *)a, (long)val);
+    }
+    T_ALWAYS_INLINE int t_atomic_add_fetch_int(t_atomic_int *a, int val) {
+        return (int)_InterlockedExchangeAdd((volatile long *)a, (long)val) + val;
+    }
+    T_ALWAYS_INLINE int t_atomic_fetch_add_int(t_atomic_int *a, int val) {
+        return (int)_InterlockedExchangeAdd((volatile long *)a, (long)val);
+    }
+    T_ALWAYS_INLINE int t_atomic_sub_fetch_int(t_atomic_int *a, int val) {
+        return (int)_InterlockedExchangeAdd((volatile long *)a, -(long)val) - val;
+    }
+    T_ALWAYS_INLINE int t_atomic_cas_int(t_atomic_int *a, int expected, int desired) {
+        return _InterlockedCompareExchange((volatile long *)a, (long)desired,
+                                           (long)expected) == (long)expected;
+    }
+    T_ALWAYS_INLINE void *t_atomic_load_ptr(t_atomic_ptr *a) {
+        return _InterlockedCompareExchangePointer((void *volatile *)a, NULL, NULL);
+    }
+    T_ALWAYS_INLINE void t_atomic_store_ptr(t_atomic_ptr *a, void *val) {
+        (void)_InterlockedExchangePointer((void *volatile *)a, val);
+    }
+    T_ALWAYS_INLINE int t_atomic_cas_ptr(t_atomic_ptr *a, void *expected, void *desired) {
+        return _InterlockedCompareExchangePointer((void *volatile *)a, desired,
+                                                  expected) == expected;
+    }
+    T_ALWAYS_INLINE int t_atomic_compare_exchange_int(t_atomic_int *a, int *expected,
+                                                      int desired) {
+        long want = (long)*expected;
+        long cur = _InterlockedCompareExchange((volatile long *)a, (long)desired, want);
+        if (cur == want) return 1;
+        *expected = (int)cur;
+        return 0;
+    }
+
+#elif T_C11 && !defined(__STDC_NO_ATOMICS__)
     /* Use C11 stdatomic */
     #include <stdatomic.h>
     
@@ -65,56 +117,6 @@ typedef enum t_memory_order {
     T_ALWAYS_INLINE int t_atomic_cas_ptr(t_atomic_ptr *a, void *expected, void *desired) {
         void *exp = expected;
         return atomic_compare_exchange_strong_explicit(a, &exp, desired, memory_order_seq_cst, memory_order_seq_cst);
-    }
-    
-/* MSVC has no GNU __sync_* / __atomic_*. Use Interlocked (no windows.h). */
-#elif defined(_MSC_VER)
-    #include <intrin.h>
-
-    typedef volatile int t_atomic_int;
-    typedef volatile unsigned int t_atomic_uint;
-    typedef volatile long t_atomic_long;
-    typedef volatile unsigned long t_atomic_ulong;
-    typedef void *volatile t_atomic_ptr;
-
-    #define T_ATOMIC_INIT(val) (val)
-
-    T_ALWAYS_INLINE int t_atomic_load_int(t_atomic_int *a) {
-        return (int)_InterlockedCompareExchange((volatile long *)a, 0, 0);
-    }
-    T_ALWAYS_INLINE void t_atomic_store_int(t_atomic_int *a, int val) {
-        (void)_InterlockedExchange((volatile long *)a, (long)val);
-    }
-    T_ALWAYS_INLINE int t_atomic_add_fetch_int(t_atomic_int *a, int val) {
-        return (int)_InterlockedExchangeAdd((volatile long *)a, (long)val) + val;
-    }
-    T_ALWAYS_INLINE int t_atomic_fetch_add_int(t_atomic_int *a, int val) {
-        return (int)_InterlockedExchangeAdd((volatile long *)a, (long)val);
-    }
-    T_ALWAYS_INLINE int t_atomic_sub_fetch_int(t_atomic_int *a, int val) {
-        return (int)_InterlockedExchangeAdd((volatile long *)a, -(long)val) - val;
-    }
-    T_ALWAYS_INLINE int t_atomic_cas_int(t_atomic_int *a, int expected, int desired) {
-        return _InterlockedCompareExchange((volatile long *)a, (long)desired,
-                                           (long)expected) == (long)expected;
-    }
-    T_ALWAYS_INLINE void *t_atomic_load_ptr(t_atomic_ptr *a) {
-        return _InterlockedCompareExchangePointer((void *volatile *)a, NULL, NULL);
-    }
-    T_ALWAYS_INLINE void t_atomic_store_ptr(t_atomic_ptr *a, void *val) {
-        (void)_InterlockedExchangePointer((void *volatile *)a, val);
-    }
-    T_ALWAYS_INLINE int t_atomic_cas_ptr(t_atomic_ptr *a, void *expected, void *desired) {
-        return _InterlockedCompareExchangePointer((void *volatile *)a, desired,
-                                                  expected) == expected;
-    }
-    T_ALWAYS_INLINE int t_atomic_compare_exchange_int(t_atomic_int *a, int *expected,
-                                                      int desired) {
-        long want = (long)*expected;
-        long cur = _InterlockedCompareExchange((volatile long *)a, (long)desired, want);
-        if (cur == want) return 1;
-        *expected = (int)cur;
-        return 0;
     }
 
 /* GCC __sync builtin fallback */

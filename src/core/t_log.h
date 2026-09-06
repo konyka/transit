@@ -30,17 +30,17 @@ void t_log_write(t_log_level level, const char *file, int line,
                  T_PRINTF(5, 6);
 
 /* Convenience macros */
-#define T_LOG_TRACE(fmt, ...) \
-    t_log_write(T_LOG_TRACE, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
-#define T_LOG_DEBUG(fmt, ...) \
-    t_log_write(T_LOG_DEBUG, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
-#define T_LOG_INFO(fmt, ...) \
-    t_log_write(T_LOG_INFO, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
-#define T_LOG_WARN(fmt, ...) \
-    t_log_write(T_LOG_WARN, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
-#define T_LOG_ERROR(fmt, ...) \
-    t_log_write(T_LOG_ERROR, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
-#define T_LOG_FATAL(fmt, ...) \
-    t_log_write(T_LOG_FATAL, __FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
+#define T_LOG_TRACE(...) \
+    t_log_write(T_LOG_TRACE, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define T_LOG_DEBUG(...) \
+    t_log_write(T_LOG_DEBUG, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define T_LOG_INFO(...) \
+    t_log_write(T_LOG_INFO, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define T_LOG_WARN(...) \
+    t_log_write(T_LOG_WARN, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define T_LOG_ERROR(...) \
+    t_log_write(T_LOG_ERROR, __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define T_LOG_FATAL(...) \
+    t_log_write(T_LOG_FATAL, __FILE__, __LINE__, __func__, __VA_ARGS__)
 
 #endif /* T_LOG_H */

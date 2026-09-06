@@ -109,11 +109,16 @@ runs only when `NOT WIN32`. Listing `ASM` in `project()` makes CMake 4
 on MSVC fail configure (`CMAKE_ASM_COMPILER` unset; CMP0194). The
 coroutine `.S` files are already skipped on Windows.
 
-MSVC has no GNU `__sync_*`. When C11 `<stdatomic.h>` is missing or
-`__STDC_NO_ATOMICS__` is set, `t_atomic` uses `_Interlocked*` from
-`<intrin.h>` (no extra `windows.h`). Clang/GCC keep stdatomic or
-`__sync`. `/W4 /WX` stays on; C4204/C4221 (C99 aggregates) and
-C4244/C4267 (size_t narrowing Clang already allows) are disabled.
+Real `cl.exe` always uses `_Interlocked*` from `<intrin.h>` (no
+`windows.h`). `/std:c11` sets `T_C11`, and VS 2026 may drop
+`__STDC_NO_ATOMICS__` while `<stdatomic.h>` still wants
+`/experimental:c11atomics`. clang-cl and GCC keep stdatomic or
+`__sync`. `T_LOG_*` take `__VA_ARGS__` so a format-only call has no
+trailing comma (MSVC's default preprocessor rejects GNU
+`##__VA_ARGS__`). `/Zc:preprocessor` is on for `cl` (not clang-cl).
+`/W4 /WX` stays; C4204/C4221
+(C99 aggregates) and C4244/C4267 (size_t narrowing Clang already
+allows) are disabled.
 
 ## Verification
 
