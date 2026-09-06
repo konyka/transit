@@ -64,7 +64,17 @@ jobs:
         run: cmake -B build -A x64 -DBUILD_EXAMPLES=ON
 
       - name: Build
-        run: cmake --build build --config Release -j
+        run: cmake --build build --config Release -j -- "/flp:logfile=${{ github.workspace }}\msvc.log;verbosity=minimal"
+
+      - name: Annotate MSVC errors
+        if: failure()
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:GITHUB_WORKSPACE 'msvc.log'
+          if (-not (Test-Path $log)) { Write-Host 'no msvc.log'; exit 0 }
+          Select-String -Path $log -Pattern ' error [A-Z]?[0-9]+' |
+            Select-Object -First 40 |
+            ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
 
       - name: Test
         working-directory: build

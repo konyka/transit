@@ -126,7 +126,7 @@ T_TEST(mpmc_single_thread_bulk) {
     for (int i = 0; i < 1024; i++) {
         values[i] = i;
         while (!t_mpmc_push(&q, &values[i]))
-            __asm__ volatile("pause" ::: "memory");
+            ;
     }
     int got = 0;
     void *out;

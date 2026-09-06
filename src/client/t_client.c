@@ -50,6 +50,11 @@ struct t_client {
     size_t    psk_len;
 };
 
+typedef struct t_cb_snap {
+    t_client_msg_cb cb;
+    void *ud;
+} t_cb_snap;
+
 /* Helpers */
 static int client_ensure_queues_cap(t_client *c, size_t need) {
     if (c->queues_size >= need) return 0;
@@ -133,11 +138,10 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     char name[T_WIRE_MAX_NAME + 1];
     if (t_wire_name_copy(name, sizeof(name), p.name, p.name_len) != 0) return;
     size_t n = c->subs_count;
-    typedef struct { t_client_msg_cb cb; void *ud; } t_push_snap;
-    t_push_snap *snaps = NULL;
+    t_cb_snap *snaps = NULL;
     size_t snap_n = 0;
     if (n > 0) {
-        snaps = (t_push_snap *)calloc(n, sizeof(*snaps));
+        snaps = (t_cb_snap *)calloc(n, sizeof(*snaps));
         if (!snaps) return;
         for (size_t i = 0; i < n; ++i) {
             if (c->subs[i].queue && strcmp(c->subs[i].queue, name) == 0 && c->subs[i].cb) {
@@ -405,11 +409,10 @@ int t_client_post(t_client *client, const char *queue_name,
     }
     /* Snapshot (cb,ud) so unsubscribe/disconnect in a callback cannot skip peers. */
     size_t n = client->subs_count;
-    typedef struct { t_client_msg_cb cb; void *ud; } t_post_snap;
-    t_post_snap *snaps = NULL;
+    t_cb_snap *snaps = NULL;
     size_t snap_n = 0;
     if (n > 0) {
-        snaps = (t_post_snap *)calloc(n, sizeof(*snaps));
+        snaps = (t_cb_snap *)calloc(n, sizeof(*snaps));
         if (!snaps) return -1;
         for (size_t i = 0; i < n; ++i) {
             if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0 &&

@@ -119,7 +119,7 @@
     #define T_WEAK __attribute__((weak))
     #define T_FORCE_INLINE __attribute__((always_inline)) inline
 #elif T_COMPILER_MSVC
-    #define T_ALWAYS_INLINE __forceinline static
+    #define T_ALWAYS_INLINE static __inline
     #define T_NEVER_INLINE __declspec(noinline)
     #define T_UNUSED
     #define T_NORETURN __declspec(noreturn)
@@ -128,7 +128,7 @@
     #define T_ALIGNED(n) __declspec(align(n))
     #define T_PACKED
     #define T_WEAK
-    #define T_FORCE_INLINE __forceinline
+    #define T_FORCE_INLINE __inline
 #else
     #define T_ALWAYS_INLINE static inline
     #define T_NEVER_INLINE

@@ -10,12 +10,11 @@ message(STATUS "Configuring compiler flags for platform: ${CMAKE_SYSTEM_NAME}")
 if(MSVC)
     # MSVC flags
     add_compile_options(/W4 /WX)
-    # Real cl only: clang-cl errors on unused /Zc:preprocessor under /WX.
-    if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
-        add_compile_options(/Zc:preprocessor)
-    endif()
-    # C99 constructs Clang -Werror already accepts; MSVC /W4 still flags them.
-    add_compile_options(/wd4204 /wd4221 /wd4244 /wd4267)
+    # Do not add /Zc:preprocessor: with /WX it turns windows.h C5105 into
+    # a hard error. T_LOG_* already avoids GNU ##__VA_ARGS__.
+    # C99 aggregates / size_t narrowing Clang -Werror already accepts.
+    # C4714: __forceinline not inlined. C5105: SDK 'defined' noise.
+    add_compile_options(/wd4204 /wd4221 /wd4244 /wd4267 /wd4714 /wd5105)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)
     # Use C11 if available, otherwise C99
     if(CMAKE_C_STANDARD LESS 11)
