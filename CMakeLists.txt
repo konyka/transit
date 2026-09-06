@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-project(transit C ASM)
+# SysV coroutine .S is POSIX-only. `project(... ASM)` fails on MSVC
+# (CMake 4 / CMP0194: cl is not an assembler). Enable ASM after C, and
+# only when the toolchain can assemble those files.
+project(transit C)
+if(NOT WIN32)
+  enable_language(ASM)
+endif()
 
 # Modern C standard handling - will be refined by CompilerFlags.cmake
 set(CMAKE_C_STANDARD 11)

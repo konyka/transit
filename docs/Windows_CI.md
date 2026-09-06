@@ -102,6 +102,11 @@ when create returns NULL.
 `ctest -C Release`. Sanitizer jobs stay Linux-only. Loopback bind and
 PSK rules are unchanged.
 
+CMake is `project(transit C)` on every host. `enable_language(ASM)`
+runs only when `NOT WIN32`. Listing `ASM` in `project()` makes CMake 4
+on MSVC fail configure (`CMAKE_ASM_COMPILER` unset; CMP0194). The
+coroutine `.S` files are already skipped on Windows.
+
 ## Verification
 
 ```bash
