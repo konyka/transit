@@ -451,13 +451,10 @@ int t_client_leader_hint(const t_client *client, char *host, size_t host_cap,
     return t_client_parse_leader_hint(client->last_ack_name, host, host_cap, port);
 }
 
-static void client_clear_session(t_client *client) {
-    for (size_t i = 0; i < client->subs_count; ++i)
-        free(client->subs[i].queue);
-    free(client->subs);
-    client->subs = NULL;
-    client->subs_count = 0;
-    client->subs_cap = 0;
+/* Opens and last PUSH belong to the TCP session. Callbacks do not:
+ * subscribe_follow registers before OPEN, and a leader redirect must
+ * not drop the handler just added. */
+static void client_clear_opens(t_client *client) {
     for (size_t i = 0; i < client->queues_size; ++i)
         free(client->queues[i].name);
     free(client->queues);
@@ -468,6 +465,20 @@ static void client_clear_session(t_client *client) {
     client->last_push_priority = 0;
     client->last_push_queue[0] = '\0';
     client->push_settled = 1;
+}
+
+static void client_clear_subs(t_client *client) {
+    for (size_t i = 0; i < client->subs_count; ++i)
+        free(client->subs[i].queue);
+    free(client->subs);
+    client->subs = NULL;
+    client->subs_count = 0;
+    client->subs_cap = 0;
+}
+
+static void client_clear_session(t_client *client) {
+    client_clear_subs(client);
+    client_clear_opens(client);
 }
 
 int t_client_redial_leader(t_client *client) {
@@ -481,7 +492,7 @@ int t_client_redial_leader(t_client *client) {
         strcmp(client->dial_host, host) == 0)
         return -1;
     client_drop_conn(client);
-    client_clear_session(client);
+    client_clear_opens(client);
     return t_client_dial(client, client->loop, host, port);
 }
 

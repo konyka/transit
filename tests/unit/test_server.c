@@ -1743,6 +1743,68 @@ T_TEST(client_subscribe_follow_exclusive) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(client_subscribe_follow_to_leader) {
+    t_evloop *loop = t_evloop_create();
+
+    t_broker *lb = t_broker_create("lead");
+    t_cluster *lcl = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_add_node(lcl, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(lcl, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(lcl, 1), 0);
+    T_ASSERT_EQ(t_broker_set_cluster(lb, lcl), 0);
+    t_broker_start(lb);
+    t_server_config lcfg;
+    t_server_config_init(&lcfg);
+    lcfg.port = 0;
+    lcfg.idle_timeout_ms = 0;
+    t_server *ls = t_server_create(loop, lb, &lcfg);
+    t_server_start(ls);
+    uint16_t lport = t_server_port(ls);
+    T_ASSERT_EQ(t_node_set_client_port(t_cluster_get_node(lcl, 1), lport), 0);
+
+    t_broker *fb = t_broker_create("foll");
+    t_cluster *fcl = t_cluster_create(2);
+    T_ASSERT_EQ(t_cluster_add_node(fcl, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(fcl, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_node_set_client_port(t_cluster_get_node(fcl, 1), lport), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(fcl, 1), 0);
+    T_ASSERT_EQ(t_broker_set_cluster(fb, fcl), 0);
+    t_broker_start(fb);
+    t_server_config fcfg;
+    t_server_config_init(&fcfg);
+    fcfg.port = 0;
+    fcfg.idle_timeout_ms = 0;
+    t_server *fs = t_server_create(loop, fb, &fcfg);
+    t_server_start(fs);
+    uint16_t fport = t_server_port(fs);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    g_got = 0;
+    t_client *cons = t_client_create("c");
+    t_client *prod = t_client_create("p");
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", fport), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(cons, "jobs", on_net_msg, NULL, 0, 500), 0);
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", lport), 0);
+    T_ASSERT_EQ(t_client_post_follow(prod, "jobs", (const uint8_t *)"hi", 2, 0, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 1, 500));
+    T_ASSERT_EQ(g_got, 1);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(cons);
+    t_client_destroy(prod);
+    t_server_destroy(fs);
+    t_server_destroy(ls);
+    t_broker_destroy(fb);
+    t_broker_destroy(lb);
+    t_cluster_destroy(fcl);
+    t_cluster_destroy(lcl);
+    t_evloop_destroy(loop);
+}
+
 static char g_pri_got[2][16];
 static int g_pri_pri[2];
 static volatile int g_pri_n;

@@ -194,7 +194,8 @@ valid name character). Empty name if the leader is unknown or its client
 listen port was not configured (`id@host:peer` without `/client`). The
 cluster peer port is never used as a hint. `t_client_parse_leader_hint`
 and `t_client_redial_leader` follow a valid hint; the new session must
-`OPEN` again. A same-peer hint (already dialed host/port) is not
+`OPEN` again. Subscriber callbacks stay across the hop (`subscribe_follow`
+registers before `OPEN`). A same-peer hint (already dialed host/port) is not
 followed: that is retry-later, not a redirect. `t_client_open_follow`,
 `t_client_join_follow`, `t_client_post_follow`,
 `t_client_close_follow`, `t_client_confirm_follow`,
@@ -313,7 +314,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   client a `PUSH` cannot arrive before the callback is registered.
 - `t_client_subscribe_follow` — callback first, then consumer `OPEN`
   (plus `T_CLIENT_QFLAG_*`) and wait. Follows a different client-port
-  hint once. A failed wait drops the callback just added.
+  hint once without dropping that callback. A failed wait drops the
+  callback just added.
 - `t_client_unsubscribe` — drop callbacks. If the tracked open is
   consumer-only, send `CLOSE` (wait on `ack_seq`). A producer bit
   keeps the open so `POST` still works.

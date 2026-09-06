@@ -103,6 +103,8 @@ message bus.
 - Unknown `CONFIRM`/`REJECT` on a FIFO/priority queue is
   `T_ERR_NOTFOUND` and does not release PUSH credit. Broadcast still
   returns a credit (`PUSH` is not inflight).
+- Leader `redial` keeps subscriber callbacks. `subscribe_follow` to a
+  follower still delivers after the hop (opens are session-local).
 
 ## Remaining (priority order)
 

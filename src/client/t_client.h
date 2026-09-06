@@ -52,7 +52,8 @@ int        t_client_parse_leader_hint(const char *name, char *host, size_t host_
 int        t_client_leader_hint(const t_client *client, char *host, size_t host_cap,
                                 uint16_t *port);
 /* Drop the current session and dial the last leader hint. Re-OPEN after.
- * Fail closed if the hint is missing or names the peer already dialed. */
+ * Subscriber callbacks stay (they are not session state). Fail closed
+ * if the hint is missing or names the peer already dialed. */
 int        t_client_redial_leader(t_client *client);
 /* Block until ack_seq moves past prev, or timeout_ms elapses.
  * Does not pump the evloop. timeout_ms < 0 is invalid. */
@@ -99,8 +100,8 @@ int        t_client_join(t_client *client, const char *group,
 int        t_client_subscribe(t_client *client, const char *queue_name,
                               t_client_msg_cb cb, void *ud);
 /* Register the callback first, then consumer OPEN (plus qflags) and wait.
- * On T_ERR_AGAIN with a different client-port hint, redial once.
- * A failed wait drops the callback just added (fail closed). */
+ * On T_ERR_AGAIN with a different client-port hint, redial once
+ * (callback stays). A failed wait drops the callback just added. */
 int        t_client_subscribe_follow(t_client *client, const char *queue_name,
                                      t_client_msg_cb cb, void *ud, int flags,
                                      int timeout_ms);
