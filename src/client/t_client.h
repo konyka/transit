@@ -65,6 +65,10 @@ int        t_client_join_follow(t_client *client, const char *group,
 int        t_client_post_follow(t_client *client, const char *queue_name,
                                 const uint8_t *data, size_t len, int priority,
                                 int timeout_ms);
+/* CLOSE, wait for ACK. On T_ERR_AGAIN with a different client-port hint,
+ * redial once, OPEN with the saved flags, and CLOSE again. */
+int        t_client_close_follow(t_client *client, const char *queue_name,
+                                 int timeout_ms);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,

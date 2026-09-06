@@ -542,6 +542,35 @@ int t_client_post_follow(t_client *client, const char *queue_name,
     return client_wait_status(client, seq, timeout_ms) == 0 ? 0 : -1;
 }
 
+static int client_queue_flags(const t_client *c, const char *name) {
+    if (!c || !name) return -1;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (c->queues[i].name && strcmp(c->queues[i].name, name) == 0)
+            return c->queues[i].flags;
+    }
+    return -1;
+}
+
+int t_client_close_follow(t_client *client, const char *queue_name,
+                          int timeout_ms) {
+    if (!client || !queue_name || timeout_ms < 0) return -1;
+    if (!client->connected) return -1;
+    if (!client->net_mode)
+        return t_client_close_queue(client, queue_name);
+    int flags = client_queue_flags(client, queue_name);
+    if (flags < 0) return -1;
+    unsigned seq = t_client_ack_seq(client);
+    if (t_client_close_queue(client, queue_name) != 0) return -1;
+    int wr = client_wait_status(client, seq, timeout_ms);
+    if (wr <= 0) return wr;
+    if (t_client_redial_leader(client) != 0) return -1;
+    if (t_client_open_follow(client, queue_name, flags, timeout_ms) != 0)
+        return -1;
+    seq = t_client_ack_seq(client);
+    if (t_client_close_queue(client, queue_name) != 0) return -1;
+    return client_wait_status(client, seq, timeout_ms) == 0 ? 0 : -1;
+}
+
 int t_client_disconnect(t_client *client) {
     if (!client || client->free_pending) return -1;
     client_hb_disarm(client);
@@ -583,20 +612,19 @@ int t_client_close_queue(t_client *client, const char *queue_name) {
     if (!client || client->free_pending || !queue_name) return -1;
     for (size_t i = 0; i < client->queues_size; ++i) {
         if (strcmp(client->queues[i].name, queue_name) == 0) {
-            free(client->queues[i].name);
-            /* shift */
-            for (size_t j = i; j + 1 < client->queues_size; ++j) {
-                client->queues[j] = client->queues[j+1];
-            }
-            client->queues_size--;
-            /* Drop all subscriptions for this queue. */
-            (void)t_client_unsubscribe(client, queue_name);
-            if (client->net_mode && client->conn) {
+            if (client->net_mode) {
+                if (!client->conn) return -1;
                 uint8_t buf[2 + T_WIRE_MAX_NAME];
                 int n = t_wire_encode_close(buf, sizeof(buf), queue_name);
-                if (n > 0)
-                    (void)client_send_payload(client, T_MSG_CLOSE_QUEUE, buf, (size_t)n);
+                if (n < 0 ||
+                    client_send_payload(client, T_MSG_CLOSE_QUEUE, buf, (size_t)n) != 0)
+                    return -1;
             }
+            free(client->queues[i].name);
+            for (size_t j = i; j + 1 < client->queues_size; ++j)
+                client->queues[j] = client->queues[j + 1];
+            client->queues_size--;
+            (void)t_client_unsubscribe(client, queue_name);
             return 0;
         }
     }

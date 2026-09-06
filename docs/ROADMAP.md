@@ -78,6 +78,9 @@ message bus.
   and the queue stays; disconnect still proposes without waiting.
 - Unclustered durable WAL records `JOIN` so a sticky group name
   survives process restart (same exclusivity as Raft snapshot).
+- `t_client_close_follow` waits for the `CLOSE` ACK (needed for
+  clustered `AUTODELETE`). A send failure no longer pretends success.
+  `T_ERR_AGAIN` with a different client-port hint redials once.
 
 ## Remaining (priority order)
 

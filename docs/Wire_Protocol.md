@@ -183,7 +183,8 @@ cluster peer port is never used as a hint. `t_client_parse_leader_hint`
 and `t_client_redial_leader` follow a valid hint; the new session must
 `OPEN` again. A same-peer hint (already dialed host/port) is not
 followed: that is retry-later, not a redirect. `t_client_open_follow`,
-`t_client_join_follow`, and `t_client_post_follow` wait with
+`t_client_join_follow`, `t_client_post_follow`, and
+`t_client_close_follow` wait with
 `t_client_wait_ack` and redial at most once per call. A second
 `open_follow` on an already-acked queue returns immediately.
 A Raft-attached leader `POST`/`CONFIRM`/`REJECT`/`OPEN` of a missing
@@ -273,6 +274,10 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_post_follow` — producer `OPEN` if needed, `POST`, follow
   a different client-port hint once. In-process stub opens locally
   and fans out (no ACK wait).
+- `t_client_close_follow` — `CLOSE` then wait. On `T_ERR_AGAIN` with a
+  different client-port hint, redial once, `OPEN` with the saved flags,
+  and `CLOSE` again. Send failure keeps the local open (fail closed).
+  Stub closes locally.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
   follower `POST` `T_ERR_AGAIN`).
 - `t_client_subscribe` may be called before `open_queue`. On a dialed

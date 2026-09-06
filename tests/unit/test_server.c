@@ -1236,6 +1236,103 @@ T_TEST(client_raft_autodelete_acks_on_apply) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(client_raft_autodelete_close_follow_expires) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_cluster *cl = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(cl, 1), 0);
+    t_raft_config rcfg = {1, 40, 15};
+    t_raft *r = t_raft_create(&rcfg);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    t_raft_set_replicate_cb(r, raft_noop_repl, NULL);
+    T_ASSERT_EQ(t_broker_set_cluster(b, cl), 0);
+    T_ASSERT_EQ(t_broker_start(b), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "tmp.q", 0,
+                                      T_QUEUE_FLAG_AUTODELETE), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b, r), 0);
+
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_follow(c, "tmp.q", T_CLIENT_OPEN_PRODUCER, 500), 0);
+    T_ASSERT_EQ(t_client_close_follow(c, "tmp.q", 400), -1);
+    T_ASSERT_NOT_NULL(t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                         "tmp.q"));
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_raft_destroy(r);
+    t_cluster_destroy(cl);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(client_raft_autodelete_close_follow_acks) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_cluster *cl = t_cluster_create(1);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 1, "127.0.0.1", 1), 0);
+    T_ASSERT_EQ(t_cluster_add_node(cl, 2, "127.0.0.1", 2), 0);
+    T_ASSERT_EQ(t_cluster_set_leader(cl, 1), 0);
+    t_raft_config rcfg = {1, 200, 50};
+    t_raft *r = t_raft_create(&rcfg);
+    T_ASSERT_EQ(t_raft_become_candidate(r), 0);
+    T_ASSERT_EQ(t_raft_become_leader(r), 0);
+    raft_late_ctx cx = {loop, r, 2, 0};
+    t_raft_set_replicate_cb(r, raft_late_repl, &cx);
+    T_ASSERT_EQ(t_broker_set_cluster(b, cl), 0);
+    T_ASSERT_EQ(t_broker_start(b), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b, "default", "tmp.q", 0,
+                                      T_QUEUE_FLAG_AUTODELETE), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b, r), 0);
+
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_follow(c, "tmp.q",
+                                     T_CLIENT_OPEN_PRODUCER | T_CLIENT_QFLAG_AUTODELETE,
+                                     500), 0);
+    T_ASSERT_EQ(t_client_close_follow(c, "tmp.q", 150), 0);
+    T_ASSERT_NULL(t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                     "tmp.q"));
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_raft_destroy(r);
+    t_cluster_destroy(cl);
+    t_evloop_destroy(loop);
+}
+
 T_TEST(server_non_loopback_requires_psk) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");
