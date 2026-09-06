@@ -122,6 +122,9 @@ message bus.
 - TCP `t_client_post` requires an acked producer `OPEN`. A drop or
   consumer-only session no longer increments `published` on a send
   the server would reject.
+- TCP `t_client_close_queue` requires an acked `OPEN` so a drop does
+  not wipe remembered flags on a `NOTFOUND` `CLOSE`. `close_follow`
+  re-`OPEN`s first, then `CLOSE`s (same as a leader hop).
 
 ## Remaining (priority order)
 

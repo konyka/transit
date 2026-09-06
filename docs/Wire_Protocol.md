@@ -64,6 +64,8 @@ u8  name[name_len]
 ```
 
 Drops this connection’s producer/consumer bits and unsubscribes.
+A `CLOSE` with no session `OPEN` is `T_ERR_NOTFOUND`. The TCP client
+does not send that frame until the local `OPEN` is acked.
 
 ### `POST`
 
@@ -304,10 +306,11 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_post_follow` — producer `OPEN` if needed, `POST`, follow
   a different client-port hint once. In-process stub opens locally
   and fans out (no ACK wait).
-- `t_client_close_follow` — `CLOSE` then wait. On `T_ERR_AGAIN` with a
-  different client-port hint, redial once, `OPEN` with the saved flags,
-  and `CLOSE` again. Send failure keeps the local open (fail closed).
-  Stub closes locally.
+- `t_client_close_follow` — `CLOSE` then wait. An unacked name after a
+  drop re-`OPEN`s first (same as a redirect hop). On `T_ERR_AGAIN` with
+  a different client-port hint, redial once, `OPEN` with the saved
+  flags, and `CLOSE` again. Send failure keeps the local open (fail
+  closed). Stub closes locally.
 - `t_client_set_auto_confirm` — `1` (default) sends `CONFIRM` after
   each `PUSH` callback. `0` leaves the last `PUSH` unsettled.
 - `t_client_last_push_id` — `msg_id` of the last decoded `PUSH`.
@@ -342,6 +345,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   bit, an unacked name after a drop, or `open_queue` before the ACK
   is `-1` and does not increment `published` (the server would have
   answered `T_ERR_PERMISSION`). Use `post_follow` to OPEN and wait.
+- TCP `t_client_close_queue` requires an acked `OPEN`. After a drop
+  it is `-1` and keeps the local flags (a `CLOSE` would be
+  `T_ERR_NOTFOUND`). `close_follow` re-`OPEN`s then `CLOSE`s.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

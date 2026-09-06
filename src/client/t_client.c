@@ -749,6 +749,9 @@ int t_client_close_follow(t_client *client, const char *queue_name,
         return t_client_close_queue(client, queue_name);
     int flags = client_queue_flags(client, queue_name);
     if (flags < 0) return -1;
+    if (!client_queue_ready(client, queue_name) &&
+        t_client_open_follow(client, queue_name, flags, timeout_ms) != 0)
+        return -1;
     unsigned seq = t_client_ack_seq(client);
     if (t_client_close_queue(client, queue_name) != 0) return -1;
     int wr = client_wait_status(client, seq, timeout_ms);
@@ -887,6 +890,7 @@ int t_client_close_queue(t_client *client, const char *queue_name) {
         if (strcmp(client->queues[i].name, queue_name) == 0) {
             if (client->net_mode) {
                 if (!client->conn) return -1;
+                if (!client_queue_ready(client, queue_name)) return -1;
                 uint8_t buf[2 + T_WIRE_MAX_NAME];
                 int n = t_wire_encode_close(buf, sizeof(buf), queue_name);
                 if (n < 0 ||

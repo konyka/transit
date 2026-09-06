@@ -80,8 +80,9 @@ int        t_client_join_follow(t_client *client, const char *group,
 int        t_client_post_follow(t_client *client, const char *queue_name,
                                 const uint8_t *data, size_t len, int priority,
                                 int timeout_ms);
-/* CLOSE, wait for ACK. On T_ERR_AGAIN with a different client-port hint,
- * redial once, OPEN with the saved flags, and CLOSE again. */
+/* CLOSE, wait for ACK. An unacked name (drop) re-OPENs first. On
+ * T_ERR_AGAIN with a different client-port hint, redial once, OPEN
+ * with the saved flags, and CLOSE again. */
 int        t_client_close_follow(t_client *client, const char *queue_name,
                                  int timeout_ms);
 /* Default 1: send CONFIRM after each PUSH callback. 0 = caller must
@@ -102,6 +103,8 @@ int        t_client_confirm_follow(t_client *client, const char *queue_name,
 int        t_client_reject_follow(t_client *client, const char *queue_name,
                                   int timeout_ms);
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
+/* TCP: requires an acked OPEN. After a drop the name is unacked —
+ * this is -1 and keeps the local flags. Use close_follow to re-OPEN. */
 int        t_client_close_queue(t_client *client, const char *queue_name);
 /* TCP: requires an acked producer OPEN. A stale local name after a
  * drop, or consumer-only OPEN, is -1 (does not bump published). */
