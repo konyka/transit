@@ -241,6 +241,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_connect` — in-process stub (tests and local fanout).
 - `t_client_dial(client, loop, host, port)` — real TCP using `t_conn`.
   If `t_client_set_psk` was called, the first frame is `T_MSG_AUTH`.
+  `dial` waits for that ACK (`T_CLIENT_AUTH_WAIT_DEFAULT_MS`) and
+  returns 0 only on `T_OK`. Timeout or a non-OK ACK drops the
+  socket. Does not pump the evloop (same contract as `wait_ack`).
 - `t_client_open_queue(..., T_CLIENT_OPEN_PRODUCER \| T_CLIENT_OPEN_CONSUMER)`.
   High byte: `T_CLIENT_QFLAG_DURABLE` / `EXCLUSIVE` / `AUTODELETE`.
 - `t_client_last_status()` — last decoded `ACK` status. Starts at `0`

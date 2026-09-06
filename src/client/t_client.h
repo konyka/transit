@@ -14,6 +14,8 @@
 #define T_CLIENT_QFLAG_AUTODELETE  0x0400
 /* Default idle keepalive so the server 30s idle timeout does not drop waiters. */
 #define T_CLIENT_HEARTBEAT_DEFAULT_MS 10000
+/* How long t_client_dial waits for the AUTH ACK when a PSK is set. */
+#define T_CLIENT_AUTH_WAIT_DEFAULT_MS 1000
 
 typedef struct t_client t_client;
 
@@ -24,7 +26,9 @@ void       t_client_destroy(t_client *client);
 const char *t_client_id(const t_client *client);
 int        t_client_is_connected(const t_client *client);
 int        t_client_connect(t_client *client, const char *host, uint16_t port);
-/* Real TCP dial. `t_client_connect` remains the in-process stub. */
+/* Real TCP dial. `t_client_connect` remains the in-process stub.
+ * With a PSK, returns 0 only after an AUTH ACK T_OK. Timeout or a
+ * non-OK ACK drops the socket (fail closed). Does not pump the evloop. */
 int        t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t port);
 int        t_client_set_psk(t_client *client, const uint8_t *psk, size_t len);
 /* Send T_MSG_HEARTBEAT. TCP only. ACK does not advance ack_seq. */

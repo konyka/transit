@@ -318,7 +318,7 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
     client->loop = loop;
     client->conn = conn;
     client->net_mode = 1;
-    client->connected = 1;
+    client->connected = 0;
     t_atomic_store_int(&client->last_status, 0);
     client->last_ack_name[0] = '\0';
     t_conn_set_on_msg(conn, client_on_msg, client);
@@ -332,7 +332,17 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
         }
         int n = t_wire_encode_auth(buf, sizeof(buf), mac);
         t_hmac_wipe(mac, sizeof(mac));
+        unsigned prev = t_client_ack_seq(client);
         if (n < 0 || client_send_payload(client, T_MSG_AUTH, buf, (size_t)n) != 0) {
+            client_drop_conn(client);
+            return -1;
+        }
+        if (t_client_wait_ack(client, prev, T_CLIENT_AUTH_WAIT_DEFAULT_MS) != 0) {
+            t_atomic_store_int(&client->last_status, (int)T_ERR_TIMEOUT);
+            client_drop_conn(client);
+            return -1;
+        }
+        if (t_client_last_status(client) != 0) {
             client_drop_conn(client);
             return -1;
         }
@@ -345,6 +355,7 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
     free(client->dial_host);
     client->dial_host = hcopy;
     client->dial_port = port;
+    client->connected = 1;
     client_hb_arm(client);
     return 0;
 }

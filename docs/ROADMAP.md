@@ -70,6 +70,9 @@ message bus.
   group object may drop with the last `OPEN`; the name does not,
   so an OPEN-only consumer cannot steal after disconnect or
   failover. See `docs/Consumer_Groups.md`.
+- PSK `t_client_dial` waits for the `AUTH` ACK before returning
+  connected. A wrong key or timeout drops the socket (`-1`);
+  `is_connected` stays false. Heartbeat starts only after `T_OK`.
 
 ## Remaining (priority order)
 

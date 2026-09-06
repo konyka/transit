@@ -1207,10 +1207,11 @@ T_TEST(server_psk_accepts_matching_client) {
 
     t_client *c = t_client_create("c");
     T_ASSERT_EQ(t_client_set_psk(c, psk, sizeof(psk) - 1), 0);
-    unsigned seq = t_client_ack_seq(c);
     T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
-    T_ASSERT(wait_ack_status(c, seq, 0, 500));
-    seq = t_client_ack_seq(c);
+    T_ASSERT(t_client_is_connected(c));
+    T_ASSERT_EQ(t_client_last_status(c), 0);
+    T_ASSERT(t_client_ack_seq(c) > 0u);
+    unsigned seq = t_client_ack_seq(c);
     T_ASSERT_EQ(t_client_open_queue(c, "jobs", T_CLIENT_OPEN_PRODUCER), 0);
     T_ASSERT(wait_ack_status(c, seq, 0, 500));
     seq = t_client_ack_seq(c);
@@ -1247,9 +1248,9 @@ T_TEST(server_psk_rejects_wrong_key) {
 
     t_client *c = t_client_create("c");
     T_ASSERT_EQ(t_client_set_psk(c, bad, sizeof(bad) - 1), 0);
-    unsigned seq = t_client_ack_seq(c);
-    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
-    T_ASSERT(wait_ack_status(c, seq, (int)T_ERR_PERMISSION, 500));
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), -1);
+    T_ASSERT(!t_client_is_connected(c));
+    T_ASSERT_EQ(t_client_last_status(c), (int)T_ERR_PERMISSION);
 
     t_evloop_stop(loop);
     T_ASSERT_EQ(t_thread_join(&th), 0);
