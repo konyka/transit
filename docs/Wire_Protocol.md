@@ -192,8 +192,8 @@ and `t_client_redial_leader` follow a valid hint; the new session must
 `OPEN` again. A same-peer hint (already dialed host/port) is not
 followed: that is retry-later, not a redirect. `t_client_open_follow`,
 `t_client_join_follow`, `t_client_post_follow`,
-`t_client_close_follow`, `t_client_confirm_follow`, and
-`t_client_reject_follow` wait with
+`t_client_close_follow`, `t_client_confirm_follow`,
+`t_client_reject_follow`, and `t_client_subscribe_follow` wait with
 `t_client_wait_ack` and redial at most once per call. A second
 `open_follow` on an already-acked queue returns immediately.
 `confirm_follow` / `reject_follow` do not resend the old `msg_id`
@@ -299,9 +299,13 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   wait. A different client-port hint redials once and returns `-1`.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
   follower `POST` `T_ERR_AGAIN`).
-- `t_client_subscribe` may be called before `open_queue`. On a dialed
-  client it sends `OPEN` as consumer so a `PUSH` cannot arrive before
-  the callback is registered.
+- `t_client_subscribe` may be called before `open_queue`. It registers
+  the callback, then a consumer `OPEN`, and tracks that open so
+  `close_follow` can release exclusive / autodelete. On a dialed
+  client a `PUSH` cannot arrive before the callback is registered.
+- `t_client_subscribe_follow` — callback first, then consumer `OPEN`
+  (plus `T_CLIENT_QFLAG_*`) and wait. Follows a different client-port
+  hint once. A failed wait drops the callback just added.
 - After a `PUSH` that a callback actually received, the dialed client
   sends `CONFIRM` so the server credit window can refill, unless
   auto-confirm is off or the callback already settled the `PUSH`.

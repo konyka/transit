@@ -663,23 +663,31 @@ int t_client_disconnect(t_client *client) {
     return 0;
 }
 
+static int client_norm_flags(int flags) {
+    if ((flags & 0xFF) == 0) return flags | T_CLIENT_OPEN_PRODUCER;
+    return flags;
+}
+
 int t_client_open_queue(t_client *client, const char *queue_name, int flags) {
     if (!client || client->free_pending || !queue_name || !client->connected) return -1;
+    int need = client_norm_flags(flags);
     for (size_t i = 0; i < client->queues_size; ++i) {
         if (strcmp(client->queues[i].name, queue_name) == 0) {
-            if (client->queues[i].acked) return 0;
-            client->queues[i].flags = flags;
-            return client_send_open(client, queue_name, flags);
+            int have = client_norm_flags(client->queues[i].flags);
+            int merged = have | need;
+            if (client->queues[i].acked && have == merged) return 0;
+            client->queues[i].flags = merged;
+            return client_send_open(client, queue_name, merged);
         }
     }
     if (client_ensure_queues_cap(client, client->queues_size + 1) != 0) return -1;
     char *qn = strdup(queue_name);
     if (!qn) return -1;
     client->queues[client->queues_size].name = qn;
-    client->queues[client->queues_size].flags = flags;
+    client->queues[client->queues_size].flags = need;
     client->queues[client->queues_size].acked = 0;
     client->queues_size++;
-    if (client_send_open(client, queue_name, flags) != 0) {
+    if (client_send_open(client, queue_name, need) != 0) {
         free(qn);
         client->queues_size--;
         return -1;
@@ -793,14 +801,13 @@ int t_client_join(t_client *client, const char *group,
     return client_send_payload(client, T_MSG_JOIN, buf, (size_t)n);
 }
 
-int t_client_subscribe(t_client *client, const char *queue_name,
-                       t_client_msg_cb cb, void *ud) {
-    if (!client || client->free_pending || !queue_name || !cb || !client->connected) return -1;
+static int client_add_sub(t_client *client, const char *queue_name,
+                          t_client_msg_cb cb, void *ud) {
+    if (!client || !queue_name || !cb) return -1;
     for (size_t i = 0; i < client->subs_count; ++i) {
         if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0 &&
-            client->subs[i].cb == cb && client->subs[i].ud == ud) {
+            client->subs[i].cb == cb && client->subs[i].ud == ud)
             return -1;
-        }
     }
     if (client_ensure_subs_cap(client, client->subs_count + 1) != 0) return -1;
     char *qn = strdup(queue_name);
@@ -809,20 +816,47 @@ int t_client_subscribe(t_client *client, const char *queue_name,
     client->subs[client->subs_count].cb = cb;
     client->subs[client->subs_count].ud = ud;
     client->subs_count++;
-    if (client->net_mode) {
-        uint8_t buf[3 + 2 + T_WIRE_MAX_NAME];
-        int n = t_wire_encode_open(buf, sizeof(buf), T_QUEUE_FIFO, T_QUEUE_FLAG_NONE,
-                                   T_CLIENT_OPEN_CONSUMER, queue_name);
-        if (n < 0) {
-            free(qn);
+    return 0;
+}
+
+static void client_drop_sub_exact(t_client *client, const char *queue_name,
+                                  t_client_msg_cb cb, void *ud) {
+    if (!client || !queue_name || !cb) return;
+    for (size_t i = 0; i < client->subs_count; ++i) {
+        if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0 &&
+            client->subs[i].cb == cb && client->subs[i].ud == ud) {
+            free(client->subs[i].queue);
+            for (size_t j = i; j + 1 < client->subs_count; ++j)
+                client->subs[j] = client->subs[j + 1];
             client->subs_count--;
-            return -1;
+            return;
         }
-        if (client_send_payload(client, T_MSG_OPEN_QUEUE, buf, (size_t)n) != 0) {
-            free(qn);
-            client->subs_count--;
-            return -1;
-        }
+    }
+}
+
+int t_client_subscribe(t_client *client, const char *queue_name,
+                       t_client_msg_cb cb, void *ud) {
+    if (!client || client->free_pending || !queue_name || !cb || !client->connected)
+        return -1;
+    if (client_add_sub(client, queue_name, cb, ud) != 0) return -1;
+    if (t_client_open_queue(client, queue_name, T_CLIENT_OPEN_CONSUMER) != 0) {
+        client_drop_sub_exact(client, queue_name, cb, ud);
+        return -1;
+    }
+    return 0;
+}
+
+int t_client_subscribe_follow(t_client *client, const char *queue_name,
+                              t_client_msg_cb cb, void *ud, int flags,
+                              int timeout_ms) {
+    if (!client || client->free_pending || !queue_name || !cb || timeout_ms < 0)
+        return -1;
+    if (!client->connected) return -1;
+    if (client_add_sub(client, queue_name, cb, ud) != 0) return -1;
+    if (t_client_open_follow(client, queue_name,
+                             T_CLIENT_OPEN_CONSUMER | flags, timeout_ms) != 0) {
+        client_drop_sub_exact(client, queue_name, cb, ud);
+        return -1;
     }
     return 0;
 }

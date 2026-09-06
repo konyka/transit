@@ -111,9 +111,18 @@ T_TEST(client_subscribe_before_open) {
     t_client_connect(c, "localhost", 0);
     g_msg_received = 0;
     T_ASSERT_EQ(t_client_subscribe(c, "early.q", on_msg, &g_msg_received), 0);
+    T_ASSERT_EQ((int)t_client_queue_count(c), 1);
     T_ASSERT_EQ(t_client_open_queue(c, "early.q", 0), 0);
     T_ASSERT_EQ(t_client_post(c, "early.q", (const uint8_t *)"hi", 2, 0), 0);
     T_ASSERT_EQ(g_msg_received, 1);
+    T_ASSERT_EQ(t_client_close_follow(c, "early.q", 50), 0);
+    T_ASSERT_EQ((int)t_client_queue_count(c), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(c, "again.q", on_msg, &g_msg_received,
+                                          0, 50), 0);
+    T_ASSERT_EQ((int)t_client_queue_count(c), 1);
+    T_ASSERT_EQ(t_client_subscribe_follow(c, "again.q", on_msg, &g_msg_received,
+                                          0, 50), -1);
+    T_ASSERT_EQ(t_client_close_follow(c, "again.q", 50), 0);
     t_client_destroy(c);
 }
 

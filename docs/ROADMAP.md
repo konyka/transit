@@ -88,6 +88,10 @@ message bus.
   `-1` so the old `msg_id` is not settled as unknown-id `T_OK`.
 - Auto-`CONFIRM` runs only when a subscriber callback received the
   `PUSH`. Unsubscribe no longer acks messages nobody handled.
+- `t_client_subscribe` tracks the consumer `OPEN` so `close_follow`
+  can release exclusive / autodelete. `t_client_subscribe_follow`
+  waits (and applies `T_CLIENT_QFLAG_*` at create). A failed wait
+  drops the callback just added.
 
 ## Remaining (priority order)
 

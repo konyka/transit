@@ -1587,6 +1587,79 @@ T_TEST(client_unsubscribed_push_not_confirmed) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(client_subscribe_close_follow_autodelete) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(c, loop, "127.0.0.1", port), 0);
+    g_got = 0;
+    T_ASSERT_EQ(t_client_subscribe_follow(c, "tmp.q", on_net_msg, NULL,
+                                          T_CLIENT_QFLAG_AUTODELETE, 500), 0);
+    T_ASSERT_NOT_NULL(t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                         "tmp.q"));
+    T_ASSERT_EQ(t_client_close_follow(c, "tmp.q", 500), 0);
+    T_ASSERT_NULL(t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                     "tmp.q"));
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(client_subscribe_follow_exclusive) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c1 = t_client_create("ex1");
+    t_client *c2 = t_client_create("ex2");
+    T_ASSERT_EQ(t_client_dial(c1, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(c2, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(c1, "ex.q", on_net_msg, NULL,
+                                          T_CLIENT_QFLAG_EXCLUSIVE, 500), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(c2, "ex.q", on_net_msg, NULL,
+                                          T_CLIENT_QFLAG_EXCLUSIVE, 500), -1);
+    T_ASSERT_EQ(t_client_last_status(c2), (int)T_ERR_BUSY);
+    T_ASSERT_EQ(t_client_close_follow(c1, "ex.q", 500), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(c2, "ex.q", on_net_msg, NULL,
+                                          T_CLIENT_QFLAG_EXCLUSIVE, 500), 0);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c1);
+    t_client_destroy(c2);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
 T_TEST(server_non_loopback_requires_psk) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");
