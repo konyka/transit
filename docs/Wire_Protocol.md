@@ -170,12 +170,35 @@ character). Empty name if no leader is known.
 `0.0.0.0` is allowed only when set explicitly (CLI/config) **and** a PSK is
 configured. Admin HTTP already binds `127.0.0.1`.
 
-### `JOIN` (not on the wire yet)
+### `JOIN` (client → server)
 
-In-process `t_cgroup` is not reachable from the TCP server. A later
-`T_MSG_JOIN` will carry group, consumer, and queue names. Trailing
-bytes on `OPEN` stay rejected so an old server cannot misread a
-group as payload.
+```
+u16 group_len
+u8  group[group_len]
+u16 consumer_len
+u8  consumer[consumer_len]
+u16 queue_len
+u8  queue[queue_len]
+```
+
+All three names use the queue charset. Trailing bytes are rejected.
+`OPEN` is unchanged: extra bytes after an `OPEN` payload still fail
+decode, so a group cannot be smuggled onto an old server.
+
+Fail closed:
+
+- No consumer `OPEN` on `queue` → `T_ERR_PERMISSION`
+- Broadcast queue → `T_ERR_INVALID`
+- Duplicate `consumer` id in the group → `T_ERR_EXISTS`
+- Same connection already joined that queue under another id, or a
+  second group name on a queue that already has one → `T_ERR_BUSY`
+- Disconnect / `CLOSE` removes the member. An empty group refuses
+  dispatch; the message stays in the queue. PUSH credits still apply.
+
+One group per FIFO/priority queue. Hot path is still one `consume`
+plus one `PUSH` to the session `t_cgroup_pick` returns (O(1) RR).
+Idempotent `JOIN` (same group, consumer, queue on the same
+connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 
 ## Client API
 
@@ -186,8 +209,10 @@ group as payload.
   High byte: `T_CLIENT_QFLAG_DURABLE` / `EXCLUSIVE` / `AUTODELETE`.
 - `t_client_last_status()` — last decoded `ACK` status. Starts at `0`
   (same as `T_OK_CODE`); do not treat that as “an ACK arrived”.
+- `t_client_join(client, group, consumer_id, queue)` — TCP only
+  (`t_client_connect` stub returns -1). Wait on `ack_seq` like `OPEN`.
 - `t_client_ack_seq()` — monotonic count of decoded `ACK` frames. Wait
-  for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`, then read
+  for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`/`JOIN`, then read
   `last_status`. Status and the name are published before the sequence
   increment (seq_cst), so a new seq is a happens-before for those fields.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on

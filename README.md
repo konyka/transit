@@ -17,7 +17,7 @@ src/
 ├── coroutine/   x86_64 and AArch64 assembly context switch
 ├── net/         non-blocking socket, TCP, framed conn, protocol server,
 │                admin HTTP, ratelimit
-├── protocol/    binary wire protocol (16-byte header), CRC32C, HMAC-SHA256 AUTH, typed payloads
+├── protocol/    binary wire protocol (16-byte header), CRC32C, HMAC-SHA256 AUTH, JOIN, typed payloads
 ├── storage/     in-memory + file-backed hashmap, mmap (POSIX/Windows), WAL
 ├── queue/       FIFO/priority/broadcast, topic router (* #), flowcontrol,
 │                DLQ, message TTL (heap+map+compact), consumer groups
@@ -79,7 +79,7 @@ cmake --build build-ubsan && cd build-ubsan && ctest
 | test_wire | Typed payload encode/decode + name rules |
 | test_queue | FIFO/priority/broadcast queues + router |
 | test_ratelimit | Per-connection token bucket rate limiter |
-| test_server | Protocol server: bind, pub/sub, rate limit, PUSH credits, pull ack |
+| test_server | Protocol server: bind, pub/sub, JOIN groups, rate limit, PUSH credits |
 | test_session | Session lifecycle + activity tracking |
 | test_shutdown | Graceful shutdown (signal → evloop stop) |
 | test_signal | SIGPIPE/SIGINT/SIGTERM handling |

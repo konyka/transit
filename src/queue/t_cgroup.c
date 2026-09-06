@@ -105,6 +105,15 @@ int t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id) {
     return -1;
 }
 
+void *t_cgroup_pick(t_cgroup *cg) {
+    if (!cg || cg->free_pending || cg->consumer_count == 0) return NULL;
+    if (cg->dispatching) return NULL;
+    size_t idx = cg->next_idx % cg->consumer_count;
+    void *ud = cg->consumers[idx].ud;
+    cg->next_idx = (idx + 1) % cg->consumer_count;
+    return ud;
+}
+
 int t_cgroup_dispatch(t_cgroup *cg, const char *topic, const uint8_t *payload, size_t len) {
     if (!cg || cg->free_pending || cg->consumer_count == 0) return -1;
     if (cg->dispatching) return -1; /* reject reentrancy (nested destroy would UAF) */

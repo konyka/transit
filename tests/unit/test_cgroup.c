@@ -76,6 +76,18 @@ T_TEST(cgroup_duplicate_consumer_rejected) {
 T_TEST(cgroup_dispatch_empty_fails) {
     t_cgroup *cg = t_cgroup_create("g4");
     T_ASSERT(t_cgroup_dispatch(cg, "t", NULL, 0) != 0);
+    T_ASSERT_NULL(t_cgroup_pick(cg));
+    t_cgroup_destroy(cg);
+}
+
+T_TEST(cgroup_pick_round_robin) {
+    static int token_a, token_b;
+    t_cgroup *cg = t_cgroup_create("g-pick");
+    T_ASSERT_EQ(t_cgroup_add_consumer(cg, "A", on_deliver_a, &token_a), 0);
+    T_ASSERT_EQ(t_cgroup_add_consumer(cg, "B", on_deliver_b, &token_b), 0);
+    T_ASSERT(t_cgroup_pick(cg) == &token_a);
+    T_ASSERT(t_cgroup_pick(cg) == &token_b);
+    T_ASSERT(t_cgroup_pick(cg) == &token_a);
     t_cgroup_destroy(cg);
 }
 

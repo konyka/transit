@@ -11,6 +11,7 @@
 #include "t_vec.h"
 #include "t_domain.h"
 #include "t_queue.h"
+#include "t_cgroup.h"
 #include "t_time.h"
 #include "t_hmac.h"
 #include "t_flowcontrol.h"
@@ -31,6 +32,7 @@ typedef struct t_server_conn {
     t_session    *sess;
     t_ratelimit  *rl;
     t_map         opened; /* name -> (void*)(uintptr_t)mode */
+    t_map         joined; /* queue name -> malloc'd consumer id */
     t_vec         inflight; /* t_push_inf*: pull PUSHes awaiting CONFIRM */
     uint64_t      next_push_id;
     int           in_cb;
@@ -54,6 +56,7 @@ struct t_server {
     int64_t          idle_timer_id;
     t_vec            conns;
     t_map            open_refs; /* queue name -> open count */
+    t_map            groups;    /* queue name -> t_cgroup* */
     size_t           dropped_conns;
     size_t           msgs_in;
     size_t           msgs_dropped;
@@ -225,8 +228,38 @@ static void server_inflight_nack(t_server_conn *sc, const char *only_name) {
     }
 }
 
+static void server_cgroup_noop(const char *topic, const uint8_t *payload, size_t len, void *ud) {
+    (void)topic;
+    (void)payload;
+    (void)len;
+    (void)ud;
+}
+
+static void server_leave_group(t_server_conn *sc, const char *name) {
+    if (!sc || !sc->srv || !name) return;
+    char *cid = (char *)t_map_remove(&sc->joined, name);
+    if (!cid) return;
+    t_cgroup *cg = (t_cgroup *)t_map_get(&sc->srv->groups, name);
+    if (cg) (void)t_cgroup_remove_consumer(cg, cid);
+    free(cid);
+}
+
+static t_server_conn *server_pick_group_consumer(t_cgroup *cg) {
+    size_t n = t_cgroup_consumer_count(cg);
+    for (size_t i = 0; i < n; i++) {
+        t_server_conn *sc = (t_server_conn *)t_cgroup_pick(cg);
+        if (!sc || sc->freed || !sc->conn) continue;
+        if (sc->fc && t_fc_available(sc->fc) == 0) continue;
+        return sc;
+    }
+    return NULL;
+}
+
 static t_server_conn *server_pick_pull_consumer(t_server *srv, const char *name) {
     if (!srv || !name) return NULL;
+    t_cgroup *cg = (t_cgroup *)t_map_get(&srv->groups, name);
+    if (cg)
+        return server_pick_group_consumer(cg);
     for (size_t i = 0; i < srv->conns.len; i++) {
         t_server_conn *sc = (t_server_conn *)srv->conns.items[i];
         if (!sc || sc->freed || !sc->conn) continue;
@@ -269,6 +302,8 @@ static void server_unref_open(t_server *srv, const char *name) {
         return;
     }
     (void)t_map_remove(&srv->open_refs, name);
+    t_cgroup *cg = (t_cgroup *)t_map_remove(&srv->groups, name);
+    if (cg) t_cgroup_destroy(cg);
     t_queue *q = server_lookup_queue(srv->broker, name);
     if (q && (t_queue_get_flags(q) & T_QUEUE_FLAG_AUTODELETE))
         (void)t_broker_delete_queue(srv->broker, "default", name);
@@ -282,6 +317,7 @@ static void server_unsub_all(t_server_conn *sc) {
     void *v;
     while (t_map_iter_next(&it, &k, &v)) {
         uintptr_t mode = (uintptr_t)v;
+        server_leave_group(sc, k);
         if (mode & T_WIRE_MODE_CONSUMER) {
             (void)t_broker_unsubscribe(sc->srv->broker, k, server_push_cb, sc);
             server_flush_pull(sc->srv, k);
@@ -309,6 +345,14 @@ static void server_conn_free(t_server_conn *sc) {
     sc->freed = 1;
     server_unsub_all(sc);
     if (sc->srv) server_conn_detach(sc->srv, sc);
+    {
+        t_map_iter it = t_map_iter_begin(&sc->joined);
+        const char *k;
+        void *v;
+        while (t_map_iter_next(&it, &k, &v))
+            free(v);
+    }
+    t_map_destroy(&sc->joined);
     t_map_destroy(&sc->opened);
     if (sc->sess) {
         (void)t_session_disconnect(sc->sess);
@@ -414,6 +458,7 @@ static int32_t handle_close(t_server_conn *sc, const t_proto_msg *msg) {
     if (mode & T_WIRE_MODE_CONSUMER) {
         server_inflight_nack(sc, name);
         (void)t_broker_unsubscribe(sc->srv->broker, name, server_push_cb, sc);
+        server_leave_group(sc, name);
         server_flush_pull(sc->srv, name);
     }
     server_unref_open(sc->srv, name);
@@ -490,6 +535,69 @@ static int32_t handle_auth(t_server_conn *sc, const t_proto_msg *msg) {
     return T_OK_CODE;
 }
 
+static int32_t handle_join(t_server_conn *sc, const t_proto_msg *msg) {
+    t_wire_join j;
+    if (t_wire_decode_join(msg->payload, msg->payload_len, &j) != 0)
+        return T_ERR_PROTO;
+    char group[T_WIRE_MAX_NAME + 1];
+    char consumer[T_WIRE_MAX_NAME + 1];
+    char queue[T_WIRE_MAX_NAME + 1];
+    if (t_wire_name_copy(group, sizeof(group), j.group, j.group_len) != 0 ||
+        t_wire_name_copy(consumer, sizeof(consumer), j.consumer, j.consumer_len) != 0 ||
+        t_wire_name_copy(queue, sizeof(queue), j.queue, j.queue_len) != 0)
+        return T_ERR_INVALID;
+    uintptr_t mode = (uintptr_t)t_map_get(&sc->opened, queue);
+    if ((mode & T_WIRE_MODE_CONSUMER) == 0)
+        return T_ERR_PERMISSION;
+    t_queue *q = server_lookup_queue(sc->srv->broker, queue);
+    if (!q) return T_ERR_NOTFOUND;
+    if (t_queue_get_type(q) == T_QUEUE_BROADCAST)
+        return T_ERR_INVALID;
+    if (!t_broker_is_running(sc->srv->broker))
+        return T_ERR_CLOSED;
+
+    char *prev = (char *)t_map_get(&sc->joined, queue);
+    if (prev) {
+        t_cgroup *have = (t_cgroup *)t_map_get(&sc->srv->groups, queue);
+        if (have && strcmp(t_cgroup_id(have), group) == 0 &&
+            strcmp(prev, consumer) == 0) {
+            if (send_ack(sc, T_MSG_JOIN, T_OK_CODE, queue) != 0)
+                return T_ERR_IO;
+            return T_OK_CODE;
+        }
+        return T_ERR_BUSY;
+    }
+
+    t_cgroup *cg = (t_cgroup *)t_map_get(&sc->srv->groups, queue);
+    if (cg) {
+        if (strcmp(t_cgroup_id(cg), group) != 0)
+            return T_ERR_BUSY;
+    } else {
+        cg = t_cgroup_create(group);
+        if (!cg) return T_ERR_NOMEM;
+        if (t_map_insert(&sc->srv->groups, queue, cg) != 0) {
+            t_cgroup_destroy(cg);
+            return T_ERR_NOMEM;
+        }
+    }
+    if (t_cgroup_add_consumer(cg, consumer, server_cgroup_noop, sc) != 0)
+        return T_ERR_EXISTS;
+    char *cid = strdup(consumer);
+    if (!cid) {
+        (void)t_cgroup_remove_consumer(cg, consumer);
+        return T_ERR_NOMEM;
+    }
+    if (t_map_insert(&sc->joined, queue, cid) != 0) {
+        (void)t_cgroup_remove_consumer(cg, consumer);
+        free(cid);
+        return T_ERR_NOMEM;
+    }
+    if (send_ack(sc, T_MSG_JOIN, T_OK_CODE, queue) != 0)
+        return T_ERR_IO;
+    server_flush_pull(sc->srv, queue);
+    return T_OK_CODE;
+}
+
 static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     t_server_conn *sc = (t_server_conn *)ud;
     if (!sc || sc->freed || !msg) return;
@@ -560,6 +668,9 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     case T_MSG_POST:
         status = handle_post(sc, msg);
         break;
+    case T_MSG_JOIN:
+        status = handle_join(sc, msg);
+        break;
     case T_MSG_AUTH:
         close_conn = 1;
         break;
@@ -591,6 +702,11 @@ static void server_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
             }
             if (!nm && t_wire_decode_post(msg->payload, msg->payload_len, &p) == 0 &&
                 t_wire_name_copy(namebuf, sizeof(namebuf), p.name, p.name_len) == 0)
+                nm = namebuf;
+        } else if (msg->header.type == T_MSG_JOIN) {
+            t_wire_join jn;
+            if (t_wire_decode_join(msg->payload, msg->payload_len, &jn) == 0 &&
+                t_wire_name_copy(namebuf, sizeof(namebuf), jn.queue, jn.queue_len) == 0)
                 nm = namebuf;
         }
         (void)send_ack(sc, msg->header.type, status, nm);
@@ -628,6 +744,7 @@ static void server_on_accept(t_tcp_server *tcp, int client_fd, t_sockaddr *peer,
     }
     sc->srv = srv;
     t_map_init(&sc->opened);
+    t_map_init(&sc->joined);
     t_vec_init(&sc->inflight);
     sc->sess = t_session_create((uint64_t)(srv->conns.len + 1));
     sc->rl = t_ratelimit_create(srv->rate_tokens, srv->rate_refill);
@@ -642,6 +759,7 @@ static void server_on_accept(t_tcp_server *tcp, int client_fd, t_sockaddr *peer,
         t_ratelimit_destroy(sc->rl);
         t_fc_destroy(sc->fc);
         t_map_destroy(&sc->opened);
+        t_map_destroy(&sc->joined);
         t_vec_destroy(&sc->inflight);
         free(sc);
         srv->in_cb--;
@@ -700,10 +818,12 @@ t_server *t_server_create(t_evloop *loop, t_broker *broker, const t_server_confi
     srv->idle_timer_id = -1;
     t_vec_init(&srv->conns);
     t_map_init(&srv->open_refs);
+    t_map_init(&srv->groups);
     srv->tcp = t_tcp_server_create(loop);
     if (!srv->tcp) {
         t_vec_destroy(&srv->conns);
         t_map_destroy(&srv->open_refs);
+        t_map_destroy(&srv->groups);
         free(srv->host);
         free(srv);
         return NULL;
@@ -712,6 +832,7 @@ t_server *t_server_create(t_evloop *loop, t_broker *broker, const t_server_confi
         t_tcp_server_destroy(srv->tcp);
         t_vec_destroy(&srv->conns);
         t_map_destroy(&srv->open_refs);
+        t_map_destroy(&srv->groups);
         free(srv->host);
         free(srv);
         return NULL;
@@ -722,6 +843,7 @@ t_server *t_server_create(t_evloop *loop, t_broker *broker, const t_server_confi
             t_tcp_server_destroy(srv->tcp);
             t_vec_destroy(&srv->conns);
             t_map_destroy(&srv->open_refs);
+            t_map_destroy(&srv->groups);
             free(srv->host);
             free(srv);
             return NULL;
@@ -743,6 +865,14 @@ void t_server_destroy(t_server *srv) {
     t_tcp_server_destroy(srv->tcp);
     t_vec_destroy(&srv->conns);
     t_map_destroy(&srv->open_refs);
+    {
+        t_map_iter it = t_map_iter_begin(&srv->groups);
+        const char *k;
+        void *v;
+        while (t_map_iter_next(&it, &k, &v))
+            t_cgroup_destroy((t_cgroup *)v);
+    }
+    t_map_destroy(&srv->groups);
     if (srv->psk) {
         t_hmac_wipe(srv->psk, srv->psk_len);
         free(srv->psk);

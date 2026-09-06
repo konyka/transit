@@ -444,6 +444,17 @@ int t_client_post(t_client *client, const char *queue_name,
     return 0;
 }
 
+int t_client_join(t_client *client, const char *group,
+                  const char *consumer_id, const char *queue_name) {
+    if (!client || client->free_pending || !group || !consumer_id || !queue_name)
+        return -1;
+    if (!client->connected || !client->net_mode || !client->conn) return -1;
+    uint8_t buf[6 + 3 * T_WIRE_MAX_NAME];
+    int n = t_wire_encode_join(buf, sizeof(buf), group, consumer_id, queue_name);
+    if (n < 0) return -1;
+    return client_send_payload(client, T_MSG_JOIN, buf, (size_t)n);
+}
+
 int t_client_subscribe(t_client *client, const char *queue_name,
                        t_client_msg_cb cb, void *ud) {
     if (!client || client->free_pending || !queue_name || !cb || !client->connected) return -1;

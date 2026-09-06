@@ -28,6 +28,10 @@ separate that library from a production message bus.
 - `t_client_ack_seq`: tests wait for a decoded `ACK` instead of treating
   `last_status == 0` as success. That was the exclusive-consumer /
   autodelete flake on WSAPoll (OPEN had not been processed yet).
+- `T_MSG_JOIN`: consumer groups on the client port. One group per
+  FIFO/priority queue, O(1) `t_cgroup_pick`, one `PUSH`. Fail closed
+  without consumer `OPEN`, on duplicate ids, and when the group is
+  empty. See `docs/Consumer_Groups.md`.
 
 ## Remaining (priority order)
 
@@ -35,16 +39,11 @@ separate that library from a production message bus.
    ctest. `t_coro_create` on Windows is fail-closed (`NULL`); the
    create path must not leave unreachable code after
    `#if !T_HAVE_CORO_ASM` (MSVC C4702 / C2220).
-2. **Consumer groups over TCP** — `t_cgroup` is in-process only
-   (`test_cgroup`). There is no `JOIN` frame. Design: new `T_MSG_JOIN`
-   (not trailing bytes on `OPEN` — those are rejected). Payload is
-   group / consumer / queue names (same charset as queues). Hot path
-   stays one `PUSH` to the chosen session; round-robin is O(1) in
-   `t_cgroup`. Fail closed: unknown names, duplicate consumer id,
-   JOIN without consumer `OPEN`, and disconnect removes the member.
-   Empty group refuses dispatch. PUSH credits still apply.
-3. **Raft** is still a simplified object model plus peer RPC, not a
+2. **Raft** is still a simplified object model plus peer RPC, not a
    full replicated log for durable queues.
+
+Consumer groups over TCP (`T_MSG_JOIN`) are implemented. See
+`docs/Consumer_Groups.md` and `docs/Wire_Protocol.md`.
 
 TLS is still deferred (PSK AUTH covers the loopback-default client
 port).

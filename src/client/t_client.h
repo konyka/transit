@@ -35,6 +35,8 @@ int        t_client_open_queue(t_client *client, const char *queue_name, int fla
 int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,
                          const uint8_t *data, size_t len, int priority);
+int        t_client_join(t_client *client, const char *group,
+                         const char *consumer_id, const char *queue_name);
 int        t_client_subscribe(t_client *client, const char *queue_name,
                               t_client_msg_cb cb, void *ud);
 int        t_client_unsubscribe(t_client *client, const char *queue_name);

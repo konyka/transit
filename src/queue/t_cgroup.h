@@ -15,6 +15,8 @@ int  t_cgroup_add_consumer(t_cgroup *cg, const char *consumer_id, t_cgroup_deliv
 int  t_cgroup_remove_consumer(t_cgroup *cg, const char *consumer_id);
 
 int  t_cgroup_dispatch(t_cgroup *cg, const char *topic, const uint8_t *payload, size_t len);
+/* O(1) RR pick. Returns the next consumer `ud`, or NULL if empty. */
+void *t_cgroup_pick(t_cgroup *cg);
 
 size_t t_cgroup_consumer_count(const t_cgroup *cg);
 uint64_t t_cgroup_total_dispatched(const t_cgroup *cg);

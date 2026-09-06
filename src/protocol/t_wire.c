@@ -294,6 +294,34 @@ int t_wire_decode_confirm(const uint8_t *buf, size_t len, t_wire_confirm *out) {
     return 0;
 }
 
+int t_wire_encode_join(uint8_t *buf, size_t cap, const char *group,
+                       const char *consumer, const char *queue) {
+    if (!buf || cap == 0) return -1;
+    uint8_t *p = buf;
+    const uint8_t *end = buf + cap;
+    if (encode_name_field(&p, end, group, 0) != 0) return -1;
+    if (encode_name_field(&p, end, consumer, 0) != 0) return -1;
+    if (encode_name_field(&p, end, queue, 0) != 0) return -1;
+    return (int)(p - buf);
+}
+
+int t_wire_decode_join(const uint8_t *buf, size_t len, t_wire_join *out) {
+    if (!buf || !out) return -1;
+    const uint8_t *p = buf;
+    const uint8_t *end = buf + len;
+    t_wire_join tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    if (get_name(&p, end, &tmp.group, &tmp.group_len) != 0) return -1;
+    if (tmp.group_len == 0) return -1;
+    if (get_name(&p, end, &tmp.consumer, &tmp.consumer_len) != 0) return -1;
+    if (tmp.consumer_len == 0) return -1;
+    if (get_name(&p, end, &tmp.queue, &tmp.queue_len) != 0) return -1;
+    if (tmp.queue_len == 0) return -1;
+    if (require_exact(p, end) != 0) return -1;
+    *out = tmp;
+    return 0;
+}
+
 int t_wire_encode_vote_req(uint8_t *buf, size_t cap, const t_wire_vote_req *req) {
     if (!buf || !req) return -1;
     uint8_t *p = buf;

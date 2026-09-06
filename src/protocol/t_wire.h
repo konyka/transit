@@ -55,6 +55,15 @@ typedef struct t_wire_confirm {
     uint16_t    name_len;
 } t_wire_confirm;
 
+typedef struct t_wire_join {
+    const char *group;
+    uint16_t    group_len;
+    const char *consumer;
+    uint16_t    consumer_len;
+    const char *queue;
+    uint16_t    queue_len;
+} t_wire_join;
+
 int t_wire_name_valid(const char *name, size_t len);
 int t_wire_name_copy(char *dest, size_t dest_cap, const char *name, uint16_t name_len);
 
@@ -79,6 +88,10 @@ int t_wire_decode_ack(const uint8_t *buf, size_t len, t_wire_ack *out);
 
 int t_wire_encode_confirm(uint8_t *buf, size_t cap, uint64_t msg_id, const char *name);
 int t_wire_decode_confirm(const uint8_t *buf, size_t len, t_wire_confirm *out);
+
+int t_wire_encode_join(uint8_t *buf, size_t cap, const char *group,
+                       const char *consumer, const char *queue);
+int t_wire_decode_join(const uint8_t *buf, size_t len, t_wire_join *out);
 
 /* T_MSG_CLUSTER payloads (peer port, not the client port). */
 #define T_WIRE_CLUSTER_VOTE_REQ    1

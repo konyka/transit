@@ -181,6 +181,33 @@ T_TEST(wire_cluster_rejects_trailing_junk) {
     T_ASSERT(t_wire_decode_vote_req(buf, (size_t)n + 1, &out) != 0);
 }
 
+T_TEST(wire_join_roundtrip) {
+    uint8_t buf[64];
+    int n = t_wire_encode_join(buf, sizeof(buf), "workers", "c1", "jobs");
+    T_ASSERT_EQ(n, 2 + 7 + 2 + 2 + 2 + 4);
+    t_wire_join j;
+    memset(&j, 0, sizeof(j));
+    T_ASSERT_EQ(t_wire_decode_join(buf, (size_t)n, &j), 0);
+    T_ASSERT_EQ((int)j.group_len, 7);
+    T_ASSERT_MEM_EQ(j.group, "workers", 7);
+    T_ASSERT_EQ((int)j.consumer_len, 2);
+    T_ASSERT_MEM_EQ(j.consumer, "c1", 2);
+    T_ASSERT_EQ((int)j.queue_len, 4);
+    T_ASSERT_MEM_EQ(j.queue, "jobs", 4);
+}
+
+T_TEST(wire_join_rejects_bad) {
+    uint8_t buf[64];
+    T_ASSERT(t_wire_encode_join(buf, sizeof(buf), "", "c1", "q") < 0);
+    T_ASSERT(t_wire_encode_join(buf, sizeof(buf), "g", "has space", "q") < 0);
+    T_ASSERT(t_wire_encode_join(buf, sizeof(buf), "g", "c1", NULL) < 0);
+    int n = t_wire_encode_join(buf, sizeof(buf), "g", "c1", "q");
+    T_ASSERT(n > 0);
+    t_wire_join j;
+    T_ASSERT(t_wire_decode_join(buf, (size_t)n + 1, &j) != 0);
+    T_ASSERT(t_wire_decode_join(buf, (size_t)n - 1, &j) != 0);
+}
+
 T_TEST(wire_auth_roundtrip) {
     uint8_t mac[T_WIRE_AUTH_MAC_LEN];
     memset(mac, 0xab, sizeof(mac));
