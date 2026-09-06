@@ -246,7 +246,7 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
     c->posting--;
     free(snaps);
     if (c->net_mode && c->conn && !c->free_pending &&
-        c->auto_confirm && !c->push_settled)
+        c->auto_confirm && !c->push_settled && snap_n > 0)
         (void)t_client_confirm(c, name);
     if (c->posting == 0 && c->free_pending) t_client_destroy(c);
 }

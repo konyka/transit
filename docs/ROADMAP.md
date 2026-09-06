@@ -86,6 +86,8 @@ message bus.
   (no silent ack). `reject_follow` / `confirm_follow` wait for the
   clustered `NACK`/`ACK` apply. A redirect redials once and returns
   `-1` so the old `msg_id` is not settled as unknown-id `T_OK`.
+- Auto-`CONFIRM` runs only when a subscriber callback received the
+  `PUSH`. Unsubscribe no longer acks messages nobody handled.
 
 ## Remaining (priority order)
 

@@ -1541,6 +1541,52 @@ T_TEST(client_raft_reject_follow_acks) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(client_unsubscribed_push_not_confirmed) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    g_got = 0;
+    unsigned cseq = t_client_ack_seq(cons);
+    T_ASSERT_EQ(t_client_subscribe(cons, "jobs", on_net_msg, NULL), 0);
+    T_ASSERT(wait_ack_status(cons, cseq, 0, 500));
+    T_ASSERT_EQ(t_client_unsubscribe(cons, "jobs"), 0);
+    T_ASSERT_EQ(t_client_open_follow(prod, "jobs", T_CLIENT_OPEN_PRODUCER, 500), 0);
+    T_ASSERT_EQ(t_client_post_follow(prod, "jobs", (const uint8_t *)"lost", 4, 0, 500), 0);
+    t_queue *q = (t_queue *)t_domain_get_queue(t_broker_get_domain(b, "default"),
+                                              "jobs");
+    T_ASSERT_NOT_NULL(q);
+    int64_t start = t_time_now_ms();
+    while (!t_queue_has_inflight(q) && t_time_now_ms() - start < 500)
+        t_time_sleep_ms(5);
+    T_ASSERT_EQ(g_got, 0);
+    T_ASSERT_EQ(t_queue_has_inflight(q), 1);
+    T_ASSERT_EQ((int)t_queue_pending_count(q), 0);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
 T_TEST(server_non_loopback_requires_psk) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");

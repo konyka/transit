@@ -120,7 +120,9 @@ return a credit (capped at the window) and `ACK` `T_OK`. Disconnect
 nacks leftover inflight locally. These frames skip the per-connection token
 bucket. Broadcast `PUSH` is not inflight — confirm only returns a
 credit. The TCP client (`t_client_dial`) sends `CONFIRM` automatically
-after a decoded `PUSH` unless `t_client_set_auto_confirm(client, 0)`.
+after a decoded `PUSH` that a subscriber callback received, unless
+`t_client_set_auto_confirm(client, 0)`. A `PUSH` with no matching
+callback is left unsettled.
 `t_client_reject` / `t_client_confirm` settle the last `PUSH` on that
 queue; a second settle is `-1`. `t_client_reject_follow` /
 `t_client_confirm_follow` wait for the ACK. `T_ERR_AGAIN` with a
@@ -300,9 +302,11 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_subscribe` may be called before `open_queue`. On a dialed
   client it sends `OPEN` as consumer so a `PUSH` cannot arrive before
   the callback is registered.
-- After each `PUSH`, the dialed client sends `CONFIRM` so the server
-  credit window can refill, unless auto-confirm is off or the callback
-  already settled the `PUSH`.
+- After a `PUSH` that a callback actually received, the dialed client
+  sends `CONFIRM` so the server credit window can refill, unless
+  auto-confirm is off or the callback already settled the `PUSH`.
+  A `PUSH` with no matching subscriber is not confirmed (fail closed:
+  unsubscribe must not silently ack).
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.
