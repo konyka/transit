@@ -62,7 +62,8 @@ int        t_client_wait_ack(t_client *client, unsigned prev_seq, int timeout_ms
 /* OPEN, wait for ACK. On T_ERR_AGAIN with a different client-port hint,
  * redial once and OPEN again. Returns 0 only after a T_OK ACK.
  * Already-acked with the requested mode bits is a no-op; extra bits
- * (producer after subscribe, consumer after produce) send a merged OPEN. */
+ * (producer after subscribe, consumer after produce) send a merged OPEN.
+ * A T_OK OPEN also re-OPENs other unacked queues on this session. */
 int        t_client_open_follow(t_client *client, const char *queue_name, int flags,
                                 int timeout_ms);
 /* JOIN after a consumer OPEN. Follows a different client-port hint once.

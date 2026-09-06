@@ -601,6 +601,29 @@ static int client_replay_join(t_client *c, const char *queue_name, int timeout_m
     return client_wait_status(c, seq, timeout_ms) == 0 ? 0 : -1;
 }
 
+/* After a T_OK OPEN we are on a leader. Re-OPEN every other unacked
+ * queue (one at a time) so a multi-queue redial does not drop them. */
+static int client_restore_opens(t_client *c, int timeout_ms) {
+    if (!c || !c->net_mode || !c->connected) return 0;
+    for (size_t i = 0; i < c->queues_size; i++) {
+        if (!c->queues[i].name || c->queues[i].acked) continue;
+        char name[T_WIRE_MAX_NAME + 1];
+        size_t nlen = strlen(c->queues[i].name);
+        if (nlen > T_WIRE_MAX_NAME) return -1;
+        memcpy(name, c->queues[i].name, nlen + 1);
+        unsigned seq = t_client_ack_seq(c);
+        if (client_send_open(c, name, c->queues[i].flags) != 0) return -1;
+        if (client_wait_status(c, seq, timeout_ms) != 0) return -1;
+        if (client_replay_join(c, name, timeout_ms) != 0) return -1;
+    }
+    return 0;
+}
+
+static int client_after_open_ok(t_client *c, const char *queue_name, int timeout_ms) {
+    if (client_restore_opens(c, timeout_ms) != 0) return -1;
+    return client_replay_join(c, queue_name, timeout_ms);
+}
+
 static void client_clear_session(t_client *client) {
     client_clear_subs(client);
     client_clear_joins(client);
@@ -650,12 +673,12 @@ int t_client_open_follow(t_client *client, const char *queue_name, int flags,
     if (t_client_open_queue(client, queue_name, flags) != 0) return -1;
     int wr = client_wait_status(client, seq, timeout_ms);
     if (wr < 0) return wr;
-    if (wr == 0) return client_replay_join(client, queue_name, timeout_ms);
+    if (wr == 0) return client_after_open_ok(client, queue_name, timeout_ms);
     if (t_client_redial_leader(client) != 0) return -1;
     seq = t_client_ack_seq(client);
     if (t_client_open_queue(client, queue_name, flags) != 0) return -1;
     if (client_wait_status(client, seq, timeout_ms) != 0) return -1;
-    return client_replay_join(client, queue_name, timeout_ms);
+    return client_after_open_ok(client, queue_name, timeout_ms);
 }
 
 int t_client_join_follow(t_client *client, const char *group,

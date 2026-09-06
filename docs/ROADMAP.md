@@ -113,6 +113,9 @@ message bus.
 - Leader `redial` keeps OPEN flags and `JOIN` triples. A consumer
   `open_follow` replays `JOIN` so a group member is not dropped after
   the hop (empty group would hold messages forever).
+- After a `T_OK` `OPEN` (including post-redial), `open_follow`
+  re-`OPEN`s every other unacked queue so a second subscription is
+  not stranded on the old session.
 
 ## Remaining (priority order)
 

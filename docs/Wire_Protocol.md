@@ -195,8 +195,10 @@ listen port was not configured (`id@host:peer` without `/client`). The
 cluster peer port is never used as a hint. `t_client_parse_leader_hint`
 and `t_client_redial_leader` follow a valid hint; the new session must
 `OPEN` again. Subscriber callbacks, remembered `JOIN`s, and local OPEN
-flags stay across the hop (opens are marked unacked). `open_follow` of a
-consumer replays that queue's `JOIN`. A same-peer hint (already dialed host/port) is not
+flags stay across the hop (opens are marked unacked). A `T_OK` `OPEN`
+then re-`OPEN`s every other unacked queue (and replays each `JOIN`) so
+a multi-queue client is not left subscribed to only the queue that
+triggered the hop. A same-peer hint (already dialed host/port) is not
 followed: that is retry-later, not a redirect. `t_client_open_follow`,
 `t_client_join_follow`, `t_client_post_follow`,
 `t_client_close_follow`, `t_client_confirm_follow`,
@@ -291,7 +293,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   different client-port hint, redial once and `OPEN` again. Returns 0
   only after `T_OK`. Already-acked with the requested mode bits is a
   no-op; extra bits send a merged `OPEN` (subscribe then `post_follow`
-  must add producer). No hint or a same-peer hint is fail-closed.
+  must add producer). A `T_OK` also re-`OPEN`s other unacked queues.
+  No hint or a same-peer hint is fail-closed.
 - `t_client_join` / `t_client_join_follow` — remember the group
   triple. `open_follow` of a consumer waits for a replayed `JOIN` so
   a redial does not leave the group empty. `CLOSE` forgets it.
