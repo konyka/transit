@@ -22,7 +22,7 @@ July 2026 review.
   strategy that avoids per-update heap deletion.
 - Add unit coverage for map replacement, removal, tombstone compaction, and
   post-compaction insertion.
-- Keep CI on Linux, macOS, and Windows (VS 2022 x64). Leftover POSIX
+- Keep CI on Linux, macOS, and Windows (default VS generator, x64). Leftover POSIX
   helpers (`t_config`, `t_log`, `t_ratelimit`, `t_flowcontrol`) now use
   `t_file` / `t_mutex`. Tests use `t_thread` and `t_socket_pair`.
   Windows evloop is WSAPoll readiness (O(n) in registered fds, default

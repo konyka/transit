@@ -98,9 +98,11 @@ when create returns NULL.
 
 ## CI
 
-`windows-latest` builds with Visual Studio (x64, Release) and runs
-`ctest -C Release`. Sanitizer jobs stay Linux-only. Loopback bind and
-PSK rules are unchanged.
+`windows-latest` lets CMake pick the installed Visual Studio generator
+(`-A x64`, Release) and runs `ctest -C Release`. Do not pin
+`Visual Studio 17 2022`: as of June 2026 that image is VS 2026.
+Sanitizer jobs stay Linux-only. Loopback bind and PSK rules are
+unchanged.
 
 CMake is `project(transit C)` on every host. `enable_language(ASM)`
 runs only when `NOT WIN32`. Listing `ASM` in `project()` makes CMake 4
@@ -115,5 +117,5 @@ cmake --build build
 ctest --test-dir build --output-on-failure -j
 ```
 
-On Windows use `cmake -G "Visual Studio 17 2022" -A x64` and
+On Windows use `cmake -B build -A x64` (default VS generator) and
 `ctest -C Release`.

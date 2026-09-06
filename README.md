@@ -145,7 +145,8 @@ cmake --build build-ubsan && cd build-ubsan && ctest
   `t_ratelimit` / `t_flowcontrol`). Coroutine create returns NULL (SysV
   assembly is the wrong ABI).
 
-CI runs Linux, macOS, and Windows (VS 2022 x64) via GitHub Actions, plus
+CI runs Linux, macOS, and Windows (default Visual Studio generator, x64)
+via GitHub Actions, plus
 Linux ASan/UBSan jobs. See [docs/Windows_CI.md](docs/Windows_CI.md).
 
 ## Quick Start

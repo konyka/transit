@@ -17,9 +17,11 @@ separate that library from a production message bus.
   are not used for socket I/O.
 - Coroutine SysV assembly is not compiled on Windows; `t_coro_create`
   returns NULL (`T_HAVE_CORO_ASM == 0`).
-- GitHub Actions `windows-latest` (VS 2022 x64) builds and runs ctest.
+- GitHub Actions `windows-latest` (default VS generator, x64) builds
+  and runs ctest.
   CMake enables ASM only off Windows so MSVC configure does not require
-  an assembler (CMake 4 / CMP0194).
+  an assembler (CMake 4 / CMP0194). The job does not pin
+  `Visual Studio 17 2022` because `windows-latest` now ships VS 2026.
 - `t_client_ack_seq`: tests wait for a decoded `ACK` instead of treating
   `last_status == 0` as success. That was the exclusive-consumer /
   autodelete flake on WSAPoll (OPEN had not been processed yet).
