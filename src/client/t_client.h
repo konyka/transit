@@ -59,7 +59,9 @@ int        t_client_redial_leader(t_client *client);
  * Does not pump the evloop. timeout_ms < 0 is invalid. */
 int        t_client_wait_ack(t_client *client, unsigned prev_seq, int timeout_ms);
 /* OPEN, wait for ACK. On T_ERR_AGAIN with a different client-port hint,
- * redial once and OPEN again. Returns 0 only after a T_OK ACK. */
+ * redial once and OPEN again. Returns 0 only after a T_OK ACK.
+ * Already-acked with the requested mode bits is a no-op; extra bits
+ * (producer after subscribe, consumer after produce) send a merged OPEN. */
 int        t_client_open_follow(t_client *client, const char *queue_name, int flags,
                                 int timeout_ms);
 /* JOIN after a consumer OPEN. Follows a different client-port hint once. */
@@ -105,9 +107,9 @@ int        t_client_subscribe(t_client *client, const char *queue_name,
 int        t_client_subscribe_follow(t_client *client, const char *queue_name,
                                      t_client_msg_cb cb, void *ud, int flags,
                                      int timeout_ms);
-/* Drop callbacks. If this session's open is consumer-only, CLOSE so
- * exclusive / autodelete are released (wait on ack_seq like CLOSE).
- * A producer bit keeps the open. */
+/* Drop callbacks. Consumer-only OPEN is CLOSEd. A producer+consumer
+ * open CLOSEs then re-OPENs producer (OPEN cannot drop bits) so the
+ * session stops taking PUSH. */
 int        t_client_unsubscribe(t_client *client, const char *queue_name);
 size_t     t_client_queue_count(const t_client *client);
 size_t     t_client_total_published(const t_client *client);

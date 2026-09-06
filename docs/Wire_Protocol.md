@@ -201,7 +201,8 @@ followed: that is retry-later, not a redirect. `t_client_open_follow`,
 `t_client_close_follow`, `t_client_confirm_follow`,
 `t_client_reject_follow`, and `t_client_subscribe_follow` wait with
 `t_client_wait_ack` and redial at most once per call. A second
-`open_follow` on an already-acked queue returns immediately.
+`open_follow` on an already-acked queue with those mode bits
+returns immediately; extra bits send a merged `OPEN`.
 `confirm_follow` / `reject_follow` do not resend the old `msg_id`
 after a redial.
 A Raft-attached leader `POST`/`CONFIRM`/`REJECT`/`OPEN` of a missing
@@ -286,8 +287,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   moves past `prev`. Does not run the evloop.
 - `t_client_open_follow` — `OPEN` then wait. On `T_ERR_AGAIN` with a
   different client-port hint, redial once and `OPEN` again. Returns 0
-  only after `T_OK`. Already-acked on this session is a no-op. No hint
-  or a same-peer hint is fail-closed.
+  only after `T_OK`. Already-acked with the requested mode bits is a
+  no-op; extra bits send a merged `OPEN` (subscribe then `post_follow`
+  must add producer). No hint or a same-peer hint is fail-closed.
 - `t_client_join_follow` — consumer `OPEN` (via `open_follow`) then
   `JOIN`. Follows a different client-port hint once. TCP only.
 - `t_client_post_follow` — producer `OPEN` if needed, `POST`, follow
@@ -316,9 +318,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   (plus `T_CLIENT_QFLAG_*`) and wait. Follows a different client-port
   hint once without dropping that callback. A failed wait drops the
   callback just added.
-- `t_client_unsubscribe` — drop callbacks. If the tracked open is
-  consumer-only, send `CLOSE` (wait on `ack_seq`). A producer bit
-  keeps the open so `POST` still works.
+- `t_client_unsubscribe` — drop callbacks. Consumer-only `OPEN` sends
+  `CLOSE`. Producer+consumer `CLOSE`s then re-`OPEN`s producer (`OPEN`
+  only ORs bits, so this is what drops the consumer).
 - After a `PUSH` that a callback actually received, the dialed client
   sends `CONFIRM` so the server credit window can refill, unless
   auto-confirm is off or the callback already settled the `PUSH`.

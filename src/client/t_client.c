@@ -101,6 +101,8 @@ static int client_ensure_subs_cap(t_client *c, size_t need) {
 static void client_on_close(t_conn *conn, void *ud);
 static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud);
 static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen);
+static int client_queue_flags(const t_client *c, const char *name);
+static int client_norm_flags(int flags);
 
 static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen) {
     if (!c || !c->conn) return -1;
@@ -510,7 +512,13 @@ int t_client_open_follow(t_client *client, const char *queue_name, int flags,
                          int timeout_ms) {
     if (!client || !queue_name || timeout_ms < 0) return -1;
     if (!client->connected) return -1;
-    if (client_queue_ready(client, queue_name)) return 0;
+    int need = client_norm_flags(flags);
+    int have = client_queue_flags(client, queue_name);
+    if (have >= 0) {
+        int have_n = client_norm_flags(have);
+        if (client_queue_ready(client, queue_name) && (have_n | need) == have_n)
+            return 0;
+    }
     if (!client->net_mode)
         return t_client_open_queue(client, queue_name, flags);
 
@@ -905,9 +913,15 @@ int t_client_unsubscribe(t_client *client, const char *queue_name) {
     }
     if (!removed) return -1;
     int flags = client_queue_flags(client, queue_name);
-    if (flags >= 0 && (flags & T_CLIENT_OPEN_PRODUCER) == 0)
-        return t_client_close_queue(client, queue_name);
-    return 0;
+    if (flags < 0) return 0;
+    if ((flags & T_CLIENT_OPEN_CONSUMER) == 0)
+        return 0;
+    /* OPEN only ORs bits. Drop consumer with CLOSE; keep producer by
+     * re-OPEN (same connection, so CLOSE then OPEN stay ordered). */
+    if (t_client_close_queue(client, queue_name) != 0) return -1;
+    if ((flags & T_CLIENT_OPEN_PRODUCER) == 0) return 0;
+    return t_client_open_queue(client, queue_name,
+                               flags & ~T_CLIENT_OPEN_CONSUMER);
 }
 
 size_t t_client_queue_count(const t_client *client) {

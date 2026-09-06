@@ -47,9 +47,10 @@ message bus.
   `t_client_parse_leader_hint` / `t_client_redial_leader` follow that hint.
   `t_client_open_follow` waits for the ACK and redials once when the hint
   names a different client port; no hint or a same-peer hint stays put.
+  A second `open_follow` is a no-op only when those mode bits are
+  already acked; extra bits send a merged `OPEN`.
   `t_client_join_follow` / `t_client_post_follow` do the same one hop
-  for `JOIN` and `POST`. A second `open_follow` on an acked queue is
-  a no-op (does not wait).
+  for `JOIN` and `POST`.
 - Raft `NACK`: clustered `REJECT` appends the same-shaped command as
   `ACK`. Apply requeues inflight on every node; fail closed without a
   majority. Disconnect nacks stay local.
@@ -105,6 +106,10 @@ message bus.
   returns a credit (`PUSH` is not inflight).
 - Leader `redial` keeps subscriber callbacks. `subscribe_follow` to a
   follower still delivers after the hop (opens are session-local).
+- `open_follow` merges missing mode bits instead of no-op on any ACK.
+  Subscribe then `post_follow` (or produce then `subscribe_follow`)
+  actually `OPEN`s the other half. `unsubscribe` of a mixed open
+  `CLOSE`s and re-`OPEN`s producer so leftover consumer is dropped.
 
 ## Remaining (priority order)
 
