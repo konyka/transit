@@ -116,6 +116,9 @@ message bus.
 - After a `T_OK` `OPEN` (including post-redial), `open_follow`
   re-`OPEN`s every other unacked queue so a second subscription is
   not stranded on the old session.
+- Unexpected TCP drop un-ACKs local OPENs. Re-`dial` plus
+  `open_follow` must send `OPEN` again; a stale ACK would leave the
+  server with no consumer.
 
 ## Remaining (priority order)
 

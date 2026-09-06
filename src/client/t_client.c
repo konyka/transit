@@ -115,6 +115,7 @@ static int client_queue_flags(const t_client *c, const char *name);
 static int client_norm_flags(int flags);
 static void client_forget_join(t_client *c, const char *queue_name);
 static int client_replay_join(t_client *c, const char *queue_name, int timeout_ms);
+static void client_unack_opens(t_client *c);
 
 static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen) {
     if (!c || !c->conn) return -1;
@@ -201,6 +202,8 @@ static void client_on_close(t_conn *conn, void *ud) {
     t_client *c = (t_client *)ud;
     if (!c) return;
     c->connected = 0;
+    client_hb_disarm(c);
+    client_unack_opens(c);
     if (c->conn == conn) {
         c->conn = NULL;
         t_conn_destroy(conn);

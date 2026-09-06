@@ -32,7 +32,9 @@ int        t_client_is_connected(const t_client *client);
 int        t_client_connect(t_client *client, const char *host, uint16_t port);
 /* Real TCP dial. `t_client_connect` remains the in-process stub.
  * With a PSK, returns 0 only after an AUTH ACK T_OK. Timeout or a
- * non-OK ACK drops the socket (fail closed). Does not pump the evloop. */
+ * non-OK ACK drops the socket (fail closed). Does not pump the evloop.
+ * After an unexpected drop, local OPENs are unacked — re-OPEN
+ * (open_follow / subscribe_follow) before POST or expecting PUSH. */
 int        t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t port);
 int        t_client_set_psk(t_client *client, const uint8_t *psk, size_t len);
 /* Send T_MSG_HEARTBEAT. TCP only. ACK does not advance ack_seq. */
@@ -40,6 +42,8 @@ int        t_client_heartbeat(t_client *client);
 /* Repeat interval in ms. 0 disables. Default T_CLIENT_HEARTBEAT_DEFAULT_MS.
  * Negative is invalid. Re-arms when already dialed. */
 int        t_client_set_heartbeat(t_client *client, int interval_ms);
+/* TCP drop (idle, peer close, or this call) un-ACKs local OPENs.
+ * Callbacks and JOINs stay until disconnect/destroy clears them. */
 int        t_client_disconnect(t_client *client);
 int        t_client_last_status(const t_client *client);
 /* Monotonic count of decoded ACK frames. 0 until the first ACK arrives.
