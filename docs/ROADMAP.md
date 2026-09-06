@@ -95,6 +95,9 @@ message bus.
 - Client `OPEN` can create `PRIORITY` and `BROADCAST` queues
   (`T_CLIENT_QTYPE_*` in bits 16–23). FIFO stays the default.
   Unknown types fail before send.
+- Last `unsubscribe` of a consumer-only open sends `CLOSE`, so
+  exclusive / autodelete are released and a later consumer can
+  take the backlog. A producer bit keeps the open.
 
 ## Remaining (priority order)
 

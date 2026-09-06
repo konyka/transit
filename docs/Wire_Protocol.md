@@ -310,6 +310,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_subscribe_follow` — callback first, then consumer `OPEN`
   (plus `T_CLIENT_QFLAG_*`) and wait. Follows a different client-port
   hint once. A failed wait drops the callback just added.
+- `t_client_unsubscribe` — drop callbacks. If the tracked open is
+  consumer-only, send `CLOSE` (wait on `ack_seq`). A producer bit
+  keeps the open so `POST` still works.
 - After a `PUSH` that a callback actually received, the dialed client
   sends `CONFIRM` so the server credit window can refill, unless
   auto-confirm is off or the callback already settled the `PUSH`.

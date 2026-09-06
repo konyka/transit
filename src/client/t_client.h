@@ -102,6 +102,9 @@ int        t_client_subscribe(t_client *client, const char *queue_name,
 int        t_client_subscribe_follow(t_client *client, const char *queue_name,
                                      t_client_msg_cb cb, void *ud, int flags,
                                      int timeout_ms);
+/* Drop callbacks. If this session's open is consumer-only, CLOSE so
+ * exclusive / autodelete are released (wait on ack_seq like CLOSE).
+ * A producer bit keeps the open. */
 int        t_client_unsubscribe(t_client *client, const char *queue_name);
 size_t     t_client_queue_count(const t_client *client);
 size_t     t_client_total_published(const t_client *client);

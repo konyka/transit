@@ -878,7 +878,11 @@ int t_client_unsubscribe(t_client *client, const char *queue_name) {
             ++i;
         }
     }
-    return removed ? 0 : -1;
+    if (!removed) return -1;
+    int flags = client_queue_flags(client, queue_name);
+    if (flags >= 0 && (flags & T_CLIENT_OPEN_PRODUCER) == 0)
+        return t_client_close_queue(client, queue_name);
+    return 0;
 }
 
 size_t t_client_queue_count(const t_client *client) {
