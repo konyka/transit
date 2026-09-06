@@ -22,6 +22,7 @@ separate that library from a production message bus.
   CMake enables ASM only off Windows so MSVC configure does not require
   an assembler (CMake 4 / CMP0194). The job does not pin
   `Visual Studio 17 2022` because `windows-latest` now ships VS 2026.
+  MSVC atomics use Interlocked when C11 stdatomic is unavailable.
 - `t_client_ack_seq`: tests wait for a decoded `ACK` instead of treating
   `last_status == 0` as success. That was the exclusive-consumer /
   autodelete flake on WSAPoll (OPEN had not been processed yet).

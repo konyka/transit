@@ -87,9 +87,16 @@
         #define T_C99 0
     #endif
 #else
-    #define T_C23 0
-    #define T_C11 0
-    #define T_C99 0
+    /* MSVC C without __STDC_VERSION__ still gets /std:c11 from CMake. */
+    #if defined(_MSC_VER) && _MSC_VER >= 1928
+        #define T_C23 0
+        #define T_C11 1
+        #define T_C99 1
+    #else
+        #define T_C23 0
+        #define T_C11 0
+        #define T_C99 0
+    #endif
 #endif
 
 /* Inline keyword (C99 compatible) */

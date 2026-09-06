@@ -109,6 +109,12 @@ runs only when `NOT WIN32`. Listing `ASM` in `project()` makes CMake 4
 on MSVC fail configure (`CMAKE_ASM_COMPILER` unset; CMP0194). The
 coroutine `.S` files are already skipped on Windows.
 
+MSVC has no GNU `__sync_*`. When C11 `<stdatomic.h>` is missing or
+`__STDC_NO_ATOMICS__` is set, `t_atomic` uses `_Interlocked*` from
+`<intrin.h>` (no extra `windows.h`). Clang/GCC keep stdatomic or
+`__sync`. `/W4 /WX` stays on; C4204/C4221 (C99 aggregates) and
+C4244/C4267 (size_t narrowing Clang already allows) are disabled.
+
 ## Verification
 
 ```bash
