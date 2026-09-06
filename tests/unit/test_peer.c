@@ -4,6 +4,9 @@
 #include "t_raft.h"
 #include "t_node.h"
 #include "t_evloop.h"
+#include "t_broker.h"
+#include "t_domain.h"
+#include "t_queue.h"
 #include <string.h>
 #include <stdint.h>
 
@@ -136,6 +139,54 @@ T_TEST(peer_heartbeat_replicates) {
     peer_pump(pp.loop, 80);
     T_ASSERT_EQ((int)t_raft_commit_index(pp.r2), 1);
     T_ASSERT_EQ((int)t_raft_last_applied(pp.r2), 1);
+    peer_pair_destroy(&pp);
+}
+
+T_TEST(peer_replicate_is_async) {
+    peer_pair pp;
+    T_ASSERT_EQ(peer_pair_start(&pp, 40, 15, 40, 15), 0);
+    T_ASSERT_EQ(t_peer_campaign(pp.p1), 0);
+    peer_pump(pp.loop, 80);
+    T_ASSERT(t_peer_is_leader(pp.p1));
+    uint8_t data[] = {'y'};
+    T_ASSERT_EQ(t_raft_append_entry(pp.r1, 1, data, 1), 0);
+    T_ASSERT_EQ(t_raft_replicate(pp.r1, 1), 0);
+    T_ASSERT_EQ((int)t_raft_commit_index(pp.r1), 0);
+    peer_pump(pp.loop, 120);
+    T_ASSERT_EQ((int)t_raft_commit_index(pp.r1), 1);
+    T_ASSERT_EQ((int)t_raft_last_applied(pp.r1), 1);
+    T_ASSERT_EQ((int)t_raft_log_count(pp.r2), 1);
+    peer_pair_destroy(&pp);
+}
+
+T_TEST(peer_broker_publish_pending_then_applies) {
+    peer_pair pp;
+    T_ASSERT_EQ(peer_pair_start(&pp, 40, 15, 40, 15), 0);
+    T_ASSERT_EQ(t_peer_campaign(pp.p1), 0);
+    peer_pump(pp.loop, 80);
+    T_ASSERT(t_peer_is_leader(pp.p1));
+
+    t_broker *b1 = t_broker_create("n1");
+    t_broker *b2 = t_broker_create("n2");
+    T_ASSERT_EQ(t_broker_set_cluster(b1, pp.c1), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b1, pp.r1), 0);
+    T_ASSERT_EQ(t_broker_set_raft(b2, pp.r2), 0);
+    T_ASSERT_EQ(t_broker_start(b1), 0);
+    T_ASSERT_EQ(t_broker_start(b2), 0);
+    T_ASSERT_EQ(t_broker_create_queue(b1, "default", "jobs", 0, 0), 1);
+    t_domain *d1 = t_broker_get_domain(b1, "default");
+    T_ASSERT_NULL(d1 ? t_domain_get_queue(d1, "jobs") : (void *)1);
+    peer_pump(pp.loop, 120);
+    t_queue *q1 = d1 ? (t_queue *)t_domain_get_queue(d1, "jobs") : NULL;
+    T_ASSERT_NOT_NULL(q1);
+    T_ASSERT_EQ(t_broker_publish(b1, "jobs", (const uint8_t *)"hi", 2, 0), 1);
+    T_ASSERT_EQ((int)t_queue_pending_count(q1), 0);
+    peer_pump(pp.loop, 120);
+    T_ASSERT_EQ((int)t_queue_pending_count(q1), 1);
+    t_raft_set_apply_cb(pp.r1, NULL, NULL);
+    t_raft_set_apply_cb(pp.r2, NULL, NULL);
+    t_broker_destroy(b1);
+    t_broker_destroy(b2);
     peer_pair_destroy(&pp);
 }
 

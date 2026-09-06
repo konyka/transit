@@ -175,8 +175,10 @@ and `t_client_redial_leader` follow a valid hint; the new session must
 `OPEN` again. A same-peer hint (already dialed host/port) is not
 followed: that is retry-later, not a redirect. `t_client_open_follow`
 sends `OPEN`, waits with `t_client_wait_ack`, and redials at most once.
-A Raft-attached leader `POST`/`CONFIRM` also returns
-`T_ERR_AGAIN` if the command is not yet majority-committed.
+A Raft-attached leader `POST`/`CONFIRM`/`REJECT`/`OPEN` of a missing
+queue appends first and ACKs only after majority apply (the evloop is
+not blocked). `T_ERR_AGAIN` if the node is not leader or the append
+fails.
 
 ## Server safety switches
 

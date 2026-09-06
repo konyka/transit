@@ -43,6 +43,10 @@ t_cluster  *t_broker_cluster(t_broker *broker);
 typedef struct t_raft t_raft;
 int         t_broker_set_raft(t_broker *broker, t_raft *raft);
 t_raft     *t_broker_raft(t_broker *broker);
+/* After each apply. Used so the client port can ACK once last_applied moves. */
+typedef void (*t_broker_applied_cb)(t_broker *broker, uint64_t last_applied, void *ud);
+void        t_broker_set_applied_cb(t_broker *broker, t_broker_applied_cb cb, void *ud);
+/* Raft propose: 0 = applied, 1 = appended (await majority), -1 = fail. */
 int         t_broker_ack(t_broker *broker, const char *queue_name, uint64_t msg_id);
 int         t_broker_nack(t_broker *broker, const char *queue_name, uint64_t msg_id);
 

@@ -32,6 +32,8 @@ typedef struct t_broker {
     t_cluster *cluster;
     t_raft *raft;
     int applying;
+    t_broker_applied_cb applied_cb;
+    void *applied_ud;
 } t_broker;
 
 static int broker_any_delivering(const t_broker *broker) {
@@ -304,6 +306,12 @@ t_raft *t_broker_raft(t_broker *broker) {
     return broker ? broker->raft : NULL;
 }
 
+void t_broker_set_applied_cb(t_broker *broker, t_broker_applied_cb cb, void *ud) {
+    if (!broker) return;
+    broker->applied_cb = cb;
+    broker->applied_ud = ud;
+}
+
 static int broker_wal_path(char *out, size_t cap, const char *dir,
                            const char *domain, const char *queue) {
     if (!out || !dir || !domain || !queue) return -1;
@@ -440,6 +448,8 @@ static void broker_on_raft(const t_raft_entry *entry, void *ud) {
         (void)broker_delete_queue_local(b, "default", name);
     }
     b->applying--;
+    if (b->applied_cb && b->raft)
+        b->applied_cb(b, t_raft_last_applied(b->raft), b->applied_ud);
 }
 
 static int broker_propose(t_broker *broker, uint8_t type,
@@ -451,9 +461,13 @@ static int broker_propose(t_broker *broker, uint8_t type,
     (void)t_raft_replicate(r, idx);
     int rc = t_raft_majority_commit(r, NULL, 0, broker_cluster_n(broker));
     if (rc == -2) return -1;
-    if (t_raft_last_applied(r) < idx) return -1;
-    (void)t_raft_maybe_snapshot(r, NULL, 0, broker_cluster_n(broker));
-    return 0;
+    if (t_raft_last_applied(r) >= idx) {
+        (void)t_raft_maybe_snapshot(r, NULL, 0, broker_cluster_n(broker));
+        return 0;
+    }
+    /* Replicate callback (t_peer) commits on the evloop; do not block. */
+    if (t_raft_has_replicate_cb(r)) return 1;
+    return -1;
 }
 
 static int broker_propose_named(t_broker *broker, uint8_t type, uint8_t qtype,

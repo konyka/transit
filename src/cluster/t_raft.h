@@ -31,6 +31,7 @@ t_raft            *t_raft_create(const t_raft_config *cfg);
 void               t_raft_destroy(t_raft *raft);
 void               t_raft_set_apply_cb(t_raft *raft, t_raft_apply_cb cb, void *ud);
 void               t_raft_set_replicate_cb(t_raft *raft, t_raft_replicate_cb cb, void *ud);
+int                t_raft_has_replicate_cb(const t_raft *raft);
 void               t_raft_set_snapshot_cb(t_raft *raft, t_raft_snap_encode_cb enc,
                                           t_raft_snap_apply_cb apply, void *ud);
 void               t_raft_set_compact_min(t_raft *raft, size_t n);

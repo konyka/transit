@@ -105,10 +105,13 @@ and applies. Inbound `AppendReq` already advances `commit_index`;
 Heartbeats are incremental: each peer is sent entries after its
 `match_index` with a matching `prev_log_index` / `prev_log_term`.
 
-A leader append can invoke `t_raft_replicate` (set by `t_peer`) so a
-client `POST` waits for a blocking peer RPC before the ACK. After
-majority commit the leader sends a second AppendRPC with the new
-`leader_commit` so followers apply before the client is ACKed.
+A leader append invokes `t_raft_replicate` (set by `t_peer`) on the
+same evloop path as heartbeats: one non-blocking dial per peer.
+`t_broker_publish` / `ack` / `nack` / create return `1` (pending) when
+the entry is appended but not yet majority-applied. The client port
+holds the ACK until apply. After `AppendResp` the leader majority-commits
+and sends another AppendRPC with the new `leader_commit`. There is no
+blocking `peer_rpc_once` on the event loop.
 
 ## Durable header
 

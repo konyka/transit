@@ -9,12 +9,6 @@
 #include "t_compiler.h"
 #include <stdlib.h>
 #include <string.h>
-#if T_PLATFORM_WINDOWS
-#include <winsock2.h>
-#else
-#include <sys/socket.h>
-#include <sys/time.h>
-#endif
 
 #define T_PEER_MATCH_MAX 64
 
@@ -404,6 +398,7 @@ static void peer_on_outbound(t_peer *p, t_peer_conn *pc, const t_proto_msg *msg)
                      ar.term == t_raft_current_term(p->raft)) {
                 if (pc->peer_id) peer_match_set(p, pc->peer_id, ar.match_index);
                 peer_try_commit(p);
+                peer_heartbeat(p);
             }
         }
     } else if (rpc == T_WIRE_CLUSTER_SNAP_RESP) {
@@ -415,6 +410,7 @@ static void peer_on_outbound(t_peer *p, t_peer_conn *pc, const t_proto_msg *msg)
                      sr.term == t_raft_current_term(p->raft)) {
                 if (pc->peer_id) peer_match_set(p, pc->peer_id, sr.match_index);
                 peer_try_commit(p);
+                peer_heartbeat(p);
             }
         }
     }
@@ -474,165 +470,12 @@ static void peer_tick(void *ud) {
         (void)t_peer_campaign(p);
 }
 
-static int peer_write_all(int fd, const void *buf, size_t n) {
-    const uint8_t *p = (const uint8_t *)buf;
-    while (n) {
-        ssize_t w = t_socket_write(fd, p, n);
-        if (w < 0) {
-            if (t_socket_intr()) continue;
-            return -1;
-        }
-        if (w == 0) return -1;
-        p += (size_t)w;
-        n -= (size_t)w;
-    }
-    return 0;
-}
-
-static int peer_read_all(int fd, void *buf, size_t n) {
-    uint8_t *p = (uint8_t *)buf;
-    while (n) {
-        ssize_t r = t_socket_read(fd, p, n);
-        if (r < 0) {
-            if (t_socket_intr()) continue;
-            return -1;
-        }
-        if (r == 0) return -1;
-        p += (size_t)r;
-        n -= (size_t)r;
-    }
-    return 0;
-}
-
-static int peer_set_timeout(int fd, int ms) {
-    if (ms < 1) ms = 1;
-#if T_PLATFORM_WINDOWS
-    DWORD t = (DWORD)ms;
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&t, sizeof(t)) != 0)
-        return -1;
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&t, sizeof(t)) != 0)
-        return -1;
-#else
-    struct timeval tv;
-    tv.tv_sec = ms / 1000;
-    tv.tv_usec = (long)(ms % 1000) * 1000;
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) return -1;
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) return -1;
-#endif
-    return 0;
-}
-
-static int peer_rpc_once(t_peer *p, const char *host, uint16_t port,
-                         const uint8_t *payload, size_t plen,
-                         uint8_t *resp, size_t resp_cap, size_t *resp_len) {
-    if (!p || !host || !payload || !resp || !resp_len) return -1;
-    int fd = t_socket_dial_ipv4(host, port);
-    if (fd < 0) return -1;
-    (void)t_socket_set_block(fd);
-    int to = (int)t_raft_election_timeout_ms(p->raft);
-    if (to < 100) to = 100;
-    if (to > 2000) to = 2000;
-    (void)peer_set_timeout(fd, to);
-
-    t_proto_msg msg;
-    t_proto_header_init(&msg.header, T_MSG_CLUSTER, (uint32_t)plen);
-    msg.payload = (uint8_t *)payload;
-    msg.payload_len = plen;
-    size_t frame = T_PROTO_HEADER_SIZE + plen;
-    uint8_t *enc = (uint8_t *)malloc(frame);
-    if (!enc) {
-        t_socket_close(fd);
-        return -1;
-    }
-    int n = t_proto_encode_msg(&msg, enc, frame);
-    if (n < 0 || peer_write_all(fd, enc, (size_t)n) != 0) {
-        free(enc);
-        t_socket_close(fd);
-        return -1;
-    }
-    free(enc);
-
-    uint8_t hdr[T_PROTO_HEADER_SIZE];
-    if (peer_read_all(fd, hdr, sizeof(hdr)) != 0) {
-        t_socket_close(fd);
-        return -1;
-    }
-    t_proto_header ph;
-    if (t_proto_header_decode(&ph, hdr, sizeof(hdr)) != 0 ||
-        ph.payload_len > T_PROTO_MAX_PAYLOAD || ph.payload_len > resp_cap) {
-        t_socket_close(fd);
-        return -1;
-    }
-    size_t total = T_PROTO_HEADER_SIZE + ph.payload_len;
-    uint8_t *full = (uint8_t *)malloc(total);
-    if (!full) {
-        t_socket_close(fd);
-        return -1;
-    }
-    memcpy(full, hdr, T_PROTO_HEADER_SIZE);
-    if (ph.payload_len &&
-        peer_read_all(fd, full + T_PROTO_HEADER_SIZE, ph.payload_len) != 0) {
-        free(full);
-        t_socket_close(fd);
-        return -1;
-    }
-    t_socket_close(fd);
-    t_proto_msg decoded;
-    memset(&decoded, 0, sizeof(decoded));
-    if (t_proto_decode_msg(&decoded, full, total) != 0) {
-        free(full);
-        return -1;
-    }
-    free(full);
-    if (decoded.payload_len)
-        memcpy(resp, decoded.payload, decoded.payload_len);
-    *resp_len = decoded.payload_len;
-    free(decoded.payload);
-    return 0;
-}
-
-static void peer_repl_one(t_node *n, void *ud) {
-    t_peer *p = (t_peer *)ud;
-    if (!n || t_node_id(n) == t_raft_id(p->raft) || !t_node_is_alive(n)) return;
-    uint8_t *buf = NULL;
-    size_t blen = 0;
-    if (peer_catchup_encode(p, t_node_id(n), &buf, &blen) != 0) return;
-    uint8_t resp[512];
-    size_t rlen = 0;
-    if (peer_rpc_once(p, t_node_host(n), t_node_port(n), buf, blen,
-                      resp, sizeof(resp), &rlen) != 0) {
-        free(buf);
-        return;
-    }
-    free(buf);
-    if (rlen == 0) return;
-    if (resp[0] == T_WIRE_CLUSTER_SNAP_RESP) {
-        t_wire_snap_resp sr;
-        if (t_wire_decode_snap_resp(resp, rlen, &sr) != 0) return;
-        if (sr.term > t_raft_current_term(p->raft)) {
-            (void)t_raft_become_follower(p->raft, sr.term);
-            return;
-        }
-        if (sr.success) peer_match_set(p, t_node_id(n), sr.match_index);
-        return;
-    }
-    t_wire_append_resp ar;
-    if (t_wire_decode_append_resp(resp, rlen, &ar) != 0) return;
-    if (ar.term > t_raft_current_term(p->raft)) {
-        (void)t_raft_become_follower(p->raft, ar.term);
-        return;
-    }
-    if (ar.success) peer_match_set(p, t_node_id(n), ar.match_index);
-}
-
 static int peer_replicate_cb(t_raft *r, uint64_t index, void *ud) {
     t_peer *p = (t_peer *)ud;
     (void)r;
     (void)index;
     if (!p || !p->running || t_raft_state(p->raft) != T_NODE_LEADER) return -1;
-    t_cluster_foreach(p->cluster, peer_repl_one, p);
-    peer_try_commit(p);
-    t_cluster_foreach(p->cluster, peer_repl_one, p);
+    peer_heartbeat(p);
     return 0;
 }
 
