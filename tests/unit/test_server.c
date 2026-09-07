@@ -1688,7 +1688,9 @@ T_TEST(client_confirm_follow_acks) {
     T_ASSERT_EQ(t_client_post_follow(prod, "jobs", (const uint8_t *)"ack", 3, 0, 500), 0);
     T_ASSERT(wait_flag_ge(&g_got, 1, 500));
     T_ASSERT(t_client_last_push_id(cons) != 0);
-    T_ASSERT_EQ(t_client_confirm_follow(cons, "jobs", 500), 0);
+    T_ASSERT_NOT_NULL(t_client_last_push_queue(cons));
+    T_ASSERT_STR_EQ(t_client_last_push_queue(cons), "jobs");
+    T_ASSERT_EQ(t_client_confirm_follow(cons, t_client_last_push_queue(cons), 500), 0);
     T_ASSERT_EQ(t_client_confirm_follow(cons, "jobs", 50), -1);
     t_queue *q = (t_queue *)t_domain_get_queue(t_broker_get_domain(b, "default"),
                                               "jobs");

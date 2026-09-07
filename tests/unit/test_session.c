@@ -158,6 +158,29 @@ T_TEST(client_stub_last_push_priority) {
     t_client_destroy(c);
 }
 
+static const char *g_stub_q;
+static void on_q_stub(const char *queue_name, const uint8_t *data, size_t len,
+                      void *ud) {
+    (void)queue_name;
+    (void)data;
+    (void)len;
+    g_stub_q = t_client_last_push_queue((t_client *)ud);
+}
+
+T_TEST(client_stub_last_push_queue) {
+    t_client *c = t_client_create("q");
+    t_client_connect(c, "localhost", 0);
+    T_ASSERT_NULL(t_client_last_push_queue(c));
+    T_ASSERT_EQ(t_client_open_queue(c, "p.q", 0), 0);
+    T_ASSERT_EQ(t_client_subscribe(c, "p.q", on_q_stub, c), 0);
+    g_stub_q = NULL;
+    T_ASSERT_EQ(t_client_post(c, "p.q", (const uint8_t *)"a", 1, 0), 0);
+    T_ASSERT_NOT_NULL(g_stub_q);
+    T_ASSERT_STR_EQ(g_stub_q, "p.q");
+    T_ASSERT_STR_EQ(t_client_last_push_queue(c), "p.q");
+    t_client_destroy(c);
+}
+
 T_TEST(client_publish_stats) {
     t_client *c = t_client_create("c3");
     t_client_connect(c, "localhost", 0);

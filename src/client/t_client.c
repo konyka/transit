@@ -778,6 +778,11 @@ int t_client_last_push_priority(const t_client *client) {
     return client ? client->last_push_priority : 0;
 }
 
+const char *t_client_last_push_queue(const t_client *client) {
+    if (!client || !client->last_push_queue[0]) return NULL;
+    return client->last_push_queue;
+}
+
 static int client_clamp_pri(int priority) {
     if (priority < 0) return 0;
     if (priority > 255) return 255;
@@ -966,6 +971,14 @@ int t_client_post(t_client *client, const char *queue_name,
     if (snap_n == 0) {
         free(snaps);
         return -1; /* no subscribers — do not silently drop */
+    }
+    {
+        size_t qlen = strlen(queue_name);
+        if (qlen > T_WIRE_MAX_NAME) {
+            free(snaps);
+            return -1;
+        }
+        memcpy(client->last_push_queue, queue_name, qlen + 1);
     }
     client->last_push_priority = client_clamp_pri(priority);
     client->posting++;

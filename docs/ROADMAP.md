@@ -131,6 +131,9 @@ message bus.
   callback.
 - `subscribe_follow` after a drop with the same callback re-`OPEN`s.
   A duplicate while the OPEN is still acked stays `-1`.
+- `t_client_last_push_queue` exposes the last `PUSH` queue (stub
+  `post` included) so a multi-queue consumer can `confirm` without
+  stashing the name from the callback.
 
 ## Remaining (priority order)
 

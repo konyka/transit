@@ -316,6 +316,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_last_push_id` — `msg_id` of the last decoded `PUSH`.
 - `t_client_last_push_priority` — priority of that `PUSH` (also set
   on an in-process stub `post`). Valid during the subscriber callback.
+- `t_client_last_push_queue` — queue name of that `PUSH` (stub `post`
+  included). NULL if none. Needed to `confirm` after the callback
+  returns when the client is subscribed to more than one queue.
 - `t_client_confirm` / `t_client_reject` — settle that `PUSH` on
   `queue`. TCP only. Stub returns `-1`.
 - `t_client_confirm_follow` / `t_client_reject_follow` — settle then
