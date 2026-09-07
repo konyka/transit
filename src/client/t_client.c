@@ -1082,6 +1082,10 @@ int t_client_unsubscribe(t_client *client, const char *queue_name) {
     if (flags < 0) return 0;
     if ((flags & T_CLIENT_OPEN_CONSUMER) == 0)
         return 0;
+    /* A drop already released the session OPEN. close_queue would be
+     * -1 and keep flags; do not report failure after dropping cbs. */
+    if (client->net_mode && !client_queue_ready(client, queue_name))
+        return 0;
     /* OPEN only ORs bits. Drop consumer with CLOSE; keep producer by
      * re-OPEN (same connection, so CLOSE then OPEN stay ordered). */
     if (t_client_close_queue(client, queue_name) != 0) return -1;

@@ -122,7 +122,8 @@ int        t_client_subscribe_follow(t_client *client, const char *queue_name,
                                      int timeout_ms);
 /* Drop callbacks. Consumer-only OPEN is CLOSEd. A producer+consumer
  * open CLOSEs then re-OPENs producer (OPEN cannot drop bits) so the
- * session stops taking PUSH. */
+ * session stops taking PUSH. After a drop the session OPEN is gone:
+ * callbacks are dropped and flags stay (0, not -1). */
 int        t_client_unsubscribe(t_client *client, const char *queue_name);
 size_t     t_client_queue_count(const t_client *client);
 size_t     t_client_total_published(const t_client *client);

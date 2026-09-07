@@ -332,7 +332,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   callback just added.
 - `t_client_unsubscribe` — drop callbacks. Consumer-only `OPEN` sends
   `CLOSE`. Producer+consumer `CLOSE`s then re-`OPEN`s producer (`OPEN`
-  only ORs bits, so this is what drops the consumer).
+  only ORs bits, so this is what drops the consumer). After a drop
+  the session `OPEN` is already gone: drop callbacks, keep flags, and
+  return `0` (`close_queue` would be `-1`).
 - After a `PUSH` that a callback actually received, the dialed client
   sends `CONFIRM` so the server credit window can refill, unless
   auto-confirm is off or the callback already settled the `PUSH`.

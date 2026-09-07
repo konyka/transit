@@ -125,6 +125,9 @@ message bus.
 - TCP `t_client_close_queue` requires an acked `OPEN` so a drop does
   not wipe remembered flags on a `NOTFOUND` `CLOSE`. `close_follow`
   re-`OPEN`s first, then `CLOSE`s (same as a leader hop).
+- `unsubscribe` after a drop drops callbacks and returns `0`. The
+  session `OPEN` is already gone; a `-1` from `close_queue` must not
+  look like the unsubscribe failed after callbacks were removed.
 
 ## Remaining (priority order)
 
