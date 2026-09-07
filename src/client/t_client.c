@@ -1093,10 +1093,28 @@ int t_client_unsubscribe(t_client *client, const char *queue_name) {
     if (flags < 0) return 0;
     if ((flags & T_CLIENT_OPEN_CONSUMER) == 0)
         return 0;
-    /* A drop already released the session OPEN. close_queue would be
-     * -1 and keep flags; do not report failure after dropping cbs. */
-    if (client->net_mode && !client_queue_ready(client, queue_name))
+    /* A drop already released the session OPEN. Drop the consumer bit
+     * so a later OPEN does not resurrect it (PUSH would sit inflight
+     * with no callback). close_queue would be -1. */
+    if (client->net_mode && !client_queue_ready(client, queue_name)) {
+        for (size_t i = 0; i < client->queues_size; ++i) {
+            if (!client->queues[i].name ||
+                strcmp(client->queues[i].name, queue_name) != 0)
+                continue;
+            int keep = client->queues[i].flags & ~T_CLIENT_OPEN_CONSUMER;
+            if ((keep & 0xFF) == 0) {
+                free(client->queues[i].name);
+                for (size_t j = i; j + 1 < client->queues_size; ++j)
+                    client->queues[j] = client->queues[j + 1];
+                client->queues_size--;
+            } else {
+                client->queues[i].flags = keep;
+            }
+            client_forget_join(client, queue_name);
+            return 0;
+        }
         return 0;
+    }
     /* OPEN only ORs bits. Drop consumer with CLOSE; keep producer by
      * re-OPEN (same connection, so CLOSE then OPEN stay ordered). */
     if (t_client_close_queue(client, queue_name) != 0) return -1;
