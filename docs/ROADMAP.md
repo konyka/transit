@@ -138,6 +138,10 @@ message bus.
   `open_follow`). After a drop, fire-and-forget `subscribe` /
   `open_queue` restore the group; otherwise messages sit pending
   forever (sticky name, empty membership).
+- A `T_OK` `OPEN` ACK also re-`OPEN`s the next unacked queue. After a
+  drop, fire-and-forget `subscribe` of one name restores the rest
+  (same chain `open_follow` already waited for). A second subscription
+  must not stay stranded on the dead session.
 
 ## Remaining (priority order)
 

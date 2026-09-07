@@ -201,9 +201,9 @@ cluster peer port is never used as a hint. `t_client_parse_leader_hint`
 and `t_client_redial_leader` follow a valid hint; the new session must
 `OPEN` again. Subscriber callbacks, remembered `JOIN`s, and local OPEN
 flags stay across the hop (opens are marked unacked). A `T_OK` `OPEN`
-then re-`OPEN`s every other unacked queue (and replays each `JOIN`) so
-a multi-queue client is not left subscribed to only the queue that
-triggered the hop. A same-peer hint (already dialed host/port) is not
+ACK re-`OPEN`s the next unacked queue and replays each `JOIN`, so a
+multi-queue client is not left subscribed to only the queue that
+triggered the hop (`subscribe` / `open_queue` included). A same-peer hint (already dialed host/port) is not
 followed: that is retry-later, not a redirect. `t_client_open_follow`,
 `t_client_join_follow`, `t_client_post_follow`,
 `t_client_close_follow`, `t_client_confirm_follow`,
@@ -298,7 +298,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   different client-port hint, redial once and `OPEN` again. Returns 0
   only after `T_OK`. Already-acked with the requested mode bits is a
   no-op; extra bits send a merged `OPEN` (subscribe then `post_follow`
-  must add producer). A `T_OK` also re-`OPEN`s other unacked queues.
+  must add producer). A `T_OK` `OPEN` ACK also re-`OPEN`s the next
+  unacked queue (chain). `open_follow` waits for those ACKs.
   No hint or a same-peer hint is fail-closed.
 - `t_client_join` / `t_client_join_follow` — remember the group
   triple. A `T_OK` consumer `OPEN` ACK sends that `JOIN` again so
@@ -332,7 +333,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   `close_follow` can release exclusive / autodelete. On a dialed
   client a `PUSH` cannot arrive before the callback is registered.
   After a drop the same callback re-`OPEN`s; a `T_OK` `OPEN` ACK
-  also replays a remembered `JOIN`. A duplicate while acked is `-1`.
+  also replays a remembered `JOIN` and re-`OPEN`s the next unacked
+  queue. A duplicate while acked is `-1`.
 - `t_client_subscribe_follow` — callback first, then consumer `OPEN`
   (plus `T_CLIENT_QFLAG_*`) and wait. Follows a different client-port
   hint once without dropping that callback. A failed wait drops the
@@ -352,8 +354,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   unsubscribe must not silently ack).
 - A dropped TCP session un-ACKs local OPENs (callbacks and `JOIN`s
   stay). A later `dial` plus `OPEN` (follow or fire-and-forget)
-  re-`OPEN`s; a `T_OK` ACK also replays the remembered `JOIN`. It
-  must not no-op on the stale ACK from the dead connection.
+  re-`OPEN`s; a `T_OK` ACK also replays the remembered `JOIN` and
+  the next unacked queue. It must not no-op on the stale ACK from
+  the dead connection.
 - TCP `t_client_post` requires that acked producer `OPEN`. A consumer
   bit, an unacked name after a drop, or `open_queue` before the ACK
   is `-1` and does not increment `published` (the server would have

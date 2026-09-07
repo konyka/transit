@@ -67,7 +67,8 @@ int        t_client_wait_ack(t_client *client, unsigned prev_seq, int timeout_ms
  * redial once and OPEN again. Returns 0 only after a T_OK ACK.
  * Already-acked with the requested mode bits is a no-op; extra bits
  * (producer after subscribe, consumer after produce) send a merged OPEN.
- * A T_OK OPEN also re-OPENs other unacked queues on this session. */
+ * A T_OK OPEN ACK also re-OPENs the next unacked queue (chain)
+ * so fire-and-forget subscribe / open_queue restore the session. */
 int        t_client_open_follow(t_client *client, const char *queue_name, int flags,
                                 int timeout_ms);
 /* JOIN after a consumer OPEN. Follows a different client-port hint once.
@@ -116,14 +117,16 @@ int        t_client_post(t_client *client, const char *queue_name,
 int        t_client_join(t_client *client, const char *group,
                          const char *consumer_id, const char *queue_name);
 /* Register the callback, then a consumer OPEN. A T_OK OPEN ACK
- * replays a remembered JOIN. Same-callback after a drop re-OPENs. */
+ * replays a remembered JOIN and re-OPENs the next unacked queue.
+ * Same-callback after a drop re-OPENs. */
 int        t_client_subscribe(t_client *client, const char *queue_name,
                               t_client_msg_cb cb, void *ud);
 /* Register the callback first, then consumer OPEN (plus qflags) and wait.
  * On T_ERR_AGAIN with a different client-port hint, redial once
  * (callback stays). A failed wait drops the callback just added.
  * Same callback after a drop (unacked OPEN) re-OPENs; a T_OK OPEN
- * ACK also replays a remembered JOIN. While acked it is still -1. */
+ * ACK also replays a remembered JOIN and the next unacked queue.
+ * While acked it is still -1. */
 int        t_client_subscribe_follow(t_client *client, const char *queue_name,
                                      t_client_msg_cb cb, void *ud, int flags,
                                      int timeout_ms);
