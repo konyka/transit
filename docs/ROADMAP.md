@@ -128,6 +128,8 @@ message bus.
 - `unsubscribe` after a drop drops callbacks and returns `0`. The
   session `OPEN` is already gone; a `-1` from `close_queue` must not
   look like the unsubscribe failed after callbacks were removed.
+- `subscribe_follow` after a drop with the same callback re-`OPEN`s.
+  A duplicate while the OPEN is still acked stays `-1`.
 
 ## Remaining (priority order)
 

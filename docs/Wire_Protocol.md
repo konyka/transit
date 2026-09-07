@@ -326,10 +326,14 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   the callback, then a consumer `OPEN`, and tracks that open so
   `close_follow` can release exclusive / autodelete. On a dialed
   client a `PUSH` cannot arrive before the callback is registered.
+  After a drop the same callback re-`OPEN`s; a duplicate while acked
+  is `-1`.
 - `t_client_subscribe_follow` — callback first, then consumer `OPEN`
   (plus `T_CLIENT_QFLAG_*`) and wait. Follows a different client-port
   hint once without dropping that callback. A failed wait drops the
-  callback just added.
+  callback just added. After a drop the same callback is kept; a
+  later `subscribe_follow` re-`OPEN`s instead of failing as a
+  duplicate. A second subscribe while the OPEN is still acked is `-1`.
 - `t_client_unsubscribe` — drop callbacks. Consumer-only `OPEN` sends
   `CLOSE`. Producer+consumer `CLOSE`s then re-`OPEN`s producer (`OPEN`
   only ORs bits, so this is what drops the consumer). After a drop

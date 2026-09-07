@@ -116,7 +116,9 @@ int        t_client_subscribe(t_client *client, const char *queue_name,
                               t_client_msg_cb cb, void *ud);
 /* Register the callback first, then consumer OPEN (plus qflags) and wait.
  * On T_ERR_AGAIN with a different client-port hint, redial once
- * (callback stays). A failed wait drops the callback just added. */
+ * (callback stays). A failed wait drops the callback just added.
+ * Same callback after a drop (unacked OPEN) re-OPENs; while acked
+ * it is still -1. */
 int        t_client_subscribe_follow(t_client *client, const char *queue_name,
                                      t_client_msg_cb cb, void *ud, int flags,
                                      int timeout_ms);

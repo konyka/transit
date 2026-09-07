@@ -1002,14 +1002,21 @@ int t_client_join(t_client *client, const char *group,
     return 0;
 }
 
-static int client_add_sub(t_client *client, const char *queue_name,
+static int client_has_sub(const t_client *client, const char *queue_name,
                           t_client_msg_cb cb, void *ud) {
-    if (!client || !queue_name || !cb) return -1;
+    if (!client || !queue_name || !cb) return 0;
     for (size_t i = 0; i < client->subs_count; ++i) {
         if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0 &&
             client->subs[i].cb == cb && client->subs[i].ud == ud)
-            return -1;
+            return 1;
     }
+    return 0;
+}
+
+static int client_add_sub(t_client *client, const char *queue_name,
+                          t_client_msg_cb cb, void *ud) {
+    if (!client || !queue_name || !cb) return -1;
+    if (client_has_sub(client, queue_name, cb, ud)) return -1;
     if (client_ensure_subs_cap(client, client->subs_count + 1) != 0) return -1;
     char *qn = strdup(queue_name);
     if (!qn) return -1;
@@ -1039,9 +1046,11 @@ int t_client_subscribe(t_client *client, const char *queue_name,
                        t_client_msg_cb cb, void *ud) {
     if (!client || client->free_pending || !queue_name || !cb || !client->connected)
         return -1;
-    if (client_add_sub(client, queue_name, cb, ud) != 0) return -1;
+    int existed = client_has_sub(client, queue_name, cb, ud);
+    if (existed && client_queue_ready(client, queue_name)) return -1;
+    if (!existed && client_add_sub(client, queue_name, cb, ud) != 0) return -1;
     if (t_client_open_queue(client, queue_name, T_CLIENT_OPEN_CONSUMER) != 0) {
-        client_drop_sub_exact(client, queue_name, cb, ud);
+        if (!existed) client_drop_sub_exact(client, queue_name, cb, ud);
         return -1;
     }
     return 0;
@@ -1053,10 +1062,12 @@ int t_client_subscribe_follow(t_client *client, const char *queue_name,
     if (!client || client->free_pending || !queue_name || !cb || timeout_ms < 0)
         return -1;
     if (!client->connected) return -1;
-    if (client_add_sub(client, queue_name, cb, ud) != 0) return -1;
+    int existed = client_has_sub(client, queue_name, cb, ud);
+    if (existed && client_queue_ready(client, queue_name)) return -1;
+    if (!existed && client_add_sub(client, queue_name, cb, ud) != 0) return -1;
     if (t_client_open_follow(client, queue_name,
                              T_CLIENT_OPEN_CONSUMER | flags, timeout_ms) != 0) {
-        client_drop_sub_exact(client, queue_name, cb, ud);
+        if (!existed) client_drop_sub_exact(client, queue_name, cb, ud);
         return -1;
     }
     return 0;
