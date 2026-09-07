@@ -134,6 +134,10 @@ message bus.
 - `t_client_last_push_queue` exposes the last `PUSH` queue (stub
   `post` included) so a multi-queue consumer can `confirm` without
   stashing the name from the callback.
+- A `T_OK` consumer `OPEN` ACK replays a remembered `JOIN` (not only
+  `open_follow`). After a drop, fire-and-forget `subscribe` /
+  `open_queue` restore the group; otherwise messages sit pending
+  forever (sticky name, empty membership).
 
 ## Remaining (priority order)
 

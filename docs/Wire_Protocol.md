@@ -301,8 +301,10 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   must add producer). A `T_OK` also re-`OPEN`s other unacked queues.
   No hint or a same-peer hint is fail-closed.
 - `t_client_join` / `t_client_join_follow` — remember the group
-  triple. `open_follow` of a consumer waits for a replayed `JOIN` so
-  a redial does not leave the group empty. `CLOSE` forgets it.
+  triple. A `T_OK` consumer `OPEN` ACK sends that `JOIN` again so
+  fire-and-forget `subscribe` / `open_queue` after a drop restore
+  the group. `open_follow` also waits for the replay. `CLOSE`
+  forgets it.
 - `t_client_post_follow` — producer `OPEN` if needed, `POST`, follow
   a different client-port hint once. In-process stub opens locally
   and fans out (no ACK wait).
@@ -329,8 +331,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   the callback, then a consumer `OPEN`, and tracks that open so
   `close_follow` can release exclusive / autodelete. On a dialed
   client a `PUSH` cannot arrive before the callback is registered.
-  After a drop the same callback re-`OPEN`s; a duplicate while acked
-  is `-1`.
+  After a drop the same callback re-`OPEN`s; a `T_OK` `OPEN` ACK
+  also replays a remembered `JOIN`. A duplicate while acked is `-1`.
 - `t_client_subscribe_follow` — callback first, then consumer `OPEN`
   (plus `T_CLIENT_QFLAG_*`) and wait. Follows a different client-port
   hint once without dropping that callback. A failed wait drops the
@@ -349,8 +351,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   A `PUSH` with no matching subscriber is not confirmed (fail closed:
   unsubscribe must not silently ack).
 - A dropped TCP session un-ACKs local OPENs (callbacks and `JOIN`s
-  stay). A later `dial` plus `open_follow` re-`OPEN`s; it must not
-  no-op on the stale ACK from the dead connection.
+  stay). A later `dial` plus `OPEN` (follow or fire-and-forget)
+  re-`OPEN`s; a `T_OK` ACK also replays the remembered `JOIN`. It
+  must not no-op on the stale ACK from the dead connection.
 - TCP `t_client_post` requires that acked producer `OPEN`. A consumer
   bit, an unacked name after a drop, or `open_queue` before the ACK
   is `-1` and does not increment `published` (the server would have

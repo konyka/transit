@@ -18,6 +18,8 @@ typedef struct t_client_queue_entry {
     char *name;
     int   flags;
     int   acked;
+    int   join_sent; /* JOIN written since last unack / OPEN */
+    int   join_ack;  /* 0 none, 1 T_OK, -1 error */
 } t_client_queue_entry;
 
 typedef struct t_client_subscription {
@@ -115,6 +117,9 @@ static int client_queue_flags(const t_client *c, const char *name);
 static int client_norm_flags(int flags);
 static void client_forget_join(t_client *c, const char *queue_name);
 static int client_replay_join(t_client *c, const char *queue_name, int timeout_ms);
+static int client_send_remembered_join(t_client *c, const char *queue_name);
+static void client_note_join_sent(t_client *c, const char *queue_name);
+static void client_note_join_ack(t_client *c, const char *queue_name, int ok);
 static void client_unack_opens(t_client *c);
 
 static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen) {
@@ -224,8 +229,13 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
             if (a.name && a.name_len)
                 (void)t_wire_name_copy(c->last_ack_name, sizeof(c->last_ack_name),
                                        a.name, a.name_len);
-            if (a.status == 0 && c->last_ack_name[0])
+            if (a.status == 0 && c->last_ack_name[0]) {
                 client_mark_queue_acked(c, c->last_ack_name);
+                if (a.req_type == T_MSG_OPEN_QUEUE)
+                    (void)client_send_remembered_join(c, c->last_ack_name);
+            }
+            if (a.req_type == T_MSG_JOIN && c->last_ack_name[0])
+                client_note_join_ack(c, c->last_ack_name, a.status == 0);
             (void)t_atomic_add_fetch_int(&c->ack_seq, 1);
         }
         return;
@@ -511,9 +521,51 @@ static void client_clear_joins(t_client *client) {
     client->joins_cap = 0;
 }
 
+static void client_note_join_sent(t_client *c, const char *queue_name) {
+    if (!c || !queue_name) return;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (c->queues[i].name && strcmp(c->queues[i].name, queue_name) == 0) {
+            c->queues[i].join_sent = 1;
+            c->queues[i].join_ack = 0;
+            return;
+        }
+    }
+}
+
+static void client_note_join_ack(t_client *c, const char *queue_name, int ok) {
+    if (!c || !queue_name) return;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (c->queues[i].name && strcmp(c->queues[i].name, queue_name) == 0) {
+            c->queues[i].join_ack = ok ? 1 : -1;
+            return;
+        }
+    }
+}
+
+static int client_join_sent(const t_client *c, const char *queue_name) {
+    if (!c || !queue_name) return 0;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (c->queues[i].name && strcmp(c->queues[i].name, queue_name) == 0)
+            return c->queues[i].join_sent;
+    }
+    return 0;
+}
+
+static int client_join_ack(const t_client *c, const char *queue_name) {
+    if (!c || !queue_name) return 0;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (c->queues[i].name && strcmp(c->queues[i].name, queue_name) == 0)
+            return c->queues[i].join_ack;
+    }
+    return 0;
+}
+
 static void client_unack_opens(t_client *client) {
-    for (size_t i = 0; i < client->queues_size; ++i)
+    for (size_t i = 0; i < client->queues_size; ++i) {
         client->queues[i].acked = 0;
+        client->queues[i].join_sent = 0;
+        client->queues[i].join_ack = 0;
+    }
     client->last_push_id = 0;
     client->last_push_priority = 0;
     client->last_push_queue[0] = '\0';
@@ -587,6 +639,29 @@ static int client_remember_join(t_client *c, const char *group,
     return 0;
 }
 
+static int client_send_join(t_client *c, const char *group,
+                            const char *consumer, const char *queue) {
+    if (!c || !c->conn || !group || !consumer || !queue) return -1;
+    uint8_t buf[6 + 3 * T_WIRE_MAX_NAME];
+    int n = t_wire_encode_join(buf, sizeof(buf), group, consumer, queue);
+    if (n < 0) return -1;
+    if (client_send_payload(c, T_MSG_JOIN, buf, (size_t)n) != 0) return -1;
+    client_note_join_sent(c, queue);
+    return 0;
+}
+
+static int client_send_remembered_join(t_client *c, const char *queue_name) {
+    if (!c || !queue_name) return -1;
+    int flags = client_queue_flags(c, queue_name);
+    if (flags < 0 || (flags & T_CLIENT_OPEN_CONSUMER) == 0) return 0;
+    for (size_t i = 0; i < c->joins_count; ++i) {
+        if (c->joins[i].queue && strcmp(c->joins[i].queue, queue_name) == 0)
+            return client_send_join(c, c->joins[i].group, c->joins[i].consumer,
+                                    queue_name);
+    }
+    return 0;
+}
+
 static int client_replay_join(t_client *c, const char *queue_name, int timeout_ms) {
     if (!c || !queue_name) return -1;
     int flags = client_queue_flags(c, queue_name);
@@ -599,9 +674,24 @@ static int client_replay_join(t_client *c, const char *queue_name, int timeout_m
         }
     }
     if (!e) return 0;
-    unsigned seq = t_client_ack_seq(c);
-    if (t_client_join(c, e->group, e->consumer, queue_name) != 0) return -1;
-    return client_wait_status(c, seq, timeout_ms) == 0 ? 0 : -1;
+    if (!client_join_sent(c, queue_name)) {
+        char group[T_WIRE_MAX_NAME + 1];
+        char consumer[T_WIRE_MAX_NAME + 1];
+        size_t glen = strlen(e->group);
+        size_t clen = strlen(e->consumer);
+        if (glen > T_WIRE_MAX_NAME || clen > T_WIRE_MAX_NAME) return -1;
+        memcpy(group, e->group, glen + 1);
+        memcpy(consumer, e->consumer, clen + 1);
+        unsigned seq = t_client_ack_seq(c);
+        if (t_client_join(c, group, consumer, queue_name) != 0) return -1;
+        return client_wait_status(c, seq, timeout_ms) == 0 ? 0 : -1;
+    }
+    int64_t start = t_time_now_ms();
+    while (client_join_ack(c, queue_name) == 0) {
+        if (t_time_now_ms() - start >= (int64_t)timeout_ms) return -1;
+        t_time_sleep_ms(5);
+    }
+    return client_join_ack(c, queue_name) == 1 ? 0 : -1;
 }
 
 /* After a T_OK OPEN we are on a leader. Re-OPEN every other unacked
@@ -880,6 +970,8 @@ int t_client_open_queue(t_client *client, const char *queue_name, int flags) {
     client->queues[client->queues_size].name = qn;
     client->queues[client->queues_size].flags = need;
     client->queues[client->queues_size].acked = 0;
+    client->queues[client->queues_size].join_sent = 0;
+    client->queues[client->queues_size].join_ack = 0;
     client->queues_size++;
     if (client_send_open(client, queue_name, need) != 0) {
         free(qn);
@@ -1003,12 +1095,9 @@ int t_client_join(t_client *client, const char *group,
     if (!client || client->free_pending || !group || !consumer_id || !queue_name)
         return -1;
     if (!client->connected || !client->net_mode || !client->conn) return -1;
-    uint8_t buf[6 + 3 * T_WIRE_MAX_NAME];
-    int n = t_wire_encode_join(buf, sizeof(buf), group, consumer_id, queue_name);
-    if (n < 0) return -1;
     if (client_remember_join(client, group, consumer_id, queue_name) != 0)
         return -1;
-    if (client_send_payload(client, T_MSG_JOIN, buf, (size_t)n) != 0) {
+    if (client_send_join(client, group, consumer_id, queue_name) != 0) {
         client_forget_join(client, queue_name);
         return -1;
     }
