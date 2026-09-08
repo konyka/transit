@@ -34,6 +34,7 @@ typedef struct t_client_join_entry {
     char *queue;
     char *group;
     char *consumer;
+    int   ok; /* 1 if this triple got T_OK this session */
 } t_client_join_entry;
 
 typedef struct t_client_inflight {
@@ -135,6 +136,7 @@ static int client_send_next_unacked_open(t_client *c, const char *except);
 static void client_note_open_sent(t_client *c, const char *queue_name);
 static void client_note_join_sent(t_client *c, const char *queue_name);
 static void client_note_join_ack(t_client *c, const char *queue_name, int ok);
+static void client_on_join_ack(t_client *c, const char *queue_name, int32_t status);
 static void client_unack_opens(t_client *c);
 static void client_clear_inflights(t_client *c);
 static int client_inflight_add(t_client *c, const char *queue, uint64_t id);
@@ -292,7 +294,7 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
                 client_on_open_nack(c, c->last_ack_name, a.status);
             }
             if (a.req_type == T_MSG_JOIN && c->last_ack_name[0])
-                client_note_join_ack(c, c->last_ack_name, a.status == 0);
+                client_on_join_ack(c, c->last_ack_name, a.status);
             (void)t_atomic_add_fetch_int(&c->ack_seq, 1);
         }
         return;
@@ -720,12 +722,32 @@ static int client_send_next_unacked_open(t_client *c, const char *except) {
     return 0;
 }
 
+static t_client_join_entry *client_join_find(t_client *c, const char *queue) {
+    if (!c || !queue) return NULL;
+    for (size_t i = 0; i < c->joins_count; ++i) {
+        if (c->joins[i].queue && strcmp(c->joins[i].queue, queue) == 0)
+            return &c->joins[i];
+    }
+    return NULL;
+}
+
+static int client_join_remembered_ok(const t_client *c, const char *queue) {
+    if (!c || !queue) return 0;
+    for (size_t i = 0; i < c->joins_count; ++i) {
+        if (c->joins[i].queue && strcmp(c->joins[i].queue, queue) == 0)
+            return c->joins[i].ok != 0;
+    }
+    return 0;
+}
+
 static void client_note_join_sent(t_client *c, const char *queue_name) {
     if (!c || !queue_name) return;
+    int keep_ack = client_join_remembered_ok(c, queue_name);
     for (size_t i = 0; i < c->queues_size; ++i) {
         if (c->queues[i].name && strcmp(c->queues[i].name, queue_name) == 0) {
             c->queues[i].join_sent = 1;
-            c->queues[i].join_ack = 0;
+            if (!keep_ack)
+                c->queues[i].join_ack = 0;
             return;
         }
     }
@@ -739,6 +761,31 @@ static void client_note_join_ack(t_client *c, const char *queue_name, int ok) {
             return;
         }
     }
+}
+
+/* A refused JOIN must not replace a T_OK triple (drop+OPEN would
+ * replay the wrong group and hold messages). PERMISSION keeps the
+ * name for join-before-open. BUSY/INVALID of a never-acked triple
+ * is forgotten. */
+static void client_on_join_ack(t_client *c, const char *queue_name, int32_t status) {
+    if (!c || !queue_name) return;
+    if (status == 0) {
+        t_client_join_entry *e = client_join_find(c, queue_name);
+        if (e) e->ok = 1;
+        client_note_join_ack(c, queue_name, 1);
+        return;
+    }
+    if (status == (int32_t)T_ERR_AGAIN) {
+        client_note_join_ack(c, queue_name, 0);
+        return;
+    }
+    if (client_join_remembered_ok(c, queue_name)) {
+        client_note_join_ack(c, queue_name, 1);
+        return;
+    }
+    if (status == (int32_t)T_ERR_BUSY || status == (int32_t)T_ERR_INVALID)
+        client_forget_join(c, queue_name);
+    client_note_join_ack(c, queue_name, 0);
 }
 
 static int client_join_sent(const t_client *c, const char *queue_name) {
@@ -767,6 +814,8 @@ static void client_unack_opens(t_client *client) {
         client->queues[i].join_sent = 0;
         client->queues[i].join_ack = 0;
     }
+    for (size_t i = 0; i < client->joins_count; ++i)
+        client->joins[i].ok = 0;
     client->last_push_id = 0;
     client->last_push_priority = 0;
     client->last_push_queue[0] = '\0';
@@ -810,6 +859,12 @@ static int client_remember_join(t_client *c, const char *group,
     if (!c || !group || !consumer || !queue) return -1;
     for (size_t i = 0; i < c->joins_count; ++i) {
         if (c->joins[i].queue && strcmp(c->joins[i].queue, queue) == 0) {
+            if (c->joins[i].ok &&
+                strcmp(c->joins[i].group, group) == 0 &&
+                strcmp(c->joins[i].consumer, consumer) == 0)
+                return 0;
+            if (c->joins[i].ok)
+                return 0; /* keep the T_OK triple; a later BUSY must not replace it */
             char *g = strdup(group);
             char *cid = strdup(consumer);
             if (!g || !cid) {
@@ -837,6 +892,7 @@ static int client_remember_join(t_client *c, const char *group,
     c->joins[c->joins_count].queue = q;
     c->joins[c->joins_count].group = g;
     c->joins[c->joins_count].consumer = cid;
+    c->joins[c->joins_count].ok = 0;
     c->joins_count++;
     return 0;
 }
@@ -1341,7 +1397,8 @@ int t_client_join(t_client *client, const char *group,
         if (!client_queue_ready(client, queue_name)) return -1;
     }
     if (client_send_join(client, group, consumer_id, queue_name) != 0) {
-        client_forget_join(client, queue_name);
+        if (!client_join_remembered_ok(client, queue_name))
+            client_forget_join(client, queue_name);
         return -1;
     }
     return 0;

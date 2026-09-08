@@ -311,7 +311,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   ACK sends that `JOIN` again so fire-and-forget `subscribe` /
   `open_queue` after a drop restore the group. `open_follow` also
   waits for the replay. `CLOSE` forgets it. Join-before-open still
-  sends.
+  sends. A later `BUSY` `JOIN` does not replace a `T_OK` triple
+  (`is_joined` stays 1). A never-acked `BUSY` / `INVALID` is
+  forgotten (`PERMISSION` is kept for join-before-open).
 - `t_client_post_follow` — producer `OPEN` if needed, `POST`, follow
   a different client-port hint once. In-process stub opens locally
   and fans out (no ACK wait).

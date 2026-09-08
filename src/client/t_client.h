@@ -120,7 +120,9 @@ int        t_client_close_queue(t_client *client, const char *queue_name);
 int        t_client_post(t_client *client, const char *queue_name,
                          const uint8_t *data, size_t len, int priority);
 /* TCP: a local producer-only or unacked OPEN is -1 (keeps the triple
- * for the next consumer OPEN ACK). Join-before-open still sends. */
+ * for the next consumer OPEN ACK). Join-before-open still sends.
+ * A T_OK triple is not replaced by a later BUSY JOIN (drop+OPEN
+ * would replay the wrong group). */
 int        t_client_join(t_client *client, const char *group,
                          const char *consumer_id, const char *queue_name);
 /* Register the callback, then a consumer OPEN. A T_OK OPEN ACK

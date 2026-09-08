@@ -170,6 +170,9 @@ message bus.
   name, or reverts an already-acked name to the last `T_OK` bits.
   A `BUSY` exclusive subscribe must not leave a ghost `CONSUMER`
   that poisons a later producer `OPEN` (merged bits stay `BUSY`).
+- A `T_OK` `JOIN` triple is not replaced by a later `BUSY` `JOIN`.
+  `is_joined` stays 1. A drop then `OPEN` replays the good group;
+  the refused name would have left the sticky group empty.
 
 ## Remaining (priority order)
 

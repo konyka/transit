@@ -2599,6 +2599,67 @@ T_TEST(client_join_producer_only_does_not_send) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(client_failed_join_keeps_ok_triple) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 80;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *cons = t_client_create("c");
+    t_client *out = t_client_create("o");
+    T_ASSERT_EQ(t_client_set_heartbeat(cons, 0), 0);
+    T_ASSERT_EQ(t_client_set_heartbeat(prod, 25), 0);
+    T_ASSERT_EQ(t_client_set_heartbeat(out, 25), 0);
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(out, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(cons, "jobs", on_net_msg, NULL, 0, 500), 0);
+    T_ASSERT_EQ(t_client_join_follow(cons, "workers", "c1", "jobs", 500), 0);
+    T_ASSERT_EQ(t_client_is_joined(cons, "jobs"), 1);
+    unsigned seq = t_client_ack_seq(cons);
+    T_ASSERT_EQ(t_client_join(cons, "other", "c1", "jobs"), 0);
+    T_ASSERT(wait_ack_status(cons, seq, (int)T_ERR_BUSY, 500));
+    T_ASSERT_EQ(t_client_is_joined(cons, "jobs"), 1);
+    {
+        int64_t start = t_time_now_ms();
+        while (t_client_is_connected(cons) && t_time_now_ms() - start < 400)
+            t_time_sleep_ms(5);
+    }
+    T_ASSERT_EQ(t_client_is_connected(cons), 0);
+    T_ASSERT_EQ(t_client_is_joined(cons, "jobs"), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    g_got = 0;
+    g_out_got = 0;
+    T_ASSERT_EQ(t_client_subscribe(cons, "jobs", on_net_msg, NULL), 0);
+    T_ASSERT(wait_joined(cons, "jobs", 500));
+    T_ASSERT_EQ(t_client_subscribe_follow(out, "jobs", on_out_msg, NULL, 0, 500), 0);
+    T_ASSERT_EQ(t_client_post_follow(prod, "jobs", (const uint8_t *)"hi", 2, 0, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 1, 500));
+    T_ASSERT_EQ(g_got, 1);
+    t_time_sleep_ms(50);
+    T_ASSERT_EQ(g_out_got, 0);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_client_destroy(out);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
 T_TEST(client_join_replays_after_subscribe) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");
