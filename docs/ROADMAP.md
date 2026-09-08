@@ -82,7 +82,7 @@ message bus.
 - `t_client_close_follow` waits for the `CLOSE` ACK (needed for
   clustered `AUTODELETE`). A send failure no longer pretends success.
   `T_ERR_AGAIN` with a different client-port hint redials once.
-- `t_client_reject` / `t_client_confirm` settle the last `PUSH`.
+- `t_client_reject` / `t_client_confirm` settle an unsettled `PUSH`.
   Auto-confirm stays the default; `set_auto_confirm(0)` is fail-closed
   (no silent ack). `reject_follow` / `confirm_follow` wait for the
   clustered `NACK`/`ACK` apply. A redirect redials once and returns
@@ -142,6 +142,9 @@ message bus.
   drop, fire-and-forget `subscribe` of one name restores the rest
   (same chain `open_follow` already waited for). A second subscription
   must not stay stranded on the dead session.
+- Manual `confirm` / `reject` keep unsettled `PUSH` ids per queue.
+  Pipelined deliveries on a second name (or two on the same name)
+  no longer overwrite the only confirmable id and leak a credit.
 
 ## Remaining (priority order)
 

@@ -133,8 +133,11 @@ bucket. The TCP client (`t_client_dial`) sends `CONFIRM` automatically
 after a decoded `PUSH` that a subscriber callback received, unless
 `t_client_set_auto_confirm(client, 0)`. A `PUSH` with no matching
 callback is left unsettled.
-`t_client_reject` / `t_client_confirm` settle the last `PUSH` on that
-queue; a second settle is `-1`. `t_client_reject_follow` /
+`t_client_reject` / `t_client_confirm` settle an unsettled `PUSH` on
+that queue (the one just delivered during a callback, otherwise the
+oldest). A second settle of the same id is `-1`. Each queue keeps
+its own unsettled ids so a pipelined `PUSH` on another name does
+not hide the first (that would leak a credit). `t_client_reject_follow` /
 `t_client_confirm_follow` wait for the ACK. `T_ERR_AGAIN` with a
 different client-port hint redials once and then returns `-1` (a new
 session must wait for redelivery; rejecting the old id would be
@@ -315,15 +318,18 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   flags, and `CLOSE` again. Send failure keeps the local open (fail
   closed). Stub closes locally.
 - `t_client_set_auto_confirm` — `1` (default) sends `CONFIRM` after
-  each `PUSH` callback. `0` leaves the last `PUSH` unsettled.
+  each `PUSH` callback. `0` leaves each `PUSH` unsettled per queue.
 - `t_client_last_push_id` — `msg_id` of the last decoded `PUSH`.
 - `t_client_last_push_priority` — priority of that `PUSH` (also set
   on an in-process stub `post`). Valid during the subscriber callback.
 - `t_client_last_push_queue` — queue name of that `PUSH` (stub `post`
-  included). NULL if none. Needed to `confirm` after the callback
-  returns when the client is subscribed to more than one queue.
-- `t_client_confirm` / `t_client_reject` — settle that `PUSH` on
-  `queue`. TCP only. Stub returns `-1`.
+  included). NULL if none. Valid during the callback.
+  `confirm(queue)` after return uses that queue's unsettled list,
+  not only this global last name.
+- `t_client_confirm` / `t_client_reject` — settle an unsettled `PUSH`
+  on `queue`. During the callback that is the delivery just received;
+  afterwards the oldest unsettled on that queue. TCP only. Stub
+  returns `-1`.
 - `t_client_confirm_follow` / `t_client_reject_follow` — settle then
   wait. A different client-port hint redials once and returns `-1`.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on

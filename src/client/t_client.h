@@ -87,7 +87,7 @@ int        t_client_post_follow(t_client *client, const char *queue_name,
 int        t_client_close_follow(t_client *client, const char *queue_name,
                                  int timeout_ms);
 /* Default 1: send CONFIRM after each PUSH callback. 0 = caller must
- * confirm or reject the last PUSH (fail closed: no silent ack). */
+ * confirm or reject each unsettled PUSH (fail closed: no silent ack). */
 int        t_client_set_auto_confirm(t_client *client, int on);
 uint64_t   t_client_last_push_id(const t_client *client);
 /* Priority of the last PUSH (or stub post). Valid during the callback. */
@@ -95,8 +95,10 @@ int        t_client_last_push_priority(const t_client *client);
 /* Queue of the last PUSH (or stub post). NULL if none. Valid during
  * the callback so a multi-queue client can confirm without stashing. */
 const char *t_client_last_push_queue(const t_client *client);
-/* CONFIRM / REJECT the last PUSH on `queue_name`. TCP only. A second
- * settle of the same PUSH, a stub client, or a queue mismatch is -1. */
+/* CONFIRM / REJECT an unsettled PUSH on `queue_name`. TCP only.
+ * During a subscriber callback this is the PUSH just delivered;
+ * otherwise the oldest unsettled on that queue. A second settle of
+ * the same PUSH, a stub client, or an empty queue is -1. */
 int        t_client_confirm(t_client *client, const char *queue_name);
 int        t_client_reject(t_client *client, const char *queue_name);
 /* CONFIRM/REJECT then wait. On T_ERR_AGAIN with a different client-port

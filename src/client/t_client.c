@@ -35,6 +35,13 @@ typedef struct t_client_join_entry {
     char *consumer;
 } t_client_join_entry;
 
+typedef struct t_client_inflight {
+    char *queue;
+    uint64_t *ids;
+    size_t n;
+    size_t cap;
+} t_client_inflight;
+
 struct t_client {
     char *id;
     int connected;
@@ -50,6 +57,10 @@ struct t_client {
     t_client_join_entry *joins;
     size_t joins_cap;
     size_t joins_count;
+
+    t_client_inflight *inflights;
+    size_t inflights_cap;
+    size_t inflights_count;
 
     size_t published;
     size_t consumed;
@@ -124,6 +135,8 @@ static void client_note_open_sent(t_client *c, const char *queue_name);
 static void client_note_join_sent(t_client *c, const char *queue_name);
 static void client_note_join_ack(t_client *c, const char *queue_name, int ok);
 static void client_unack_opens(t_client *c);
+static void client_clear_inflights(t_client *c);
+static int client_inflight_add(t_client *c, const char *queue, uint64_t id);
 
 static int client_send_payload(t_client *c, t_msg_type type, const uint8_t *payload, size_t plen) {
     if (!c || !c->conn) return -1;
@@ -274,6 +287,8 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
         free(snaps);
         return;
     }
+    if (p.msg_id != 0)
+        (void)client_inflight_add(c, name, p.msg_id);
     c->push_settled = 0;
     c->posting++;
     for (size_t i = 0; i < snap_n; ++i) {
@@ -338,6 +353,7 @@ void t_client_destroy(t_client *client) {
         free(client->joins[i].consumer);
     }
     free(client->joins);
+    client_clear_inflights(client);
     if (client->psk) {
         t_hmac_wipe(client->psk, client->psk_len);
         free(client->psk);
@@ -528,6 +544,95 @@ static void client_clear_joins(t_client *client) {
     client->joins_cap = 0;
 }
 
+static void client_clear_inflights(t_client *c) {
+    if (!c) return;
+    for (size_t i = 0; i < c->inflights_count; ++i) {
+        free(c->inflights[i].queue);
+        free(c->inflights[i].ids);
+    }
+    free(c->inflights);
+    c->inflights = NULL;
+    c->inflights_count = 0;
+    c->inflights_cap = 0;
+}
+
+static t_client_inflight *client_inflight_find(t_client *c, const char *queue) {
+    if (!c || !queue) return NULL;
+    for (size_t i = 0; i < c->inflights_count; ++i) {
+        if (c->inflights[i].queue && strcmp(c->inflights[i].queue, queue) == 0)
+            return &c->inflights[i];
+    }
+    return NULL;
+}
+
+static t_client_inflight *client_inflight_get(t_client *c, const char *queue) {
+    t_client_inflight *e = client_inflight_find(c, queue);
+    if (e) return e;
+    if (!c || !queue) return NULL;
+    if (c->inflights_count == c->inflights_cap) {
+        size_t new_cap = c->inflights_cap == 0 ? 4 : c->inflights_cap * 2;
+        if (new_cap > SIZE_MAX / sizeof(t_client_inflight)) return NULL;
+        t_client_inflight *n = (t_client_inflight *)realloc(
+            c->inflights, new_cap * sizeof(t_client_inflight));
+        if (!n) return NULL;
+        c->inflights = n;
+        c->inflights_cap = new_cap;
+    }
+    char *qn = strdup(queue);
+    if (!qn) return NULL;
+    e = &c->inflights[c->inflights_count];
+    e->queue = qn;
+    e->ids = NULL;
+    e->n = 0;
+    e->cap = 0;
+    c->inflights_count++;
+    return e;
+}
+
+static int client_inflight_add(t_client *c, const char *queue, uint64_t id) {
+    t_client_inflight *e = client_inflight_get(c, queue);
+    if (!e || id == 0) return -1;
+    if (e->n == e->cap) {
+        size_t new_cap = e->cap == 0 ? 4 : e->cap * 2;
+        if (new_cap > SIZE_MAX / sizeof(uint64_t)) return -1;
+        uint64_t *n = (uint64_t *)realloc(e->ids, new_cap * sizeof(uint64_t));
+        if (!n) return -1;
+        e->ids = n;
+        e->cap = new_cap;
+    }
+    e->ids[e->n++] = id;
+    return 0;
+}
+
+static int client_inflight_has(const t_client_inflight *e, uint64_t id) {
+    if (!e) return 0;
+    for (size_t i = 0; i < e->n; ++i) {
+        if (e->ids[i] == id) return 1;
+    }
+    return 0;
+}
+
+static int client_inflight_remove(t_client_inflight *e, uint64_t id) {
+    if (!e) return -1;
+    for (size_t i = 0; i < e->n; ++i) {
+        if (e->ids[i] != id) continue;
+        for (size_t j = i; j + 1 < e->n; ++j)
+            e->ids[j] = e->ids[j + 1];
+        e->n--;
+        return 0;
+    }
+    return -1;
+}
+
+static int client_inflight_pop(t_client_inflight *e, uint64_t *id) {
+    if (!e || !id || e->n == 0) return -1;
+    *id = e->ids[0];
+    for (size_t i = 0; i + 1 < e->n; ++i)
+        e->ids[i] = e->ids[i + 1];
+    e->n--;
+    return 0;
+}
+
 static void client_note_open_sent(t_client *c, const char *queue_name) {
     if (!c || !queue_name) return;
     for (size_t i = 0; i < c->queues_size; ++i) {
@@ -612,6 +717,7 @@ static void client_unack_opens(t_client *client) {
     client->last_push_priority = 0;
     client->last_push_queue[0] = '\0';
     client->push_settled = 1;
+    client_clear_inflights(client);
 }
 
 static int client_ensure_joins_cap(t_client *c, size_t need) {
@@ -771,6 +877,7 @@ static void client_clear_session(t_client *client) {
     client_clear_subs(client);
     client_clear_joins(client);
     client_clear_opens(client);
+    client_clear_inflights(client);
 }
 
 int t_client_redial_leader(t_client *client) {
@@ -932,17 +1039,38 @@ static int client_clamp_pri(int priority) {
 static int client_settle_push(t_client *client, const char *queue_name, int reject) {
     if (!client || client->free_pending || !queue_name) return -1;
     if (!client->connected || !client->net_mode || !client->conn) return -1;
-    if (client->push_settled || client->last_push_id == 0) return -1;
-    if (!client->last_push_queue[0] ||
-        strcmp(client->last_push_queue, queue_name) != 0)
+    t_client_inflight *e = client_inflight_find(client, queue_name);
+    if (!e) return -1;
+    uint64_t id = 0;
+    if (client->posting > 0 && client->last_push_queue[0] &&
+        strcmp(client->last_push_queue, queue_name) == 0) {
+        if (client->push_settled ||
+            !client_inflight_has(e, client->last_push_id))
+            return -1;
+        id = client->last_push_id;
+        if (client_inflight_remove(e, id) != 0) return -1;
+    } else if (client_inflight_pop(e, &id) != 0) {
         return -1;
+    }
     uint8_t buf[8 + 2 + T_WIRE_MAX_NAME];
-    int n = t_wire_encode_confirm(buf, sizeof(buf), client->last_push_id,
-                                  queue_name);
+    int n = t_wire_encode_confirm(buf, sizeof(buf), id, queue_name);
     if (n < 0) return -1;
     t_msg_type type = reject ? T_MSG_REJECT : T_MSG_CONFIRM;
-    if (client_send_payload(client, type, buf, (size_t)n) != 0) return -1;
-    client->push_settled = 1;
+    if (client_send_payload(client, type, buf, (size_t)n) != 0) {
+        t_client_inflight *back = client_inflight_get(client, queue_name);
+        if (back && back->n < back->cap) {
+            for (size_t i = back->n; i > 0; --i)
+                back->ids[i] = back->ids[i - 1];
+            back->ids[0] = id;
+            back->n++;
+        } else {
+            (void)client_inflight_add(client, queue_name, id);
+        }
+        return -1;
+    }
+    if (id == client->last_push_id && client->last_push_queue[0] &&
+        strcmp(client->last_push_queue, queue_name) == 0)
+        client->push_settled = 1;
     return 0;
 }
 
