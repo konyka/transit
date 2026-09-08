@@ -151,6 +151,16 @@ int        t_client_unsubscribe(t_client *client, const char *queue_name);
 int        t_client_unsubscribe_follow(t_client *client, const char *queue_name,
                                        int timeout_ms);
 size_t     t_client_queue_count(const t_client *client);
+/* 1 if this name is locally open and session-acked (stub: any local
+ * name). 0 if unknown, or remembered after a drop (unacked). After a
+ * drop, queue_count may still be > 0 — this stays 0 until a T_OK
+ * OPEN ACK. Fire-and-forget callers use this instead of polling
+ * ack_seq to know post / close / join may send. */
+int        t_client_is_open(const t_client *client, const char *queue_name);
+/* Remembered OPEN flags for this name, or -1 if unknown. Still
+ * returns the bits after a drop (unacked) so a later OPEN can reuse
+ * them. */
+int        t_client_open_flags(const t_client *client, const char *queue_name);
 size_t     t_client_total_published(const t_client *client);
 size_t     t_client_total_consumed(const t_client *client);
 

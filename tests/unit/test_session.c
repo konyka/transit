@@ -81,10 +81,18 @@ T_TEST(client_connect_disconnect) {
 T_TEST(client_queue_mgmt) {
     t_client *c = t_client_create("c2");
     t_client_connect(c, "localhost", 0);
+    T_ASSERT_EQ(t_client_is_open(NULL, "test.q"), 0);
+    T_ASSERT_EQ(t_client_is_open(c, NULL), 0);
+    T_ASSERT_EQ(t_client_is_open(c, "test.q"), 0);
+    T_ASSERT_EQ(t_client_open_flags(c, "test.q"), -1);
     T_ASSERT_EQ(t_client_open_queue(c, "test.q", 0), 0);
     T_ASSERT_EQ((int)t_client_queue_count(c), 1);
+    T_ASSERT_EQ(t_client_is_open(c, "test.q"), 1);
+    T_ASSERT((t_client_open_flags(c, "test.q") & T_CLIENT_OPEN_PRODUCER) != 0);
     T_ASSERT_EQ(t_client_close_queue(c, "test.q"), 0);
     T_ASSERT_EQ((int)t_client_queue_count(c), 0);
+    T_ASSERT_EQ(t_client_is_open(c, "test.q"), 0);
+    T_ASSERT_EQ(t_client_open_flags(c, "test.q"), -1);
     T_ASSERT_EQ(t_client_open_queue(c, "again.q", 0), 0);
     T_ASSERT_EQ(t_client_close_follow(c, "again.q", 50), 0);
     T_ASSERT_EQ((int)t_client_queue_count(c), 0);
@@ -116,6 +124,8 @@ T_TEST(client_subscribe_before_open) {
     g_msg_received = 0;
     T_ASSERT_EQ(t_client_subscribe(c, "early.q", on_msg, &g_msg_received), 0);
     T_ASSERT_EQ((int)t_client_queue_count(c), 1);
+    T_ASSERT_EQ(t_client_is_open(c, "early.q"), 1);
+    T_ASSERT((t_client_open_flags(c, "early.q") & T_CLIENT_OPEN_CONSUMER) != 0);
     T_ASSERT_EQ(t_client_unsubscribe(c, "early.q"), 0);
     T_ASSERT_EQ((int)t_client_queue_count(c), 0);
     T_ASSERT_EQ(t_client_subscribe(c, "early.q", on_msg, &g_msg_received), 0);

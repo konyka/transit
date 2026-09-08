@@ -380,6 +380,11 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - TCP `t_client_close_queue` requires an acked `OPEN`. After a drop
   it is `-1` and keeps the local flags (a `CLOSE` would be
   `T_ERR_NOTFOUND`). `close_follow` re-`OPEN`s then `CLOSE`s.
+- `t_client_is_open(queue)` — 1 only when that name is locally open
+  and session-acked (in-process stub: any local name). After a drop
+  this is 0 even if `queue_count` is still `> 0`.
+- `t_client_open_flags(queue)` — remembered `OPEN` bits, or `-1`.
+  Still set after a drop so the next `OPEN` can reuse them.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

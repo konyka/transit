@@ -1472,6 +1472,14 @@ size_t t_client_queue_count(const t_client *client) {
     return client ? client->queues_size : 0;
 }
 
+int t_client_is_open(const t_client *client, const char *queue_name) {
+    return client_queue_ready(client, queue_name);
+}
+
+int t_client_open_flags(const t_client *client, const char *queue_name) {
+    return client_queue_flags(client, queue_name);
+}
+
 size_t t_client_total_published(const t_client *client) {
     return client ? client->published : 0;
 }

@@ -157,6 +157,11 @@ message bus.
 - `CLOSE` / `unsubscribe` drop unsettled `PUSH` ids for that queue.
   A later `confirm` is `-1` (the server already nacked on `CLOSE`;
   a stale id on broadcast would have returned a credit).
+- `t_client_is_open` is 1 only when the name is session-acked
+  (stub: any local name). After a drop, `queue_count` can stay `> 0`
+  while this is 0 — fire-and-forget `post` / `close` / `join` must
+  not guess from `ack_seq`. `t_client_open_flags` still returns the
+  remembered bits so a later `OPEN` can reuse them.
 
 ## Remaining (priority order)
 
