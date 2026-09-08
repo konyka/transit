@@ -154,6 +154,9 @@ message bus.
   re-`OPEN`) so exclusive / autodelete are released before return
   and mixed `post()` sees an acked producer. Fire-and-forget
   `unsubscribe` still races. A redirect re-`OPEN`s producer only.
+- `CLOSE` / `unsubscribe` drop unsettled `PUSH` ids for that queue.
+  A later `confirm` is `-1` (the server already nacked on `CLOSE`;
+  a stale id on broadcast would have returned a credit).
 
 ## Remaining (priority order)
 

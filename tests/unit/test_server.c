@@ -2014,6 +2014,82 @@ T_TEST(client_unsubscribed_push_not_confirmed) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(client_confirm_after_unsubscribe) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_set_auto_confirm(cons, 0), 0);
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(cons, "jobs", on_net_msg, NULL, 0, 500), 0);
+    g_got = 0;
+    T_ASSERT_EQ(t_client_post_follow(prod, "jobs", (const uint8_t *)"hi", 2, 0, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 1, 500));
+    T_ASSERT(t_client_last_push_id(cons) != 0);
+    T_ASSERT_EQ(t_client_unsubscribe_follow(cons, "jobs", 500), 0);
+    T_ASSERT_EQ(t_client_confirm(cons, "jobs"), -1);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
+T_TEST(client_confirm_after_broadcast_unsubscribe) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 0;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *prod = t_client_create("p");
+    t_client *cons = t_client_create("c");
+    T_ASSERT_EQ(t_client_set_auto_confirm(cons, 0), 0);
+    T_ASSERT_EQ(t_client_dial(prod, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(cons, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(cons, "bc.q", on_net_msg, NULL,
+                                          T_CLIENT_QTYPE_BROADCAST, 500), 0);
+    g_got = 0;
+    T_ASSERT_EQ(t_client_post_follow(prod, "bc.q", (const uint8_t *)"fan", 3, 0, 500), 0);
+    T_ASSERT(wait_flag_ge(&g_got, 1, 500));
+    T_ASSERT_EQ(t_client_unsubscribe_follow(cons, "bc.q", 500), 0);
+    T_ASSERT_EQ(t_client_confirm(cons, "bc.q"), -1);
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(prod);
+    t_client_destroy(cons);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
 T_TEST(client_unsubscribe_releases_exclusive) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");

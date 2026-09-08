@@ -556,6 +556,22 @@ static void client_clear_inflights(t_client *c) {
     c->inflights_cap = 0;
 }
 
+static void client_clear_inflight_queue(t_client *c, const char *queue) {
+    if (!c || !queue) return;
+    for (size_t i = 0; i < c->inflights_count; ++i) {
+        if (!c->inflights[i].queue || strcmp(c->inflights[i].queue, queue) != 0)
+            continue;
+        free(c->inflights[i].queue);
+        free(c->inflights[i].ids);
+        for (size_t j = i; j + 1 < c->inflights_count; ++j)
+            c->inflights[j] = c->inflights[j + 1];
+        c->inflights_count--;
+        break;
+    }
+    if (c->last_push_queue[0] && strcmp(c->last_push_queue, queue) == 0)
+        c->push_settled = 1;
+}
+
 static t_client_inflight *client_inflight_find(t_client *c, const char *queue) {
     if (!c || !queue) return NULL;
     for (size_t i = 0; i < c->inflights_count; ++i) {
@@ -1178,6 +1194,7 @@ int t_client_close_queue(t_client *client, const char *queue_name) {
                 client->queues[j] = client->queues[j + 1];
             client->queues_size--;
             client_forget_join(client, queue_name);
+            client_clear_inflight_queue(client, queue_name);
             (void)t_client_unsubscribe(client, queue_name);
             return 0;
         }
@@ -1394,6 +1411,7 @@ static int client_forget_consumer_open(t_client *client, const char *queue_name)
             client->queues[i].flags = keep;
         }
         client_forget_join(client, queue_name);
+        client_clear_inflight_queue(client, queue_name);
         return 0;
     }
     return 0;

@@ -98,7 +98,8 @@ const char *t_client_last_push_queue(const t_client *client);
 /* CONFIRM / REJECT an unsettled PUSH on `queue_name`. TCP only.
  * During a subscriber callback this is the PUSH just delivered;
  * otherwise the oldest unsettled on that queue. A second settle of
- * the same PUSH, a stub client, or an empty queue is -1. */
+ * the same PUSH, a stub client, an empty queue, or after CLOSE /
+ * unsubscribe of that name is -1. */
 int        t_client_confirm(t_client *client, const char *queue_name);
 int        t_client_reject(t_client *client, const char *queue_name);
 /* CONFIRM/REJECT then wait. On T_ERR_AGAIN with a different client-port
@@ -138,7 +139,8 @@ int        t_client_subscribe_follow(t_client *client, const char *queue_name,
  * open CLOSEs then re-OPENs producer (OPEN cannot drop bits) so the
  * session stops taking PUSH. After a drop the session OPEN is gone:
  * drop the consumer bit (and the entry if consumer-only) so a later
- * OPEN does not resurrect it. */
+ * OPEN does not resurrect it. CLOSE forgets unsettled PUSHes for
+ * that queue (confirm of a nacked id is -1). */
 int        t_client_unsubscribe(t_client *client, const char *queue_name);
 /* Same as unsubscribe, then wait for CLOSE (and producer re-OPEN).
  * Exclusive / autodelete are released before return. Mixed open

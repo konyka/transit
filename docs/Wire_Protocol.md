@@ -331,8 +331,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   not only this global last name.
 - `t_client_confirm` / `t_client_reject` — settle an unsettled `PUSH`
   on `queue`. During the callback that is the delivery just received;
-  afterwards the oldest unsettled on that queue. TCP only. Stub
-  returns `-1`.
+  afterwards the oldest unsettled on that queue. `CLOSE` /
+  `unsubscribe` forgets that queue's unsettled ids (a nacked id
+  must not be confirmed). TCP only. Stub returns `-1`.
 - `t_client_confirm_follow` / `t_client_reject_follow` — settle then
   wait. A different client-port hint redials once and returns `-1`.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
