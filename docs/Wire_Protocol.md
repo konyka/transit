@@ -394,6 +394,8 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - A non-`T_OK` `OPEN` ACK other than `T_ERR_AGAIN` forgets a name
   that was never acked this session, or reverts flags to the last
   `T_OK` bits. A refused exclusive consumer must not stay local.
+  A drop keeps those last `T_OK` bits so a later `BUSY` re-`OPEN`
+  does not forget a mixed producer.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

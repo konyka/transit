@@ -206,9 +206,10 @@ static void client_mark_queue_acked(t_client *c, const char *name) {
 }
 
 /* A failed OPEN must not keep consumer bits the server refused.
- * Never-acked this session: drop the entry (a later PRODUCER OPEN
+ * Never T_OK on this name: drop the entry (a later PRODUCER OPEN
  * would otherwise merge the ghost CONSUMER and stay BUSY).
- * Already-acked: revert to the last T_OK bits. T_ERR_AGAIN stays. */
+ * After a drop, acked_flags still holds the last T_OK bits so a
+ * BUSY re-OPEN keeps the producer memory. T_ERR_AGAIN stays. */
 static void client_on_open_nack(t_client *c, const char *name, int32_t status) {
     if (!c || !name || !name[0]) return;
     if (status == 0 || status == (int32_t)T_ERR_AGAIN) return;
@@ -809,7 +810,6 @@ static int client_join_ack(const t_client *c, const char *queue_name) {
 static void client_unack_opens(t_client *client) {
     for (size_t i = 0; i < client->queues_size; ++i) {
         client->queues[i].acked = 0;
-        client->queues[i].acked_flags = 0;
         client->queues[i].open_sent = 0;
         client->queues[i].join_sent = 0;
         client->queues[i].join_ack = 0;
@@ -1505,6 +1505,8 @@ static int client_forget_consumer_open(t_client *client, const char *queue_name)
             client->queues_size--;
         } else {
             client->queues[i].flags = keep;
+            if (client->queues[i].acked_flags)
+                client->queues[i].acked_flags = keep;
         }
         client_forget_join(client, queue_name);
         client_clear_inflight_queue(client, queue_name);

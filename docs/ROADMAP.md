@@ -173,6 +173,9 @@ message bus.
 - A `T_OK` `JOIN` triple is not replaced by a later `BUSY` `JOIN`.
   `is_joined` stays 1. A drop then `OPEN` replays the good group;
   the refused name would have left the sticky group empty.
+- A drop keeps the last `T_OK` `OPEN` bits. A `BUSY` re-`OPEN`
+  (exclusive already taken) must not forget a mixed producer —
+  `open_flags` still has the producer bit so `post` can recover.
 
 ## Remaining (priority order)
 

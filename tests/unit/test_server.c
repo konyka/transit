@@ -2155,6 +2155,63 @@ T_TEST(client_exclusive_released_on_drop) {
     t_evloop_destroy(loop);
 }
 
+T_TEST(client_drop_keeps_producer_after_exclusive_busy) {
+    t_evloop *loop = t_evloop_create();
+    t_broker *b = t_broker_create("n0");
+    t_broker_start(b);
+    t_server_config cfg;
+    t_server_config_init(&cfg);
+    cfg.port = 0;
+    cfg.idle_timeout_ms = 80;
+    t_server *srv = t_server_create(loop, b, &cfg);
+    t_server_start(srv);
+    uint16_t port = t_server_port(srv);
+
+    t_thread th;
+    T_ASSERT_EQ(t_thread_spawn(&th, loop_runner, loop), 0);
+    t_time_sleep_us(20000);
+
+    t_client *c1 = t_client_create("ex1");
+    t_client *c2 = t_client_create("ex2");
+    T_ASSERT_EQ(t_client_set_heartbeat(c1, 0), 0);
+    T_ASSERT_EQ(t_client_set_heartbeat(c2, 25), 0);
+    T_ASSERT_EQ(t_client_dial(c1, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_dial(c2, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_open_follow(c1, "ex.q",
+                                     T_CLIENT_OPEN_PRODUCER | T_CLIENT_QFLAG_EXCLUSIVE,
+                                     500), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(c1, "ex.q", on_net_msg, NULL,
+                                          T_CLIENT_QFLAG_EXCLUSIVE, 500), 0);
+    {
+        int64_t start = t_time_now_ms();
+        while (t_client_is_connected(c1) && t_time_now_ms() - start < 400)
+            t_time_sleep_ms(5);
+    }
+    T_ASSERT_EQ(t_client_is_connected(c1), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(c2, "ex.q", on_net_msg, NULL,
+                                          T_CLIENT_QFLAG_EXCLUSIVE, 500), 0);
+    T_ASSERT_EQ(t_client_dial(c1, loop, "127.0.0.1", port), 0);
+    T_ASSERT_EQ(t_client_subscribe_follow(c1, "ex.q", on_net_msg, NULL,
+                                          T_CLIENT_QFLAG_EXCLUSIVE, 500), -1);
+    T_ASSERT_EQ((int)t_client_queue_count(c1), 1);
+    T_ASSERT((t_client_open_flags(c1, "ex.q") & T_CLIENT_OPEN_PRODUCER) != 0);
+    T_ASSERT_EQ(t_client_is_open(c1, "ex.q"), 0);
+    T_ASSERT_EQ(t_client_unsubscribe(c1, "ex.q"), 0);
+    T_ASSERT((t_client_open_flags(c1, "ex.q") & T_CLIENT_OPEN_PRODUCER) != 0);
+    T_ASSERT_EQ(t_client_open_follow(c1, "ex.q", T_CLIENT_OPEN_PRODUCER, 500), 0);
+    unsigned seq = t_client_ack_seq(c1);
+    T_ASSERT_EQ(t_client_post(c1, "ex.q", (const uint8_t *)"x", 1, 0), 0);
+    T_ASSERT(wait_ack_status(c1, seq, 0, 500));
+
+    t_evloop_stop(loop);
+    T_ASSERT_EQ(t_thread_join(&th), 0);
+    t_client_destroy(c1);
+    t_client_destroy(c2);
+    t_server_destroy(srv);
+    t_broker_destroy(b);
+    t_evloop_destroy(loop);
+}
+
 T_TEST(client_failed_exclusive_does_not_poison_producer) {
     t_evloop *loop = t_evloop_create();
     t_broker *b = t_broker_create("n0");
