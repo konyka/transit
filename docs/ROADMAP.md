@@ -145,6 +145,11 @@ message bus.
 - Manual `confirm` / `reject` keep unsettled `PUSH` ids per queue.
   Pipelined deliveries on a second name (or two on the same name)
   no longer overwrite the only confirmable id and leak a credit.
+- TCP `t_client_join` requires an acked consumer `OPEN` when the
+  name is already local. After a drop (or a producer-only open) it
+  is `-1` and does not send: a `PERMISSION` ACK would steal
+  `last_status` from a later `OPEN`. The triple stays for the
+  `OPEN` ACK replay. Join-before-open still sends.
 
 ## Remaining (priority order)
 

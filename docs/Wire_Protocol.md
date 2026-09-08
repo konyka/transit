@@ -284,8 +284,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_last_status()` — last decoded `ACK` status. Starts at `0`
   (same as `T_OK_CODE`); do not treat that as “an ACK arrived”.
 - `t_client_join(client, group, consumer_id, queue)` — TCP only
-  (`t_client_connect` stub returns -1). Remembers the triple. Wait on
-  `ack_seq` like `OPEN`.
+  (`t_client_connect` stub returns -1). Remembers the triple. A local
+  producer-only or unacked `OPEN` is `-1` and does not send. Wait on
+  `ack_seq` like `OPEN` when a frame is sent.
 - `t_client_ack_seq()` — monotonic count of decoded `ACK` frames. Wait
   for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`/`JOIN`/
   `CONFIRM`/`REJECT`, then read
@@ -305,10 +306,12 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   unacked queue (chain). `open_follow` waits for those ACKs.
   No hint or a same-peer hint is fail-closed.
 - `t_client_join` / `t_client_join_follow` — remember the group
-  triple. A `T_OK` consumer `OPEN` ACK sends that `JOIN` again so
-  fire-and-forget `subscribe` / `open_queue` after a drop restore
-  the group. `open_follow` also waits for the replay. `CLOSE`
-  forgets it.
+  triple. A local producer-only or unacked `OPEN` (drop) does not
+  send `JOIN` (`-1`; keeps the triple). A `T_OK` consumer `OPEN`
+  ACK sends that `JOIN` again so fire-and-forget `subscribe` /
+  `open_queue` after a drop restore the group. `open_follow` also
+  waits for the replay. `CLOSE` forgets it. Join-before-open still
+  sends.
 - `t_client_post_follow` — producer `OPEN` if needed, `POST`, follow
   a different client-port hint once. In-process stub opens locally
   and fans out (no ACK wait).

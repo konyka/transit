@@ -116,6 +116,8 @@ int        t_client_close_queue(t_client *client, const char *queue_name);
  * drop, or consumer-only OPEN, is -1 (does not bump published). */
 int        t_client_post(t_client *client, const char *queue_name,
                          const uint8_t *data, size_t len, int priority);
+/* TCP: a local producer-only or unacked OPEN is -1 (keeps the triple
+ * for the next consumer OPEN ACK). Join-before-open still sends. */
 int        t_client_join(t_client *client, const char *group,
                          const char *consumer_id, const char *queue_name);
 /* Register the callback, then a consumer OPEN. A T_OK OPEN ACK

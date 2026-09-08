@@ -1276,6 +1276,14 @@ int t_client_join(t_client *client, const char *group,
     if (!client->connected || !client->net_mode || !client->conn) return -1;
     if (client_remember_join(client, group, consumer_id, queue_name) != 0)
         return -1;
+    /* Join-before-open has no local entry and still sends (PERMISSION).
+     * A remembered open that is producer-only or unacked (drop) must
+     * not send: the server would reject and last_status would lie. */
+    int flags = client_queue_flags(client, queue_name);
+    if (flags >= 0) {
+        if ((flags & T_CLIENT_OPEN_CONSUMER) == 0) return -1;
+        if (!client_queue_ready(client, queue_name)) return -1;
+    }
     if (client_send_join(client, group, consumer_id, queue_name) != 0) {
         client_forget_join(client, queue_name);
         return -1;
