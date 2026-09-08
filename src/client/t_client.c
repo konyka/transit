@@ -18,6 +18,7 @@ typedef struct t_client_queue_entry {
     char *name;
     int   flags;
     int   acked;
+    int   acked_flags; /* last T_OK OPEN bits this session; 0 if none */
     int   open_sent; /* OPEN written since last unack */
     int   join_sent; /* JOIN written since last unack / OPEN */
     int   join_ack;  /* 0 none, 1 T_OK, -1 error */
@@ -178,13 +179,47 @@ static int client_queue_ready(const t_client *c, const char *name) {
     return 0;
 }
 
+static void client_forget_open_name(t_client *c, const char *name) {
+    if (!c || !name) return;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (!c->queues[i].name || strcmp(c->queues[i].name, name) != 0)
+            continue;
+        free(c->queues[i].name);
+        for (size_t j = i; j + 1 < c->queues_size; ++j)
+            c->queues[j] = c->queues[j + 1];
+        c->queues_size--;
+        return;
+    }
+}
+
 static void client_mark_queue_acked(t_client *c, const char *name) {
     if (!c || !name || !name[0]) return;
     for (size_t i = 0; i < c->queues_size; ++i) {
         if (c->queues[i].name && strcmp(c->queues[i].name, name) == 0) {
             c->queues[i].acked = 1;
+            c->queues[i].acked_flags = c->queues[i].flags;
             return;
         }
+    }
+}
+
+/* A failed OPEN must not keep consumer bits the server refused.
+ * Never-acked this session: drop the entry (a later PRODUCER OPEN
+ * would otherwise merge the ghost CONSUMER and stay BUSY).
+ * Already-acked: revert to the last T_OK bits. T_ERR_AGAIN stays. */
+static void client_on_open_nack(t_client *c, const char *name, int32_t status) {
+    if (!c || !name || !name[0]) return;
+    if (status == 0 || status == (int32_t)T_ERR_AGAIN) return;
+    for (size_t i = 0; i < c->queues_size; ++i) {
+        if (!c->queues[i].name || strcmp(c->queues[i].name, name) != 0)
+            continue;
+        if (c->queues[i].acked_flags == 0) {
+            client_forget_open_name(c, name);
+            return;
+        }
+        c->queues[i].flags = c->queues[i].acked_flags;
+        c->queues[i].open_sent = 0;
+        return;
     }
 }
 
@@ -253,6 +288,8 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
                     (void)client_send_remembered_join(c, c->last_ack_name);
                     (void)client_send_next_unacked_open(c, c->last_ack_name);
                 }
+            } else if (a.req_type == T_MSG_OPEN_QUEUE && c->last_ack_name[0]) {
+                client_on_open_nack(c, c->last_ack_name, a.status);
             }
             if (a.req_type == T_MSG_JOIN && c->last_ack_name[0])
                 client_note_join_ack(c, c->last_ack_name, a.status == 0);
@@ -725,6 +762,7 @@ static int client_join_ack(const t_client *c, const char *queue_name) {
 static void client_unack_opens(t_client *client) {
     for (size_t i = 0; i < client->queues_size; ++i) {
         client->queues[i].acked = 0;
+        client->queues[i].acked_flags = 0;
         client->queues[i].open_sent = 0;
         client->queues[i].join_sent = 0;
         client->queues[i].join_ack = 0;
@@ -1164,6 +1202,7 @@ int t_client_open_queue(t_client *client, const char *queue_name, int flags) {
     client->queues[client->queues_size].name = qn;
     client->queues[client->queues_size].flags = need;
     client->queues[client->queues_size].acked = 0;
+    client->queues[client->queues_size].acked_flags = 0;
     client->queues[client->queues_size].open_sent = 0;
     client->queues[client->queues_size].join_sent = 0;
     client->queues[client->queues_size].join_ack = 0;

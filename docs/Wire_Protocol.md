@@ -389,6 +389,9 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   session. 0 after a drop (the triple may still be remembered) or
   if `JOIN` failed. Fire-and-forget `subscribe` after a drop: wait
   for this, not only `is_open`.
+- A non-`T_OK` `OPEN` ACK other than `T_ERR_AGAIN` forgets a name
+  that was never acked this session, or reverts flags to the last
+  `T_OK` bits. A refused exclusive consumer must not stay local.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

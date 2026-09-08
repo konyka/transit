@@ -109,6 +109,8 @@ int        t_client_confirm_follow(t_client *client, const char *queue_name,
                                    int timeout_ms);
 int        t_client_reject_follow(t_client *client, const char *queue_name,
                                   int timeout_ms);
+/* A non-OK OPEN ACK (except T_ERR_AGAIN) drops a never-acked name
+ * or reverts an acked name to the last T_OK bits. */
 int        t_client_open_queue(t_client *client, const char *queue_name, int flags);
 /* TCP: requires an acked OPEN. After a drop the name is unacked —
  * this is -1 and keeps the local flags. Use close_follow to re-OPEN. */

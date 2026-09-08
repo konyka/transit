@@ -166,6 +166,10 @@ message bus.
   session. After a drop it is 0 even if the triple is remembered.
   Fire-and-forget `subscribe` restores the group on the `OPEN` ACK;
   wait for this, not only `is_open`, or a failed replay is silent.
+- A failed `OPEN` ACK (not `T_ERR_AGAIN`) drops a never-acked local
+  name, or reverts an already-acked name to the last `T_OK` bits.
+  A `BUSY` exclusive subscribe must not leave a ghost `CONSUMER`
+  that poisons a later producer `OPEN` (merged bits stay `BUSY`).
 
 ## Remaining (priority order)
 
