@@ -385,6 +385,10 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   this is 0 even if `queue_count` is still `> 0`.
 - `t_client_open_flags(queue)` — remembered `OPEN` bits, or `-1`.
   Still set after a drop so the next `OPEN` can reuse them.
+- `t_client_is_joined(queue)` — 1 after a `T_OK` `JOIN` ACK this
+  session. 0 after a drop (the triple may still be remembered) or
+  if `JOIN` failed. Fire-and-forget `subscribe` after a drop: wait
+  for this, not only `is_open`.
 
 Drive the same `t_evloop` that owns the server (or a dedicated client loop)
 so `PUSH`/`ACK` are read.

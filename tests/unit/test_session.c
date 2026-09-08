@@ -93,6 +93,8 @@ T_TEST(client_queue_mgmt) {
     T_ASSERT_EQ((int)t_client_queue_count(c), 0);
     T_ASSERT_EQ(t_client_is_open(c, "test.q"), 0);
     T_ASSERT_EQ(t_client_open_flags(c, "test.q"), -1);
+    T_ASSERT_EQ(t_client_is_joined(NULL, "test.q"), 0);
+    T_ASSERT_EQ(t_client_is_joined(c, "test.q"), 0);
     T_ASSERT_EQ(t_client_open_queue(c, "again.q", 0), 0);
     T_ASSERT_EQ(t_client_close_follow(c, "again.q", 50), 0);
     T_ASSERT_EQ((int)t_client_queue_count(c), 0);

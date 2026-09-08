@@ -161,6 +161,11 @@ int        t_client_is_open(const t_client *client, const char *queue_name);
  * returns the bits after a drop (unacked) so a later OPEN can reuse
  * them. */
 int        t_client_open_flags(const t_client *client, const char *queue_name);
+/* 1 after a T_OK JOIN ACK this session. 0 if none, after a drop
+ * (join_ack is cleared), or if JOIN failed. A remembered triple
+ * still replays on the next consumer OPEN ACK — wait for this,
+ * not only is_open, before assuming the group will take a POST. */
+int        t_client_is_joined(const t_client *client, const char *queue_name);
 size_t     t_client_total_published(const t_client *client);
 size_t     t_client_total_consumed(const t_client *client);
 

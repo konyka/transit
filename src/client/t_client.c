@@ -1480,6 +1480,10 @@ int t_client_open_flags(const t_client *client, const char *queue_name) {
     return client_queue_flags(client, queue_name);
 }
 
+int t_client_is_joined(const t_client *client, const char *queue_name) {
+    return client_join_ack(client, queue_name) == 1;
+}
+
 size_t t_client_total_published(const t_client *client) {
     return client ? client->published : 0;
 }

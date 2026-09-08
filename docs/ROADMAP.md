@@ -162,6 +162,10 @@ message bus.
   while this is 0 — fire-and-forget `post` / `close` / `join` must
   not guess from `ack_seq`. `t_client_open_flags` still returns the
   remembered bits so a later `OPEN` can reuse them.
+- `t_client_is_joined` is 1 only after a `T_OK` `JOIN` ACK this
+  session. After a drop it is 0 even if the triple is remembered.
+  Fire-and-forget `subscribe` restores the group on the `OPEN` ACK;
+  wait for this, not only `is_open`, or a failed replay is silent.
 
 ## Remaining (priority order)
 
