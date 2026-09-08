@@ -50,6 +50,10 @@ int        t_client_last_status(const t_client *client);
  * Wait for this to change; do not treat last_status==0 as "ACK received". */
 unsigned   t_client_ack_seq(const t_client *client);
 const char *t_client_last_ack_name(const t_client *client);
+/* req_type of the last decoded ACK (T_MSG_OPEN_QUEUE / CLOSE_QUEUE /
+ * POST / JOIN / ...). 0 until the first ACK. Heartbeat/NOP ACKs skip
+ * this. Wait for ack_seq, then read type + last_status together. */ 
+int        t_client_last_ack_type(const t_client *client);
 /* Parse ACK name `host_port` (last `_` splits IPv4/hostname from port). */
 int        t_client_parse_leader_hint(const char *name, char *host, size_t host_cap,
                                       uint16_t *port);
@@ -159,8 +163,9 @@ size_t     t_client_queue_count(const t_client *client);
 /* 1 if this name is locally open and session-acked (stub: any local
  * name). 0 if unknown, or remembered after a drop (unacked). After a
  * drop, queue_count may still be > 0 — this stays 0 until a T_OK
- * OPEN ACK. Fire-and-forget callers use this instead of polling
- * ack_seq to know post / close / join may send. */
+ * OPEN ACK (not CLOSE / POST / JOIN). Fire-and-forget callers use
+ * this instead of polling ack_seq to know post / close / join may
+ * send. */
 int        t_client_is_open(const t_client *client, const char *queue_name);
 /* Remembered OPEN flags for this name, or -1 if unknown. Still
  * returns the bits after a drop (unacked) so a later OPEN can reuse

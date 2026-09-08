@@ -176,6 +176,12 @@ message bus.
 - A drop keeps the last `T_OK` `OPEN` bits. A `BUSY` re-`OPEN`
   (exclusive already taken) must not forget a mixed producer —
   `open_flags` still has the producer bit so `post` can recover.
+- `t_client_last_ack_type` is the `ACK` `req_type`. Pipelined
+  fire-and-forget can tell `CLOSE` from `OPEN` instead of guessing
+  from `last_status`. Only a `T_OK` `OPEN` ACK sets `is_open`; a
+  `CLOSE` ACK must not mark a just-sent re-`OPEN`. An `AUTODELETE`
+  `CLOSE` then durable `OPEN` without datadir is `T_ERR_IO` and
+  must stay unacked (`post` is `-1`).
 
 ## Remaining (priority order)
 

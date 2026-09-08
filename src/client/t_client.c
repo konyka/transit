@@ -74,6 +74,7 @@ struct t_client {
     int       net_mode;
     t_atomic_int last_status;
     t_atomic_int ack_seq;
+    t_atomic_int last_ack_type;
     char      last_ack_name[T_WIRE_MAX_NAME + 1];
     uint8_t  *psk;
     size_t    psk_len;
@@ -281,16 +282,15 @@ static void client_on_msg(t_conn *conn, const t_proto_msg *msg, void *ud) {
             if (a.req_type == T_MSG_HEARTBEAT || a.req_type == T_MSG_NOP)
                 return;
             t_atomic_store_int(&c->last_status, a.status);
+            t_atomic_store_int(&c->last_ack_type, (int)a.req_type);
             c->last_ack_name[0] = '\0';
             if (a.name && a.name_len)
                 (void)t_wire_name_copy(c->last_ack_name, sizeof(c->last_ack_name),
                                        a.name, a.name_len);
-            if (a.status == 0 && c->last_ack_name[0]) {
+            if (a.status == 0 && a.req_type == T_MSG_OPEN_QUEUE && c->last_ack_name[0]) {
                 client_mark_queue_acked(c, c->last_ack_name);
-                if (a.req_type == T_MSG_OPEN_QUEUE) {
-                    (void)client_send_remembered_join(c, c->last_ack_name);
-                    (void)client_send_next_unacked_open(c, c->last_ack_name);
-                }
+                (void)client_send_remembered_join(c, c->last_ack_name);
+                (void)client_send_next_unacked_open(c, c->last_ack_name);
             } else if (a.req_type == T_MSG_OPEN_QUEUE && c->last_ack_name[0]) {
                 client_on_open_nack(c, c->last_ack_name, a.status);
             }
@@ -362,6 +362,7 @@ t_client *t_client_create(const char *client_id) {
     c->net_mode = 0;
     t_atomic_store_int(&c->last_status, 0);
     t_atomic_store_int(&c->ack_seq, 0);
+    t_atomic_store_int(&c->last_ack_type, 0);
     c->last_ack_name[0] = '\0';
     c->heartbeat_ms = T_CLIENT_HEARTBEAT_DEFAULT_MS;
     c->heartbeat_timer_id = -1;
@@ -415,6 +416,7 @@ int t_client_connect(t_client *client, const char *host, uint16_t port) {
     if (!client || client->free_pending || client->net_mode) return -1;
     client->connected = 1;
     t_atomic_store_int(&client->last_status, 0);
+    t_atomic_store_int(&client->last_ack_type, 0);
     client->last_ack_name[0] = '\0';
     return 0;
 }
@@ -431,6 +433,7 @@ int t_client_dial(t_client *client, t_evloop *loop, const char *host, uint16_t p
     client->net_mode = 1;
     client->connected = 0;
     t_atomic_store_int(&client->last_status, 0);
+    t_atomic_store_int(&client->last_ack_type, 0);
     client->last_ack_name[0] = '\0';
     t_conn_set_on_msg(conn, client_on_msg, client);
     t_conn_set_on_close(conn, client_on_close, client);
@@ -517,6 +520,11 @@ unsigned t_client_ack_seq(const t_client *client) {
 
 const char *t_client_last_ack_name(const t_client *client) {
     return client ? client->last_ack_name : NULL;
+}
+
+int t_client_last_ack_type(const t_client *client) {
+    return client ? t_atomic_load_int((t_atomic_int *)&client->last_ack_type)
+                  : 0;
 }
 
 int t_client_parse_leader_hint(const char *name, char *host, size_t host_cap,

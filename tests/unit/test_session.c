@@ -63,6 +63,8 @@ T_TEST(client_ack_seq_starts_zero) {
     T_ASSERT_NOT_NULL(c);
     T_ASSERT_EQ((int)t_client_ack_seq(c), 0);
     T_ASSERT_EQ(t_client_last_status(c), 0);
+    T_ASSERT_EQ(t_client_last_ack_type(NULL), 0);
+    T_ASSERT_EQ(t_client_last_ack_type(c), 0);
     T_ASSERT_EQ(t_client_connect(c, "127.0.0.1", 1), 0);
     T_ASSERT_EQ((int)t_client_ack_seq(c), 0);
     t_client_destroy(c);

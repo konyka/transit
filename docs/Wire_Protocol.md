@@ -290,8 +290,13 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_ack_seq()` — monotonic count of decoded `ACK` frames. Wait
   for this to change after `OPEN`/`POST`/`CLOSE`/`AUTH`/`JOIN`/
   `CONFIRM`/`REJECT`, then read
-  `last_status`. Status and the name are published before the sequence
-  increment (seq_cst), so a new seq is a happens-before for those fields.
+  `last_status` and `last_ack_type`. Status, type, and the name are
+  published before the sequence increment (seq_cst), so a new seq is a
+  happens-before for those fields.
+- `t_client_last_ack_type()` — `req_type` of that `ACK` (`T_MSG_OPEN_QUEUE`,
+  `CLOSE_QUEUE`, `POST`, `JOIN`, …). `0` until the first ACK.
+  Pipelined fire-and-forget must not assume the latest `last_status`
+  belongs to the frame just sent.
 - `t_client_heartbeat` — one `HEARTBEAT`. TCP only. The ACK is ignored
   for `ack_seq` / `last_status`.
 - `t_client_set_heartbeat(ms)` — repeat interval; `0` off; default 10s
@@ -339,7 +344,7 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
 - `t_client_confirm_follow` / `t_client_reject_follow` — settle then
   wait. A different client-port hint redials once and returns `-1`.
 - `t_client_last_ack_name()` — last decoded `ACK` name (`host_port` on
-  follower `POST` `T_ERR_AGAIN`).
+  follower `POST` `T_ERR_AGAIN`). Pair with `last_ack_type`.
 - `t_client_subscribe` may be called before `open_queue`. It registers
   the callback, then a consumer `OPEN`, and tracks that open so
   `close_follow` can release exclusive / autodelete. On a dialed
@@ -384,7 +389,10 @@ connection) is `ACK` `T_OK`. See `docs/Consumer_Groups.md`.
   `T_ERR_NOTFOUND`). `close_follow` re-`OPEN`s then `CLOSE`s.
 - `t_client_is_open(queue)` — 1 only when that name is locally open
   and session-acked (in-process stub: any local name). After a drop
-  this is 0 even if `queue_count` is still `> 0`.
+  this is 0 even if `queue_count` is still `> 0`. Only a `T_OK`
+  `OPEN` ACK marks it; a   `CLOSE`/`POST`/`JOIN` ACK must not (a pipelined `AUTODELETE`
+  `CLOSE` then durable `OPEN` would otherwise look open after the
+  `CLOSE` ACK, then stay open when the `OPEN` is `T_ERR_IO`).
 - `t_client_open_flags(queue)` — remembered `OPEN` bits, or `-1`.
   Still set after a drop so the next `OPEN` can reuse them.
 - `t_client_is_joined(queue)` — 1 after a `T_OK` `JOIN` ACK this
