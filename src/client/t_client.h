@@ -140,6 +140,14 @@ int        t_client_subscribe_follow(t_client *client, const char *queue_name,
  * drop the consumer bit (and the entry if consumer-only) so a later
  * OPEN does not resurrect it. */
 int        t_client_unsubscribe(t_client *client, const char *queue_name);
+/* Same as unsubscribe, then wait for CLOSE (and producer re-OPEN).
+ * Exclusive / autodelete are released before return. Mixed open
+ * leaves an acked producer so post() works. After a drop this is
+ * the same as unsubscribe (no session CLOSE to wait for). On
+ * T_ERR_AGAIN with a different client-port hint, redial once and
+ * OPEN producer only (do not resurrect the consumer). */
+int        t_client_unsubscribe_follow(t_client *client, const char *queue_name,
+                                       int timeout_ms);
 size_t     t_client_queue_count(const t_client *client);
 size_t     t_client_total_published(const t_client *client);
 size_t     t_client_total_consumed(const t_client *client);

@@ -150,6 +150,10 @@ message bus.
   is `-1` and does not send: a `PERMISSION` ACK would steal
   `last_status` from a later `OPEN`. The triple stays for the
   `OPEN` ACK replay. Join-before-open still sends.
+- `t_client_unsubscribe_follow` waits for `CLOSE` (and a producer
+  re-`OPEN`) so exclusive / autodelete are released before return
+  and mixed `post()` sees an acked producer. Fire-and-forget
+  `unsubscribe` still races. A redirect re-`OPEN`s producer only.
 
 ## Remaining (priority order)
 

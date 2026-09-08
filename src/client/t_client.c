@@ -1362,22 +1362,46 @@ int t_client_subscribe_follow(t_client *client, const char *queue_name,
     return 0;
 }
 
-int t_client_unsubscribe(t_client *client, const char *queue_name) {
-    if (!client || client->free_pending || !queue_name) return -1;
+static int client_drop_queue_subs(t_client *client, const char *queue_name) {
+    if (!client || !queue_name) return 0;
     int removed = 0;
     for (size_t i = 0; i < client->subs_count; ) {
         if (client->subs[i].queue && strcmp(client->subs[i].queue, queue_name) == 0) {
             free(client->subs[i].queue);
-            for (size_t j = i; j + 1 < client->subs_count; ++j) {
-                client->subs[j] = client->subs[j+1];
-            }
+            for (size_t j = i; j + 1 < client->subs_count; ++j)
+                client->subs[j] = client->subs[j + 1];
             client->subs_count--;
             removed++;
         } else {
             ++i;
         }
     }
-    if (!removed) return -1;
+    return removed;
+}
+
+static int client_forget_consumer_open(t_client *client, const char *queue_name) {
+    for (size_t i = 0; i < client->queues_size; ++i) {
+        if (!client->queues[i].name ||
+            strcmp(client->queues[i].name, queue_name) != 0)
+            continue;
+        int keep = client->queues[i].flags & ~T_CLIENT_OPEN_CONSUMER;
+        if ((keep & 0xFF) == 0) {
+            free(client->queues[i].name);
+            for (size_t j = i; j + 1 < client->queues_size; ++j)
+                client->queues[j] = client->queues[j + 1];
+            client->queues_size--;
+        } else {
+            client->queues[i].flags = keep;
+        }
+        client_forget_join(client, queue_name);
+        return 0;
+    }
+    return 0;
+}
+
+int t_client_unsubscribe(t_client *client, const char *queue_name) {
+    if (!client || client->free_pending || !queue_name) return -1;
+    if (client_drop_queue_subs(client, queue_name) <= 0) return -1;
     int flags = client_queue_flags(client, queue_name);
     if (flags < 0) return 0;
     if ((flags & T_CLIENT_OPEN_CONSUMER) == 0)
@@ -1385,31 +1409,45 @@ int t_client_unsubscribe(t_client *client, const char *queue_name) {
     /* A drop already released the session OPEN. Drop the consumer bit
      * so a later OPEN does not resurrect it (PUSH would sit inflight
      * with no callback). close_queue would be -1. */
-    if (client->net_mode && !client_queue_ready(client, queue_name)) {
-        for (size_t i = 0; i < client->queues_size; ++i) {
-            if (!client->queues[i].name ||
-                strcmp(client->queues[i].name, queue_name) != 0)
-                continue;
-            int keep = client->queues[i].flags & ~T_CLIENT_OPEN_CONSUMER;
-            if ((keep & 0xFF) == 0) {
-                free(client->queues[i].name);
-                for (size_t j = i; j + 1 < client->queues_size; ++j)
-                    client->queues[j] = client->queues[j + 1];
-                client->queues_size--;
-            } else {
-                client->queues[i].flags = keep;
-            }
-            client_forget_join(client, queue_name);
-            return 0;
-        }
-        return 0;
-    }
+    if (client->net_mode && !client_queue_ready(client, queue_name))
+        return client_forget_consumer_open(client, queue_name);
     /* OPEN only ORs bits. Drop consumer with CLOSE; keep producer by
      * re-OPEN (same connection, so CLOSE then OPEN stay ordered). */
     if (t_client_close_queue(client, queue_name) != 0) return -1;
     if ((flags & T_CLIENT_OPEN_PRODUCER) == 0) return 0;
     return t_client_open_queue(client, queue_name,
                                flags & ~T_CLIENT_OPEN_CONSUMER);
+}
+
+int t_client_unsubscribe_follow(t_client *client, const char *queue_name,
+                                int timeout_ms) {
+    if (!client || client->free_pending || !queue_name || timeout_ms < 0)
+        return -1;
+    if (!client->connected) return -1;
+    if (client_drop_queue_subs(client, queue_name) <= 0) return -1;
+    int flags = client_queue_flags(client, queue_name);
+    if (flags < 0) return 0;
+    if ((flags & T_CLIENT_OPEN_CONSUMER) == 0)
+        return 0;
+    if (client->net_mode && !client_queue_ready(client, queue_name))
+        return client_forget_consumer_open(client, queue_name);
+    int keep = flags & ~T_CLIENT_OPEN_CONSUMER;
+    if (!client->net_mode) {
+        if (t_client_close_queue(client, queue_name) != 0) return -1;
+        if ((keep & T_CLIENT_OPEN_PRODUCER) == 0) return 0;
+        return t_client_open_queue(client, queue_name, keep);
+    }
+    unsigned seq = t_client_ack_seq(client);
+    if (t_client_close_queue(client, queue_name) != 0) return -1;
+    int wr = client_wait_status(client, seq, timeout_ms);
+    if (wr < 0) return -1;
+    if (wr == 1) {
+        if (t_client_redial_leader(client) != 0) return -1;
+        if ((keep & T_CLIENT_OPEN_PRODUCER) == 0) return 0;
+        return t_client_open_follow(client, queue_name, keep, timeout_ms);
+    }
+    if ((keep & T_CLIENT_OPEN_PRODUCER) == 0) return 0;
+    return t_client_open_follow(client, queue_name, keep, timeout_ms);
 }
 
 size_t t_client_queue_count(const t_client *client) {
